@@ -407,6 +407,7 @@ check = lint + format:check + typecheck + test + build + check:meta + check:size
 | 2026-10-21 | `super-drag` 系统复查 | 修 4 处实现缺陷：① 选区命中改用 `Range.comparePoint`（原实现把同一段文字里选区之外的按下点也算命中，拖链接被当成拖文字）；② 页面卸载不再提前回收查看器 blob，`openers.release()` 随之删除，只保留 5 分钟定时回收；③ `normalizeSettings` 把指向已失效引擎的 `defaultEngine` 收敛到默认引擎；④ 建不了 blob 时退回直接打开原图，设置面板打开失败不再抛给脚本管理器 | 都是老代码沿袭下来的误判与资源时序问题；同时删掉被容差判断覆盖的冗余矩形分支、恒真的环境判断，并把「选区优先」收进 `decideDrag` 单一事实来源 |
 | 2026-10-21 | `super-drag` 验证 | 单测 56 → 70（新增 `selection` 5 条、`openers` 7 条、`settings` 2 条），浏览器场景 16 → 25；`npm run check` 全绿 | 新增场景覆盖富文本拖入、`href="#"` 包着图片、相对地址、`draggable` 元素、Ctrl 拖拽、Esc 取消、点击吞噬时间窗、恢复默认等此前无覆盖的分支 |
 | 2026-10-21 | 体积 | `super-drag` 79.9 KB raw（余量 100 字节）/ 22.0 KB gzip | 已到预警线：下一次功能改动必须先减体积（精简注释或按需引入 `@ui` 组件），不能直接加代码 |
+| 2026-10-22 | `super-drag` Shadow DOM 文字拖拽 | 选区的「有没有选中」不再用 `isCollapsed` 判断（改看 `toString()`）；命中判断按事件路径里的 shadow root 取 `ShadowRoot.getSelection()` 的作用域选区矩形；B 站新版评论（`bili-comments` 多层 shadow root）实测可拖拽搜索 | Chromium 把人手在 Shadow DOM 里的选区折叠到宿主上（`isCollapsed` 为 true、文档级矩形为空），原实现因此把评论文字当成「没有选区」，拖拽直接放行给浏览器；gzip 22.0 KB（与上一条记录持平），raw 仍在上限内（79.9 KB / 余量 176 字节），单测 70 → 76 |
 
 ## 附录 A：参考与依据
 

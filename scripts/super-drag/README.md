@@ -15,7 +15,7 @@
 
 | 操作 | 结果 |
 | --- | --- |
-| 选中文字后拖动 | 用当前搜索引擎搜索；拖动的文字本身是 http(s)/ftp 地址时直接打开 |
+| 选中文字后拖动 | 用当前搜索引擎搜索；拖动的文字本身是 http(s)/ftp 地址时直接打开。文字在 Shadow DOM 里也能认（例如 B 站新版评论区） |
 | 按在选中的字符上拖动 | 即使压着链接或图片也按文字搜索；按在选区之外才按链接 / 图片处理 |
 | 拖动链接 | 新标签页打开链接（后台，可在设置里改成前台） |
 | 拖动图片 | 新标签页打开深色查看器；`blob:` / `data:` 图片直接打开原地址 |
@@ -37,7 +37,7 @@ src/
 │  ├─ dnd.ts               # 拖拽事件与状态机
 │  ├─ drop-action.ts       # 纯判断：接管谁、打开什么、前台还是后台
 │  ├─ hit-test.ts          # 命中链接 / 图片（穿透 Shadow DOM）
-│  ├─ selection.ts         # 选区命中判断
+│  ├─ selection.ts         # 选区读取与命中（含 Shadow DOM 作用域选区）
 │  ├─ editable.ts          # 输入框与可编辑区域判断
 │  ├─ openers.ts           # 开标签页、图片查看器页面
 │  └─ url.ts               # 文本是不是网址
@@ -48,7 +48,7 @@ src/
 
 ```powershell
 npm run build super-drag     # 产物 scripts/super-drag/dist/super-drag.user.js
-npm run test                 # 全部单测：本包 70 条 + 共享包 14 条
+npm run test                 # 全部单测：本包 76 条 + 共享包 14 条
 npm run check                # 静态检查 + 类型 + 单测 + 构建 + 元数据 + 体积
 npm run check:browser        # 真实 Chrome/Edge，25 个场景
 ```
@@ -66,7 +66,7 @@ npm run check:browser        # 真实 Chrome/Edge，25 个场景
 - 自定义搜索地址选填；选了「自定义」但地址无效时保存会被拦下（原版会静默回退 Google）。
 - 图片查看器仍是独立 blob 页面（深色居中），没有改成浏览器原生图片页。
 - 查看器 blob 只靠 5 分钟定时回收：页面卸载时提前回收会让刚打开、还没加载完的查看页变成空白。
-- 产物已贴近 80 KB raw 预警线（79.9 KB / 余量 100 字节）：再加功能前先评估体积。
+- 产物已贴近 80 KB raw 预警线（79.9 KB / 余量 176 字节）：再加功能前先评估体积。
 
 ## 待办
 

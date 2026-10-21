@@ -88,13 +88,13 @@ export function installDragSensor(deps: DragSensorDeps): DragSensor {
     const transfer = event.dataTransfer;
     if (!transfer) return;
 
-    // 先做廉价的选区存在性判断：sel.toString() 会复制整段文本，只在真有选区时才付这个代价。
-    const selection = window.getSelection();
-    const selected = selection && !selection.isCollapsed ? getSelectionText() : '';
+    // isCollapsed 在 Shadow DOM 的人手选区里恒为 true。
+    const selected = getSelectionText();
 
     // 按在选区里就按文字处理（即使压在链接上），并跳过命中测试：省一次强制布局。
     // “选区优先”只在 decideDrag 里判断一次，这里只提供结果。
-    const selectionHit = selected !== '' && isPointInSelection(event.clientX, event.clientY);
+    const selectionHit =
+      selected !== '' && isPointInSelection(event.clientX, event.clientY, event.composedPath());
     const hit = selectionHit ? { link: '', image: '' } : hitTestAt(event);
     const payload = decideDrag({
       link: hit.link,

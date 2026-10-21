@@ -66,3 +66,59 @@ describe('isPointInSelection', () => {
     expect(isPointInSelection(10, 10)).toBe(false);
   });
 });
+
+describe('isPointInSelection · Shadow DOM 选区', () => {
+  let root: ShadowRoot;
+
+  beforeEach(() => {
+    // 人手在 Shadow DOM 里拖选时，文档级选区被折叠到宿主上：这里把文档选区清掉正是这个状态。
+    window.getSelection()?.removeAllRanges();
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    root = host.attachShadow({ mode: 'open' });
+  });
+
+  /** 作用域选区替身：只提供矩形，模拟 Chromium 的 `ShadowRoot.getSelection()`。 */
+  function stubScopedSelection(rects: [number, number, number, number][] | null): void {
+    Object.defineProperty(root, 'getSelection', {
+      value: () => ({
+        isCollapsed: rects === null,
+        rangeCount: rects === null ? 0 : 1,
+        getRangeAt: () => ({
+          getClientRects: () =>
+            (rects ?? []).map(([left, top, right, bottom]) => ({ left, top, right, bottom })),
+        }),
+      }),
+    });
+  }
+
+  it('文档选区被折叠时，按作用域选区的矩形判断命中', () => {
+    stubScopedSelection([[0, 0, 40, 20]]);
+    expect(isPointInSelection(10, 10, [root])).toBe(true);
+  });
+
+  it('作用域选区之外的按下点不算命中', () => {
+    stubScopedSelection([[0, 0, 40, 20]]);
+    expect(isPointInSelection(100, 100, [root])).toBe(false);
+  });
+
+  it('作用域选区的容差与文档选区一致', () => {
+    stubScopedSelection([[0, 0, 40, 20]]);
+    expect(isPointInSelection(41, 10, [root])).toBe(true);
+    expect(isPointInSelection(60, 10, [root])).toBe(false);
+  });
+
+  it('没有作用域选区 API（例如 Firefox）时不命中，也不抛错', () => {
+    expect(isPointInSelection(10, 10, [root])).toBe(false);
+  });
+
+  it('事件路径里的普通节点被忽略', () => {
+    stubScopedSelection([[0, 0, 40, 20]]);
+    expect(isPointInSelection(10, 10, [document.body, document, window])).toBe(false);
+  });
+
+  it('没有传入事件路径时不命中', () => {
+    stubScopedSelection([[0, 0, 40, 20]]);
+    expect(isPointInSelection(10, 10)).toBe(false);
+  });
+});

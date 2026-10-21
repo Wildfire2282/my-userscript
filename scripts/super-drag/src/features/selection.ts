@@ -1,10 +1,9 @@
 /**
- * 选区命中判断：按下的位置是否落在已有选区上。
+ * 选区读取与命中判断：矩形（含容差）+ 插入符。
  *
- * 评论类页面常把文字包在带内边距的容器里，或盖一层手势层，按下的点可能偏离字形几个像素，
- * 所以先看矩形（留 `SELECTION_HIT_SLOP_PX` 容差），再用插入符的位置做最可靠的确认。
+ * 人手在 Shadow DOM 里拖选时，Chromium 把文档级选区折叠到宿主上（isCollapsed 为 true、
+ * 无矩形），只有 toString() 还有文字；作用域选区用 `ShadowRoot.getSelection()` 取。
  */
-
 export const SELECTION_HIT_SLOP_PX = 4;
 
 /** 当前选中文本；没有选区时返回空字符串。 */
@@ -76,28 +75,39 @@ function isCaretInsideRange(range: Range, container: Node, offset: number): bool
 }
 
 /**
- * 判断坐标是否落在当前选区上。
- *
- * @param x 客户端坐标 X
- * @param y 客户端坐标 Y
+ * @param path 按下点途经的事件路径（内 → 外）；文档级选区被折叠时依次问带 `getSelection` 的节点
  */
-export function isPointInSelection(x: number, y: number): boolean {
+export function isPointInSelection(
+  x: number,
+  y: number,
+  path: readonly EventTarget[] = [],
+): boolean {
   const selection = window.getSelection();
-  if (!selection || selection.isCollapsed || selection.rangeCount === 0) return false;
+  const active =
+    selection && !selection.isCollapsed
+      ? selection
+      : (path
+          .map(
+            (node) =>
+              (node as ShadowRoot & { getSelection?: () => Selection | null }).getSelection?.() ??
+              null,
+          )
+          .find((s) => s && !s.isCollapsed) ?? null);
+  if (!active) return false;
 
-  const range = selection.getRangeAt(0);
-  let rects: DOMRect[];
+  const range = active.getRangeAt(0);
+  let rects: DOMRect[] = [];
   try {
     rects = Array.from(range.getClientRects());
   } catch {
-    rects = [];
+    // 脱离文档时会抛错
   }
   for (const rect of rects) {
-    // 容差已经包含“正好落在字形上”，不必再单独判断一次矩形内部。
+    // 容差已包含“落在字形上”的情况。
     if (pointNearRect(x, y, rect, SELECTION_HIT_SLOP_PX)) return true;
   }
 
-  // 最强信号：按下的字符本身就在选区里。
+  // 按下的字符本身就在选区里（阴影树拿不到插入符）。
   const caret = caretRangeFromPoint(x, y);
   if (caret && isCaretInsideRange(range, caret.startContainer, caret.startOffset)) return true;
 
@@ -105,8 +115,5 @@ export function isPointInSelection(x: number, y: number): boolean {
 
   const anchor = range.commonAncestorContainer;
   const host = anchor.nodeType === Node.ELEMENT_NODE ? (anchor as Element) : anchor.parentElement;
-  if (host && typeof host.getBoundingClientRect === 'function') {
-    return pointInRect(x, y, host.getBoundingClientRect());
-  }
-  return false;
+  return !!host && pointInRect(x, y, host.getBoundingClientRect());
 }

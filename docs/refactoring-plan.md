@@ -4,292 +4,398 @@
 | --- | --- |
 | 文档编号 | RFC-0001 |
 | 状态 | 待评审 |
-| 版本 | v0.1 |
+| 版本 | v1.0（合并稿） |
 | 日期 | 2026-10-21 |
-| 影响范围 | 仓库结构、构建链路、5 个用户脚本、发布流程 |
-| 评审对象 | 仓库维护者 |
+| 影响范围 | 仓库结构、构建链路、5 个用户脚本、测试与发布流程 |
+| 修订依据 | v0.1 初稿；v0.2 评审修订 |
 
 ## 1. 摘要
 
-本方案把现有的「脚本归档 + 共享 UI 骨架」推进为可长期维护的工程体系，核心是三件事：**统一 UI**、**统一工程规范**、**统一发布链路**。目标不是增加功能，而是在不改变现有行为的前提下，降低 5 个脚本的重复实现与维护成本。
+本方案在不主动改变现有功能、站点匹配与权限行为的前提下，把 5 个用户脚本迁移到统一的 UI 与工程规范，并补齐测试、构建、发布三类基础能力。
+
+三条原则：
+
+1. **先验证行为，再迁移实现。** 每个脚本先有行为清单与可重复的回归检查。
+2. **只抽取真实重复的能力。** 共享模块以至少两个脚本确实需要为准，不提前建设通用框架。
+3. **工具以实际收益决定是否采用。** 新工具必须解决现有痛点；小规模验证不通过就保留现状。
 
 四项关键决策：
 
-- **D1 构建**：拟以 `vite-plugin-monkey` 替换自研 `tools/build.mjs`（见 Q1），换取 HMR、`@grant` 自动推断与元数据生成；以一次 0.5 人日 spike 作为准入条件。
-- **D2 版本**：以 `package.json` 为版本唯一来源，经构建注入 `@version`；用 Changesets 生成 CHANGELOG 与版本提交。
-- **D3 共享内核**：新增 `packages/shared`，沉淀 GM API 适配、设置存储与迁移、DOM/SPA 工具、日志；UI 仍由 `packages/userscript-ui` 提供，二者不互相依赖。
-- **D4 发布**：构建产物 + SHA-256 存为 Release 资产，经 Greasy Fork 预填表单人工确认发布；回滚即重传上一版资产。
+- **D1 构建**：`vite-plugin-monkey` 先做不超过 0.5 人日的 spike，通过五项验收才替换 `tools/build.mjs`，否则保留现有链路。
+- **D2 版本**：各脚本 `package.json` 的 `version` 为唯一来源，构建时注入 `@version`；初期用轻量发布脚本与 CHANGELOG，暂不引入 Changesets。
+- **D3 共享内核**：`packages/shared` 首批只收纳 GM 适配与设置读写，其余模块等重复出现再纳入。
+- **D4 发布**：CI 负责验证、构建、归档；Greasy Fork 更新由维护者在已登录浏览器中人工确认，不模拟登录。
 
-总工期估算 **18–20 人日**，分 5 个阶段，任一阶段结束都可停在稳定点。
+工期初估 **17–19 人日**，不是承诺值。P0 与构建验证结束后按实际难度重估。
 
 ## 2. 背景与现状
 
-### 2.1 已完成的基础
+### 2.1 当前基础
 
-仓库已从「平铺归档」重组为 monorepo：npm workspaces 管理 5 个脚本包，`packages/userscript-ui` 以 git submodule 固定到具体提交，`tools/build.mjs` 提供 Vite IIFE 构建骨架，`tools/sync.py` 负责从 Greasy Fork 反向同步。当前 5 个脚本仍为线上原版，保存在各包 `legacy/` 下，尚未迁入 `src/`。
+仓库已采用 npm workspaces 管理 5 个脚本包；`packages/userscript-ui` 通过 git submodule 固定到具体提交；`tools/build.mjs` 提供 Vite IIFE 构建骨架；`tools/sync.py` 负责从 Greasy Fork 反向同步。5 个脚本的线上原版保存在各包 `legacy/` 下，尚未迁入 `src/`。
 
-### 2.2 量化现状
+### 2.2 现状数据
 
 统计口径：`legacy/*.user.js` 去掉元数据块后的正文。
 
-| 指标 | 数值 | 说明 |
-| --- | --- | --- |
+| 指标 | 当前值 | 说明 |
+| --- | ---: | --- |
 | 脚本数 | 5 | — |
-| 代码量 | 3546 行 / 126 KB | 纯 JavaScript，无类型 |
-| Shadow Root | 0 | 全部直接操作宿主页面 DOM |
-| 全局样式注入 | 3 个脚本 | 通过 `GM_addStyle` 或 `<style>` 写入宿主页面 |
-| `!important` | 398 处 | 其中 super-drag 215、input-autofill 183 |
-| 硬编码颜色 | 34 种 | 无 Token 体系 |
-| `z-index` 声明 | 7 处 | 与宿主页面层级博弈 |
-| `innerHTML` | 13 处 | 存在注入与 XSS 风险 |
+| 代码量 | 3546 行 / 126 KB | JavaScript，无类型 |
+| Shadow Root | 0 | UI 直接操作宿主页面 DOM |
+| 全局样式注入 | 3 个脚本 | 使用 `GM_addStyle` 或 `<style>` |
+| `!important` | 398 处 | super-drag 215、input-autofill 183 |
+| 硬编码颜色 | 34 种 | 无统一 Token |
+| `z-index` 声明 | 7 处 | 可能与宿主层级冲突 |
+| `innerHTML` | 13 处 | 需逐处确认数据来源 |
 | GM API 风格 | 混用 | 同步 `GM_*` 与异步 `GM.*` 并存，单脚本内也混用 |
 | 自动化测试 | 0 | — |
 | 类型检查 / Lint | 0 | — |
 
-### 2.3 问题归因
+### 2.3 问题与处理方向
 
-| 编号 | 问题 | 证据 | 影响 |
+| 编号 | 问题 | 证据 | 处理方向 |
 | --- | --- | --- | --- |
-| P1 | UI 各写一套，视觉不一致 | 5 套自建浮层/面板/提示，34 种颜色，0 个 Shadow Root | 用户感知割裂；改一次风格要改 5 处 |
-| P2 | 宿主样式污染与反污染 | 398 处 `!important`，3 个脚本向宿主注入全局样式 | 与网站样式互相打架，故障难复现 |
-| P3 | 重复实现共享能力 | 4 份设置读写、2 种 GM API 风格混用、多份工具函数 | 修 bug 要改多处，行为逐渐分叉 |
-| P4 | 无质量门禁 | 无 lint/类型/测试/CI | 回归只能靠人工点击，重构风险高 |
-| P5 | 元数据与版本分散 | `userscript.meta.js`、`package.json`、Greasy Fork 三处 | 版本漂移，发布易出错 |
-| P6 | 发布与回滚靠手工 | 无产物校验、无 CHANGELOG、无归档 | 无法快速定位与回退 |
-| P7 | 安全基线缺失 | 13 处 `innerHTML` | 用户内容进入 DOM 时有注入风险 |
+| P1 | 浮层、面板、提示的样式和交互不一致 | 5 套自建实现、34 种颜色、0 个 Shadow Root | 统一使用 `@ui`；组件缺口先确认是否值得上游补齐 |
+| P2 | 样式进入宿主页面，`!important` 较多 | 3 个脚本注入全局样式 | 自有 UI 迁入 Shadow DOM，删除因样式对抗而存在的冗余声明 |
+| P3 | 设置读写与 GM 封装重复 | 4 份设置读写、两种 API 风格 | 提取经过至少两个脚本验证的实现 |
+| P4 | 缺少自动化质量门禁 | 无 lint / 类型 / 测试 / CI | 建立静态检查、测试、构建与产物检查 |
+| P5 | 版本信息分散 | 元数据、`package.json`、平台上各一份 | 以 `package.json` 为唯一来源，构建后校验 |
+| P6 | 发布资产与回滚步骤不清晰 | 无校验和、无 CHANGELOG、无归档 | 按版本归档产物、校验和与变更说明 |
+| P7 | HTML 注入缺少统一约束 | 13 处 `innerHTML` | 默认 `textContent` 与 DOM API；剩余 sink 必须可审查 |
 
 ## 3. 目标与非目标
 
 ### 3.1 目标
 
-| 编号 | 目标 | 判定方式 |
+| 编号 | 目标 | 验收方式 |
 | --- | --- | --- |
-| G1 | UI 全部由 `@ui` 组件构成，视觉与交互统一 | 5/5 脚本使用 Shadow DOM；自写面板/Tooltip 样式为 0 |
-| G2 | 共享能力单一实现 | GM 适配、存储、DOM 工具只存在于 `packages/shared` |
-| G3 | 质量门禁自动执行 | PR 上 lint、类型、单测、构建、体积检查全绿才可合并 |
-| G4 | 发布可追溯、可回滚 | 每次发布产出 CHANGELOG + 校验和 + 归档产物；回滚 ≤ 10 分钟 |
-| G5 | 开发体验可用 | 本地 HMR 调试单个脚本；全量构建 ≤ 15 秒 |
+| G1 | UI 风格与生命周期统一 | 有可见 UI 的脚本使用 `@ui` 组件，挂载在各自 Shadow Root |
+| G2 | 重复能力只有一个维护入口 | 已确认需要共享的 GM 适配与设置读写归入 `packages/shared` |
+| G3 | 变更有自动检查 | PR 运行静态检查、测试、构建与产物检查，失败不可合并 |
+| G4 | 每次发布可追溯 | 归档版本、`.user.js`、SHA-256 与变更说明；完成一次回滚演练 |
+| G5 | 开发体验可用 | 可针对单个脚本构建与调试；全量构建目标 ≤ 15 秒 |
 
 ### 3.2 非目标
 
-- 不新增用户可见功能，不改脚本的匹配站点与授予权限（除非迁移后不再需要）。
-- 不引入 React/Vue/Tailwind 等运行时框架，不引入远程资源。
-- 不把脚本改成后台服务或独立 Web 应用。
-- 不改动 Greasy Fork 账号与脚本 ID。
+- 不新增用户可见功能，不主动修改匹配站点或权限；删除权限必须有代码依据并单独核对。
+- 不引入 React、Vue、Tailwind 等运行时框架，不引入远程运行时资源。
+- 不把用户脚本改成后台服务或独立 Web 应用，不修改 Greasy Fork 账号与脚本 ID。
+- 不在本次重做全部业务规则，不为覆盖率重写与目标无关的代码。
 
 ### 3.3 约束
 
-- 产物必须是单文件 `.user.js`，元数据块位于首行。
-- 所有 UI 挂在 `mountUI()` 创建的 Shadow Root 内，不修改宿主全局 CSS。
-- Greasy Fork 只提供只读 JSON API，没有上传 API；更新必须经预填表单人工确认。
-- 运行时零依赖，CSS 以字符串形式内联。
+- 产物是单文件 `.user.js`，元数据块位于文件开头；CSS 内联，无远程依赖。
+- 自有 UI 挂载在 Shadow DOM，不向宿主注入全局 CSS。
+- 目标浏览器基线为 Chromium 111+；其他浏览器不承诺自动化覆盖，用户范围变化时重新确认。
+- 匹配规则可能是 `@match` 或 `@include`，校验不假定只有 `@match`。
+- Greasy Fork 只提供只读 JSON API，发布更新需登录会话与人工确认。
 
-## 4. 参照方案与取舍
+## 4. 关键决策
 
-| 领域 | 参照 | 采纳点 | 不采纳 / 保留 |
-| --- | --- | --- | --- |
-| 构建 | `vite-plugin-monkey` | 元数据注入、`@grant` 自动收集、HMR 调试、`@require`/`@resource` 能力 | 不使用其脚手架模板；保留现有包结构 |
-| 版本管理 | npm workspaces + Changesets | 语义化版本、CHANGELOG、发布提交自动化 | 暂不引入 Nx/Turborepo：5 个包规模下缓存收益低于维护成本 |
-| 设计系统 | `packages/userscript-ui` 既有实践 | Shadow DOM 隔离、`--ds-*` Token、ESLint 硬规则、Vitest + Playwright 验证 | 暂不发布 npm 包，继续源码复用 |
-| 测试 | Vitest + happy-dom / Playwright-core | 与设计体系同一套工具链，复用其 E2E 夹具与对比度检查思路 | 暂不做云端视觉回归（截图基线入库成本高于收益） |
-| 发布 | Greasy Fork 官方能力 | 只读 JSON API 做版本核对；`prefill` 预填更新；GitHub release webhook 触发重新检测 | 不写模拟登录的自动化上传：稳定性与账号风险不可接受 |
-| 规范 | Conventional Commits + Keep a Changelog + SemVer | 提交类型驱动 CHANGELOG 与版本号 | 不引入 commitlint 强校验，改为 CI 校验 PR 标题 |
+### D1：构建工具先验证，不预设替换结论
 
-选择 `vite-plugin-monkey` 的理由：HMR 是该项目的最大缺口——当前改一次 UI 需要重新构建并手动重装脚本；`@grant` 自动推断可消除手工维护权限列表的漂移；其元数据注入与现有 `userscript.meta.js` 可平滑衔接。
+`vite-plugin-monkey` 提供元数据注入、`@grant` 收集与开发期热更新，但共享 GM 封装、动态调用和现有子模块可能影响自动权限收集的准确性，不能仅凭功能列表认定可替换。
+
+0.5 人日 spike，用一个包含真实 `@ui` 与 `shared` 调用的脚本验证：
+
+1. 产物为单文件，元数据完整且位于文件开头；
+2. 原有 `@match`、`@grant` 行为未被意外改变，自动收集的权限可逐项核对；
+3. 不依赖额外远程资源，CSS、子模块与共享代码正确打包；
+4. 开发期调试步骤确实少于当前方式，而不只是能启动 Vite 服务；
+5. `tools/build.mjs` 能明显简化或删除，且不把维护成本转移到另一套复杂配置。
+
+全部通过才替换。若自动权限收集不可靠，可继续显式维护 `@grant`，不为此改变 GM 封装方式。
+
+### D2：版本单一来源，发布脚本保持轻量
+
+- `scripts/<slug>/package.json` 的 `version` 是唯一版本来源，`userscript.meta.ts` 不写 `@version`。
+- 构建时注入版本；产物校验必须针对本次重新构建的文件，不复用工作区里可能过期的产物。
+- 发布脚本契约：`node tools/release.mjs <slug> <major|minor|patch> [--dry-run]`，负责提升包版本、写入 `CHANGELOG.md` 对应条目、校验静态元数据，并输出下一步命令；不自动提交、不自动打 tag。
+- 初期不引入 Changesets。出现「一次变更需要协调多个包版本与变更日志」的实际负担时再评估。
+
+### D3：共享内核只收纳已验证的重复逻辑
+
+首批范围以现有代码的重复事实为准：
+
+| 模块 | 纳入依据 | 契约 |
+| --- | --- | --- |
+| `gm` | 4 个脚本读写设置、4 个注册菜单命令、2 个写剪贴板 | 统一同步/异步差异，异步一律返回 Promise；只封装已用到的 API |
+| `storage` | 4 个脚本各自实现默认值与错误处理 | 读写、默认值合并、异常兜底；**保留现有存储键与数据格式** |
+
+暂不纳入：`dom`、`log`、`i18n`、设置面板生成器、通用迁移框架。它们在至少两个脚本出现稳定重复后单独评估。任何共享模块都需有清晰契约与测试，不允许只是把单次调用包一层。
+
+### D4：发布自动化到人工确认前为止
+
+CI 负责验证、构建、生成 SHA-256 并归档 Release。Greasy Fork 的预填更新需要登录会话，由维护者在网页中核对版本、权限与内容后提交。**不在 CI 中模拟登录、保存 Cookie 或自动提交发布**；预填工具若实现成本或稳定性不佳，直接使用网页更新，不为「一条命令」额外造工具。
 
 ## 5. 目标架构
 
-### 5.1 分层
+### 5.1 依赖关系
 
 ```text
-scripts/<slug>        业务与交互，依赖 shared 与 ui
-        │
-        ├──▶ packages/shared    GM 适配、存储、DOM/SPA、日志（无 UI、无业务）
-        └──▶ packages/userscript-ui   设计体系（Shadow DOM 组件、Token）
+scripts/<slug>
+   ├── packages/shared          # GM 适配、设置读写
+   └── packages/userscript-ui   # Shadow DOM 组件、Token、主题、UI 生命周期
 
-依赖方向单向：scripts → shared；scripts → ui。shared 与 ui 之间不互相依赖。
+约束：scripts 可依赖 shared 与 userscript-ui；后两者不互相依赖。
 ```
 
 ### 5.2 包职责
 
-| 包 | 名称 | 职责 | 禁止 |
-| --- | --- | --- | --- |
-| `packages/userscript-ui` | 子模块，只读 | 组件、Token、主题、生命周期 | 业务逻辑、GM API |
-| `packages/shared` | `@my-userscript/shared` | `gm`（同步/异步统一）、`storage`（命名空间 + schema 版本 + 迁移）、`dom`（选择器、等待、MutationObserver、SPA 监听）、`log`、`i18n` | 任何 UI 元素、任何具体站点逻辑 |
-| `scripts/<slug>` | `@my-userscript/<slug>` | 站点适配、业务规则、UI 组合 | 跨脚本 import、直接复制共享工具 |
+| 包 | 职责 | 不应承担 |
+| --- | --- | --- |
+| `packages/userscript-ui` | 组件、Token、主题、UI 生命周期；只读子模块，锁定具体 commit | GM API、站点业务、持久化 |
+| `packages/shared` | 经多脚本验证的 GM 与 storage 能力 | UI 元素、站点逻辑、未验证的通用框架 |
+| `scripts/<slug>` | 站点适配、业务规则、设置 schema、UI 组合 | 跨脚本 import、复制共享实现 |
+
+内部依赖使用 npm 支持的标准版本范围并由 workspace 链接；npm 不支持 `workspace:` 协议，不使用该写法。
 
 ### 5.3 单脚本目录
 
 ```text
 scripts/<slug>/
-├─ userscript.meta.ts     # 静态元数据：名称、描述、@match、@grant（版本不在此处）
-├─ package.json           # version 为版本唯一来源
+├─ userscript.meta.ts     # 静态元数据：名称、描述、namespace、match/include、grant
+├─ package.json           # 包名、唯一 version 来源、构建命令
 ├─ src/
-│  ├─ main.ts             # 启动：读设置 → mountUI → 组合 UI → 注册清理
-│  ├─ settings.ts         # 设置 schema、默认值、迁移
-│  ├─ ui/                 # 面板/浮层组装（只调用 @ui 组件）
-│  └─ features/           # 站点业务，纯函数优先，便于单测
-├─ tests/                 # 单元与集成测试
-└─ legacy/                # 迁移期对照，迁完删除
+│  ├─ main.ts             # 启动、组合依赖、注册清理
+│  ├─ settings.ts         # 本脚本设置与默认值；需要时定义迁移
+│  ├─ ui/                 # 使用 @ui 的组合逻辑
+│  └─ features/           # 站点业务，纯逻辑优先
+├─ tests/                 # 关键行为与回归测试
+└─ legacy/                # 迁移对照，验收后删除
 ```
 
-### 5.4 构建管线
+`settings.ts`、`ui/`、`features/` 按需创建，没有实际内容不必保留空目录。
+
+### 5.4 构建与产物校验
 
 ```text
-userscript.meta.ts + package.json
-        │  校验元数据完整、@match 非空
+静态元数据 + package.json version + src/
+        │
         ▼
-Vite（vite-plugin-monkey）── 按需 tree-shake @ui 与 shared
+   Vite 构建（spike 通过后为 vite-plugin-monkey）
+        │
         ▼
-dist/<slug>.user.js（单文件，元数据在首行）
+dist/<slug>.user.js
+        │
         ▼
-体积检查（raw / gzip）+ SHA-256 + 归档到 Release
+元数据 / 单文件 / 版本 / 权限 / 体积 / SHA-256 校验
+        │
+        ▼
+GitHub Release 归档
 ```
 
-- 构建目标 `chrome111`，与设计体系保持一致。
-- 默认不压缩，便于 Greasy Fork 代码审阅；`--minify` 保留给特殊场景。
-- 产物不入库；需要追溯时取 Release 资产。
+- 构建目标与 3.3 的浏览器基线一致；语法转换不等于 API 兼容性保证。
+- 默认保留可审阅输出，仅在体积或发布平台有明确需要时启用压缩。
+- `dist/` 不提交；正式产物以对应 Release 资产为准。
 
-### 5.5 版本与元数据
+### 5.5 元数据与 GM 权限
 
-单一来源：`package.json` 的 `version` → 构建时注入 `@version`。`userscript.meta.ts` 只声明名称、描述、匹配、权限等静态字段。CI 校验三件事：构建产物 banner 的版本等于包版本（防止手改或缓存产物）、`@match` 非空、`@grant` 与代码实际调用的 GM API 一致（由插件推断，校验兜底）。
+- 静态校验至少覆盖名称、描述、namespace、匹配规则与权限声明；匹配规则不能只判断非空。
+- 权限以实际使用为准，但迁移期间先保留线上行为：记录 legacy 的匹配、权限与关键行为；迁移后逐项对照；确认不再需要才删除，并单独检查。
+- 自动权限收集仅在 D1 通过时启用；否则显式声明 `@grant`，由检查脚本发现代码与声明的差异。
 
 ### 5.6 运行时约定
 
-- **生命周期**：每个脚本一个 `ui` 实例；`pagehide` 或脚本卸载时 `ui.destroy()`；SPA 路由变化不重建 UI。
-- **主题**：挂载前从存储读取，显式传 `light | dark | system`，不跟随宿主页面。
-- **存储**：键统一 `<slug>:` 前缀，schema 带 `version` 字段，升级时执行迁移函数；失败回退默认值并记录日志。
-- **GM 适配**：`shared/gm` 同时兼容 `GM.*` 与 `GM_*`，按可用性降级；异步 API 统一返回 Promise。
-- **日志**：统一前缀与级别，生产环境只输出 warn/error。
+- **生命周期**：有 UI 的脚本创建一个 UI 实例；主动卸载时 `destroy()` 并清理监听器、定时器与观察器。不把某个浏览器事件当作所有脚本管理器都支持的通用卸载通知。
+- **SPA**：路由变化优先更新业务状态；只有页面结构确实要求时才重新挂载，避免重复插入根节点。
+- **主题**：挂载时显式传 `light | dark | system`；`system` 跟随系统偏好，不读取宿主网站主题。
+- **设置**：保留现有键与格式，只有数据结构变更时才写迁移；迁移失败记录错误并回退，不静默覆盖可恢复数据。
+- **GM 适配**：统一错误语义与返回类型，只封装已用到的 API。
+- **日志**：统一前缀；生产默认只输出 warn/error，排查时可按需开启 debug。
 
-## 6. 工程规范
+## 6. 工程规范与测试
 
 ### 6.1 代码规范
 
-- TypeScript `strict`，禁止 `any`（确需时集中声明并注释原因）。
-- ESLint flat config + typescript-eslint 类型感知规则，沿用设计体系的硬规则：禁止 `innerHTML`、`outerHTML`、`insertAdjacentHTML`、`document.write`、`eval`、`new Function`、`==`。
-- Prettier 统一格式（单引号、100 列、尾逗号、LF）。
-- 命名：包目录 kebab-case；导出函数 camelCase；存储键 `<slug>:<area>.<key>`。
+- TypeScript `strict` + `noEmit` 类型检查；业务代码避免 `any`，边界不明时用 `unknown` 收窄。
+- ESLint flat config、Prettier，沿用 `userscript-ui` 的现成规则，不另建相似的一套。
+- 默认通过 `textContent`、属性或 DOM API 插入内容；禁止把不可信数据拼接进 `innerHTML` 等 HTML 解析接口。确需使用时，必须是可信静态模板，并通过 `eslint-disable-next-line` 局部放行、注明理由、纳入评审。
+- 沿用既有格式约定：单引号、100 列、尾逗号、LF；包目录 kebab-case，函数 camelCase，存储键 `<slug>:<area>.<key>`（新键适用，旧键保留原样）。
+- Agent 生成的代码同样通过全部检查，不靠放宽规则消除迁移错误。
 
 ### 6.2 测试策略
 
+优先保证关键行为、回归与错误路径，覆盖率只作辅助信号。
+
 | 层级 | 工具 | 范围 | 门槛 |
 | --- | --- | --- | --- |
-| 单元 | Vitest + happy-dom | `shared` 全部模块、脚本纯函数 | `shared` 行覆盖 ≥ 90%，脚本核心逻辑 ≥ 80% |
-| 集成 | Vitest + happy-dom | UI 组装、设置读写、生命周期 | 每个脚本 ≥ 1 条主流程 |
-| 端到端 | Playwright + 系统 Chrome | 5 个脚本各 1 条主路径 + 深色主题 | 每次发布前必跑 |
-| 体积 | 自研脚本 | 单包 raw / gzip | 超预算即失败 |
+| 单元 | Vitest + happy-dom | `shared` 公共 API、设置读写、URL/规则匹配/文本清洗 | 关键分支与错误路径有测试；覆盖率起步 80%，不为数字写无效测试 |
+| 集成 | Vitest + happy-dom | UI 组装、初始化与清理、设置读写 | 每个脚本至少一条核心流程 |
+| 端到端 | Playwright + Chromium | 本地 fixture、关键交互、深色主题、站点 DOM 变化 | 发布前全量；PR 先跑全量，耗时超标再按受影响包优化 |
+| 产物检查 | Node 脚本 | 元数据、单文件、版本、权限、体积、SHA-256 | 不符合发布要求即失败 |
 
-E2E 使用本地 fixture 页面 + 路由拦截模拟站点响应，不依赖真实网络与账号。
+E2E 使用本地 fixture 与路由拦截，不依赖真实账号或线上数据；复用设计体系已有的工具、夹具与约定，不另建第二套视觉回归系统。
+
+P0 不要求把旧代码全部快照化：为每个脚本记录核心用例、输入输出与人工检查步骤，纯逻辑在迁移时补成单元测试，交互行为用 fixture 或可重复的验收清单覆盖。
 
 ### 6.3 提交与分支
 
-- Trunk-based：`main` 受保护，短期分支 `feat/<slug>/<topic>`、`fix/<slug>/<topic>`。
+- `main` 受保护，短期分支 `feat/<slug>/<topic>`、`fix/<slug>/<topic>`。
 - Conventional Commits：`feat|fix|refactor|docs|test|chore|build(scope): subject`，scope 为脚本 slug 或包名。
-- PR 必须通过 `npm run check`；单人维护时以 CI 结果代替人工 review，但重构类 PR 需自行核对「行为对照表」。
+- PR 必须通过 `npm run check`。单人维护时以 CI 结果代替独立评审，但重构 PR 需核对对应脚本的行为清单。
+- 初期用 PR 模板提示提交类型与影响范围，不强制 commitlint；提交质量确实影响版本生成时再增加校验。
 
 ### 6.4 CI 流水线
 
-| 阶段 | 内容 | 时限 |
+| 阶段 | 内容 | 目标耗时 |
 | --- | --- | --- |
-| 静态检查 | lint、format check、tsc、元数据校验 | ≤ 2 min |
-| 单元/集成 | Vitest，含覆盖率门槛 | ≤ 2 min |
-| 构建 | 全量构建 + 体积预算 | ≤ 2 min |
-| E2E | Playwright，仅 PR 与 main | ≤ 8 min |
-| 发布 | tag 触发，构建 + 校验和 + Release | ≤ 3 min |
+| 静态检查 | lint、format check、`tsc`、元数据校验 | ≤ 2 min |
+| 单元/集成 | Vitest，含覆盖率 | ≤ 2 min |
+| 构建与产物检查 | 全量构建、体积、权限与版本校验 | ≤ 2 min |
+| 端到端 | Playwright + Chromium | ≤ 8 min |
+| 发布 | tag 校验、构建、SHA-256、Release 资产 | ≤ 3 min |
 
-### 6.5 发布流程
+耗时为观察目标，不为了数字过早引入缓存、矩阵或按路径选测。
 
-1. `npx changeset` 记录变更，合并后由机器人提出版本 PR；
-2. 合并版本 PR，打 tag `<slug>@<version>`；
-3. CI 构建、校验体积、生成 SHA-256，上传 Release 资产与 CHANGELOG；
-4. 用 Greasy Fork 预填链接提交更新（`/scripts/<ID>/versions/prefill`，POST `script_version[code]`），人工确认后发布；
-5. 记录发布说明，保留上一版资产用于回滚。
+### 6.5 `npm run check` 定义
 
-## 7. 实施路线
+```text
+check = lint + format:check + typecheck + test + build + check:meta + check:size
+```
+
+- `check:meta`：产物单文件、banner 位于首行、`@version` 等于包版本、匹配规则非空、`@grant` 与代码实际调用一致（差异需显式登记）。
+- `check:size`：raw / gzip 对比预算，超限给出警告或失败（见 9）。
+- E2E 单独执行 `npm run test:e2e`，不进 `check`，避免本地开发过慢。
+
+## 7. 发布与回滚
+
+### 7.1 发布流程
+
+1. 确认变更范围、核心行为检查结果与 CHANGELOG 条目。
+2. 运行 `node tools/release.mjs <slug> <bump>` 提升版本并写 CHANGELOG；不在多个文件手改版本。
+3. 合并后打 tag：`<slug>@<version>`。
+4. CI 依 tag 重新构建，校验元数据、版本、权限与体积，生成 SHA-256，归档 `.user.js`、校验和与 CHANGELOG 至 Release。
+5. 维护者在已登录浏览器中用 Greasy Fork 预填更新流程核对内容、版本与权限后手动提交。
+6. 记录发布链接、版本与人工检查结果。
+
+### 7.2 回滚规则
+
+- 回滚源是 Release 中上一版已验证的 `.user.js`。
+- **不把 `package.json` 版本降回旧值**：取回旧代码后以更高的新版本号重新构建发布，避免更新器因版本倒退而不更新。
+- 保留回滚提交与原因；回退代码同样要过构建、产物校验与人工确认。
+- 完成一次演练，目标是在步骤清晰、权限正常时 10 分钟内恢复到可发布状态。
+
+## 8. 实施路线
 
 | 阶段 | 范围 | 主要产出 | 退出标准 | 人日 |
-| --- | --- | --- | --- | --- |
-| P0 基线 | 工具链与特征测试 | ESLint/Prettier/tsc/Vitest 配置、CI、legacy 行为快照、体积基线 | `npm run check` 全绿；5 个脚本有行为基线 | 2 |
-| P1 共享内核 | `packages/shared` 与构建替换 | gm/storage/dom/log/i18n + 单测；构建 spike | `shared` 覆盖率 ≥ 90%；spike 通过则替换构建 | 5 |
-| P2 UI 迁移 | 5 个脚本逐个迁移 | 每脚本 `src/`、E2E、UI 一致性验收 | 5/5 使用 `@ui`；自写 CSS 中 `!important` 归零；`innerHTML` 归零 | 8 |
-| P3 发布工程 | Changesets、Release、预填脚本 | 版本 PR、发布 workflow、回滚手册 | 完成一次端到端发布与一次回滚演练 | 2 |
-| P4 收尾 | 清理与文档 | 删除全部 `legacy/`、更新 README 与架构文档、复盘 | 仓库无遗留原版；文档与实现一致 | 1 |
+| --- | --- | --- | --- | ---: |
+| P0 基线 | 工具链、行为清单、最小回归 | ESLint/Prettier/tsc/Vitest、CI、5 份行为对照表、体积基线 | `npm run check` 可运行；关键行为可重复检查 | 2 |
+| P1 共享内核与构建验证 | GM/storage 首批；构建 spike | `packages/shared` 与测试、D1 决策记录 | 共享 API 有测试；构建方案确定且可复现 | 4–5 |
+| P2 UI 与业务迁移 | 分脚本迁入 `src/` | 每脚本可独立构建、测试、检查 | 5/5 通过行为对照；无宿主全局样式注入 | 8–9 |
+| P3 发布流程 | 版本脚本、Release、回滚文档 | 完整发布链路与演练 | 成功发布一次并完成回滚演练 | 2 |
+| P4 收尾 | 清理与文档 | 删除无用的 `legacy/`，更新 README 与架构文档 | 文档与实现一致，无未解释的迁移残留 | 1 |
 
-迁移顺序按「UI 复杂度升序」：capture-links → selection-copy → input-autofill → youtube-transcript-copy → super-drag。前两个用于验证组件组合，后三个用于验证复杂交互与性能。
+迁移顺序：`capture-links` → `selection-copy` → `youtube-transcript-copy` → `input-autofill` → `super-drag`。完成前两个后复盘共享接口是否成立；若某抽象没有实际复用价值，调整接口而不是硬塞进 `shared`。
 
-P0 的关键动作是**先固化行为再重构**：把每个脚本的纯逻辑（URL 归一化、规则匹配、文本清洗）提取为可测函数并写快照测试，作为后续重写的对照基线。没有这层的重构不予合入。
+每个脚本的完成定义：
 
-## 8. 验收标准
+1. 记录并核对原版的匹配、权限、设置键与核心行为；
+2. 迁移后通过单测、构建、`check:meta` 与 `check:size`；
+3. 对照原版执行关键手动流程，确认无功能变化；
+4. 单独提交，`main` 始终保持可构建。
 
-| 维度 | 指标 | 目标 |
+## 9. 验收标准
+
+| 维度 | 验收标准 | 性质 |
 | --- | --- | --- |
-| UI 一致性 | 使用 `@ui` 组件的脚本占比 | 100% |
-| 样式隔离 | Shadow Root 覆盖 / 全局样式注入 | 5/5；0 处 |
-| 安全 | `innerHTML` 等危险 API | 0 处 |
-| 类型 | `tsc --noEmit` | 0 error，无隐式 any |
-| 测试 | shared 覆盖率 / 脚本核心覆盖率 | ≥ 90% / ≥ 80% |
-| 体积 | 单脚本 raw / gzip | ≤ 80 KB / ≤ 25 KB |
-| 构建 | 全量构建耗时 | ≤ 15 s |
-| CI | 静态 + 单测 + 构建 | ≤ 6 min |
-| 发布 | 产物到可发布状态 | 一条命令 + 一次确认 |
-| 回滚 | 恢复到上一版 | ≤ 10 min |
+| UI 一致性 | 实际存在的面板、浮层、提示全部使用 `@ui`；不为无 UI 的功能造 UI | 硬性 |
+| 样式隔离 | 自有 UI 在 Shadow Root 内；不向宿主注入全局样式 | 硬性 |
+| 安全 | 无可信来源不明的 HTML sink；例外有注释与评审记录 | 硬性 |
+| 类型 | `tsc --noEmit` 通过，`strict` 生效 | 硬性 |
+| 测试 | 各脚本核心流程可重复验证；共享 API 的成功、失败、边界路径有测试 | 硬性 |
+| 发布 | 每个版本有 `.user.js`、SHA-256、CHANGELOG 与版本记录 | 硬性 |
+| 回滚 | 完成演练；以更高版本号重新发布，≤ 10 分钟 | 硬性 |
+| 体积 | 单脚本 ≤ 80 KB raw / 25 KB gzip，超出需说明 | 观察 |
+| 构建 | 全量 ≤ 15 秒 | 观察 |
+| CI | 静态检查 + 测试 + 构建 ≤ 6 分钟 | 观察 |
 
-## 9. 风险与对策
+`!important` 与 `innerHTML` 不以机械归零为目标：迁移应删除因样式对抗而存在的冗余声明、阻断不可信注入；必要的局部例外须范围清晰、可审查、有注释。
 
-| 编号 | 风险 | 概率 | 影响 | 对策 |
-| --- | --- | --- | --- | --- |
-| R1 | 重写引入行为回归 | 高 | 高 | 先写特征测试；逐脚本灰度；保留上一版可回滚 |
-| R2 | `@ui` 组件缺口导致重新自写样式 | 中 | 中 | 缺口先在上游补组件；临时方案仅允许 Token 组合，并登记待办 |
-| R3 | 子模块漂移或升级后构建失败 | 中 | 中 | 锁定 commit；CI 校验子模块可构建；升级走独立 PR |
-| R4 | 发布依赖人工确认，节奏不可控 | 中 | 中 | 预填脚本 + 发布清单；Greasy Fork webhook 触发版本检测 |
-| R5 | 范围膨胀（顺手加功能） | 高 | 中 | 非目标清单；新增需求另开 RFC |
-| R6 | 工期超支 | 中 | 中 | 每阶段可独立交付；P2 可按脚本拆分发布 |
-| R7 | 浏览器差异（Firefox/Safari） | 低 | 中 | Chromium 111+ 为基线；其余仅手工冒烟 |
+## 10. 风险与应对
 
-## 10. 灰度与回滚
+| 编号 | 风险 | 应对 |
+| --- | --- | --- |
+| R1 | 重构改变现有行为 | 先记录行为；分脚本迁移；自动检查 + 人工对照后再合入 |
+| R2 | `@ui` 缺少必要组件 | 先确认现有组合无法实现；必要时上游补齐，不临时复制一套样式 |
+| R3 | 子模块升级导致构建失败 | 固定 commit；升级单独提交并跑完整检查 |
+| R4 | 构建插件无法正确收集权限或 HMR 收益有限 | 由 spike 判定；不通过保留现有链路 |
+| R5 | 发布仍需人工步骤 | 自动化边界止于构建与归档；人工核对列入发布清单 |
+| R6 | 范围膨胀 | 不新增功能；共享模块以实际重复为依据；新需求另行评估 |
+| R7 | 工期超估 | P0/P1 后重估；按单脚本交付，不把多个脚本捆进一个大 PR |
+| R8 | 浏览器差异 | 明确 Chromium 111+ 为基线；其他浏览器仅尽力冒烟 |
 
-- **灰度**：先发布 capture-links，观察一周安装量与反馈，无异常再推进其余脚本。
-- **回滚**：Greasy Fork 保留历史版本；Release 中保留上一版产物与校验和，10 分钟内可重传。回滚后同步把 `package.json` 版本回退并记录 `revert:` 提交。
-- **熔断条件**：目标站点上核心功能出现可复现的失效、UI 元素被宿主样式覆盖、Greasy Fork 反馈集中报错，任一命中即回滚并暂停后续迁移。脚本无遥测，判断依据为可复现的现场与用户反馈。
+## 11. 灰度与暂停条件
 
-## 11. 待评审决策
+先发布 `capture-links`，执行核心流程检查，并观察一周内可见反馈。**没有收到反馈不等于没有问题**，判断以可复现测试与实际功能检查为主，安装量变化只作辅助。
 
-| 编号 | 议题 | 建议 | 备选 |
-| --- | --- | --- | --- |
-| Q1 | 是否以 `vite-plugin-monkey` 替换自研构建 | 采纳，spike 未通过则保留 `build.mjs` | 继续维护自研构建 |
-| Q2 | 共享内核是否包含「设置面板生成器」 | 不包含，面板结构属 UI，留在各脚本 | 提供声明式设置页 DSL |
-| Q3 | `shared` 是否对外发布 npm 包 | 不发布，保持 private | 发布后供其他仓库复用 |
-| Q4 | 是否把 Firefox 纳入自动 E2E | 暂不纳入，仅手工冒烟 | 增加 Firefox job |
-| Q5 | 迁移顺序是否按复杂度升序 | 是 | 按用户量/收益排序 |
+出现任一情况即暂停后续迁移并评估回滚：
 
-## 12. 评审结论
+- 目标站点核心功能出现可复现失效；
+- UI 被宿主样式显著破坏或出现重复挂载；
+- 设置丢失、权限异常或数据迁移失败；
+- Greasy Fork 出现集中且可复现的错误反馈。
+
+项目没有运行时遥测，不能以「没有告警」作为安全证据。回滚按 7.2 执行，并记录复现步骤与修复条件。
+
+## 12. 待评审决策
+
+| 编号 | 议题 | 建议 |
+| --- | --- | --- |
+| Q1 | 是否以 `vite-plugin-monkey` 替换现有构建 | 先做 0.5 人日 spike，五项验收全过才替换 |
+| Q2 | 是否建设设置面板生成器 | 不建设，面板留在各脚本组合 `@ui` |
+| Q3 | 是否将 `shared` 发布为 npm 包 | 不发布，保持仓库内部 workspace 包 |
+| Q4 | 是否把 Firefox 纳入自动 E2E | 暂不纳入；先确认实际支持范围与维护成本 |
+| Q5 | 是否引入 Changesets | 初期不引入；跨包版本协调成为实际负担后再评估 |
+| Q6 | 是否抽取 i18n 或通用迁移框架 | 当前不做；至少两个脚本出现稳定重复后再评估 |
+
+## 13. 评审结论
 
 | 项目 | 结论 |
 | --- | --- |
 | 总体方案 | ☐ 批准 ☐ 有条件批准 ☐ 驳回 |
-| D1 构建替换 | ☐ 同意 ☐ 保留自研 |
-| D2 版本与 CHANGELOG | ☐ 同意 ☐ 调整 |
-| D3 共享内核边界 | ☐ 同意 ☐ 调整 |
-| D4 发布流程 | ☐ 同意 ☐ 调整 |
+| 构建替换 | ☐ Spike 通过后替换 ☐ 保留现有构建 |
+| 版本与 CHANGELOG | ☐ 采用轻量发布脚本 ☐ 其他：________ |
+| 共享内核边界 | ☐ 按实际重复逐步抽取 ☐ 调整：________ |
+| 发布流程 | ☐ CI 归档、人工确认发布 ☐ 调整：________ |
 | 补充意见 | |
 
-## 附录 A：参考实现与文档
+## 附录 A：参考与依据
 
-- `vite-plugin-monkey`：https://github.com/lisonge/vite-plugin-monkey
+- `vite-plugin-monkey`（v8.1.1，peer `vite ^8`）：https://github.com/lisonge/vite-plugin-monkey
 - Greasy Fork 帮助（只读 JSON API、预填更新、webhook）：https://greasyfork.org/en/help/api
-- Changesets：https://github.com/changesets/changesets
+- npm workspaces：https://docs.npmjs.com/cli/using-npm/workspaces/
 - Conventional Commits：https://www.conventionalcommits.org/
 - Keep a Changelog：https://keepachangelog.com/
 - 本仓库设计体系约束：`packages/userscript-ui/AGENTS.md`
 
-## 附录 B：体积预算依据
+## 附录 B：体积预算
 
 | 组成 | 参考值 |
 | --- | --- |
 | `@ui` 最小组合（Panel/Field/Switch/Button） | 约 26 KB raw |
-| `shared`（gm + storage + dom + log） | 约 6–8 KB raw |
+| `shared`（gm + storage） | 约 4–6 KB raw |
 | 单脚本业务逻辑 | 约 10–25 KB raw |
-| 合计上限 | 80 KB raw / 25 KB gzip |
+| 预警上限 | 80 KB raw / 25 KB gzip |
 
-预算按当前 5 个脚本的实际体量上浮约 30% 设定，超限需在 PR 中说明并更新本表。
+首个脚本迁移完成后记录真实体积，再决定是否把预警值改为硬门槛。
+
+## 附录 C：v0.2 评审意见采纳情况
+
+| v0.2 修订 | 判定 | 本稿处理 |
+| --- | --- | --- |
+| 构建替换改为 spike 门禁，列出五项验收 | 采纳 | 原样保留，作为 D1 的执行条件 |
+| 暂不强制 Changesets | 采纳 | 补充发布脚本的命令契约与职责边界，避免手工步骤不可复现 |
+| 共享内核只收已验证重复 | 采纳 | 首批收窄为 `gm` 与 `storage`，并以现有调用次数作为纳入依据 |
+| 回滚不降低版本号 | 采纳 | v0.1 的「版本回退」会触发更新器不更新，属错误，已改正 |
+| 保留原有设置键与格式 | 采纳 | v0.1 的 `<slug>:` 前缀会丢失用户设置，改为仅新键适用 |
+| `!important` / `innerHTML` 不机械归零 | 部分采纳 | 仍作为迁移目标，但允许带注释的局部例外，由 lint 指令显式放行 |
+| 覆盖率改为关键路径优先 | 采纳 | 起步 80%，以分支与错误路径为准 |
+| P0 不做全量快照 | 采纳 | 改为行为清单 + 关键用例，纯逻辑在迁移时补测 |
+| 匹配规则接受 `@match` 或 `@include` | 采纳 | 写入 3.3 与 5.5 |
+| 显式声明浏览器基线 | 采纳 | Chromium 111+，其余手工冒烟 |
+| 不预建 i18n 与迁移框架 | 采纳 | 列为 Q6，需求出现再评估 |
+| 不使用 `workspace:` 协议 | 采纳 | npm 不支持该写法，改为标准版本范围 |
+| 未定义 `npm run check` 组成 | 采纳并补齐 | 新增 6.5，明确七项检查与 E2E 的边界 |
+| 工期分项与总数不一致 | 采纳并修正 | 统一为 17–19 人日 |

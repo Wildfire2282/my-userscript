@@ -260,10 +260,6 @@ def ensure_package(slug: str, script_id: int, text: str, metadata: dict[str, lis
         print(f"  已创建 scripts/{slug}/userscript.meta.js")
 
 
-def is_migrated(slug: str) -> bool:
-    return any((package_dir(slug) / name).exists() for name in ENTRY_CANDIDATES)
-
-
 # ---------------------------------------------------------------------------
 # 清单与 README
 # ---------------------------------------------------------------------------
@@ -299,18 +295,15 @@ def escape_cell(value: str) -> str:
 
 
 def render_table(entries: list[dict]) -> str:
+    """生成人类可读的脚本表：只保留「叫什么、干什么、怎么装」。"""
     lines = [
-        "| 脚本 | 版本 | 状态 | 简介 | 安装 |",
-        "| --- | --- | --- | --- | --- |",
+        "| 脚本 | 作用 | 安装 |",
+        "| --- | --- | --- |",
     ]
     for entry in entries:
         name = escape_cell(entry.get("name") or entry["slug"])
         description = escape_cell(entry.get("description") or "")
-        status = "已迁移" if is_migrated(entry["slug"]) else "原版"
-        lines.append(
-            f"| [{name}](scripts/{entry['slug']}/README.md) | {entry.get('version') or '-'} "
-            f"| {status} | {description} | [安装]({entry['downloadUrl']}) |"
-        )
+        lines.append(f"| {name} | {description} | [点此安装]({entry['downloadUrl']}) |")
     return "\n".join(lines)
 
 

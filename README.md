@@ -37,7 +37,8 @@ Wildfire2282 的用户脚本 monorepo。多个脚本共享同一套 Shadow DOM U
 │  └─ sync.py                  # 发现并同步全部已发布脚本到对应包
 ├─ docs/
 │  ├─ architecture.md          # 结构、构建与发布流程
-│  └─ migration-guide.md       # 单个脚本的迁移步骤与检查清单
+│  ├─ migration-guide.md       # 单个脚本的迁移步骤与检查清单
+│  └─ refactoring-plan.md      # 工程重构方案（RFC-0001，待评审）
 ├─ scripts.json                # 自动生成的清单（版本 / SHA-256 / 下载地址）
 └─ package.json                # npm workspaces 根配置
 ```

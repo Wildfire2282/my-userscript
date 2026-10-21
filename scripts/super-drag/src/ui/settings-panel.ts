@@ -54,7 +54,7 @@ export function createSettingsPanel(options: SettingsPanelOptions): SettingsPane
 
   const panel = createPanel(ui, {
     title: '超级拖拽设置',
-    description: '拖动文字搜索，拖动链接、图片在新标签页打开；拖拽时按住 Shift 可前台打开',
+    description: '拖动文字搜索，拖动链接、图片在新标签页打开',
     open: false,
     closeLabel: '关闭设置',
   });
@@ -90,7 +90,7 @@ export function createSettingsPanel(options: SettingsPanelOptions): SettingsPane
   });
   const customField = createField(ui, {
     label: '自定义搜索 URL',
-    description: '用 {keyword} 作为关键词占位符，地址需以 http:// 或 https:// 开头',
+    description: '用 {keyword} 占位，需以 http:// 或 https:// 开头',
     control: customInput,
   });
 

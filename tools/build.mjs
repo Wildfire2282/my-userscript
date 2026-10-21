@@ -3,10 +3,11 @@
  * 统一构建入口。
  *
  * 约定：每个脚本包位于 scripts/<slug>/，包含：
- *   - userscript.meta.js   元数据块，构建时作为 banner 放在产物最顶部
+ *   - userscript.meta.ts   元数据块（兼容旧的 .js），构建时作为 banner 放在产物最顶部
  *   - src/main.ts          源码入口（也可以是 main.js / index.ts / index.js）
- *   - package.json         包信息；版本号与 userscript.meta.js 的 @version 保持一致
+ *   - package.json         包信息，是唯一的版本来源
  *
+ * @version 不写在元数据里：构建时用 package.json 的 version 注入，避免两处版本漂移。
  * 产物输出到 scripts/<slug>/dist/<slug>.user.js，可直接安装或上传 GreasyFork。
  * 尚未迁移的脚本没有 src/ 入口，会被跳过而不是报错。
  *
@@ -23,8 +24,10 @@ import { fileURLToPath } from 'node:url';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SCRIPTS_DIR = path.join(ROOT, 'scripts');
 const UI_SRC = path.join(ROOT, 'packages', 'userscript-ui', 'src');
+const SHARED_SRC = path.join(ROOT, 'packages', 'shared', 'src');
 
 const ENTRY_CANDIDATES = ['src/main.ts', 'src/main.js', 'src/index.ts', 'src/index.js'];
+const META_CANDIDATES = ['userscript.meta.ts', 'userscript.meta.js'];
 
 const args = process.argv.slice(2);
 const minify = args.includes('--minify');
@@ -64,6 +67,35 @@ async function findEntry(dir) {
   return null;
 }
 
+async function findMeta(dir) {
+  for (const candidate of META_CANDIDATES) {
+    const file = path.join(dir, candidate);
+    if (await exists(file)) return file;
+  }
+  return null;
+}
+
+/**
+ * 把 package.json 的版本写进元数据块。
+ *
+ * 元数据里没有 @version 时插在 @namespace（没有就 @name）后面；
+ * 有的话直接覆盖，保证平台上的版本与仓库版本永远一致。
+ */
+function injectVersion(banner, version) {
+  const lines = banner.split('\n');
+  const versionPattern = /^\/\/\s*@version\s/;
+  const index = lines.findIndex((line) => versionPattern.test(line));
+  if (index >= 0) {
+    lines[index] = `// @version      ${version}`;
+    return lines.join('\n');
+  }
+  const namespace = lines.findIndex((line) => /^\/\/\s*@namespace\s/.test(line));
+  const name = lines.findIndex((line) => /^\/\/\s*@name\s/.test(line));
+  const anchor = namespace >= 0 ? namespace : name;
+  lines.splice(anchor >= 0 ? anchor + 1 : 1, 0, `// @version      ${version}`);
+  return lines.join('\n');
+}
+
 function iifeName(slug) {
   const pascal = slug
     .split('-')
@@ -73,13 +105,13 @@ function iifeName(slug) {
 }
 
 async function buildPackage(pkg) {
-  const metaFile = path.join(pkg.dir, 'userscript.meta.js');
-  if (!(await exists(metaFile))) {
-    throw new Error('缺少 userscript.meta.js');
+  const metaFile = await findMeta(pkg.dir);
+  if (!metaFile) {
+    throw new Error('缺少 userscript.meta.ts（或 .js）');
   }
-  const banner = await readFile(metaFile, 'utf8');
+  const banner = injectVersion(await readFile(metaFile, 'utf8'), pkg.manifest.version);
   if (!banner.includes('==UserScript==') || !banner.includes('==/UserScript==')) {
-    throw new Error('userscript.meta.js 不是完整的 ==UserScript== 元数据块');
+    throw new Error(`${path.basename(metaFile)} 不是完整的 ==UserScript== 元数据块`);
   }
 
   const entry = await findEntry(pkg.dir);
@@ -94,6 +126,8 @@ async function buildPackage(pkg) {
       alias: [
         { find: /^@ui$/, replacement: path.join(UI_SRC, 'index.ts') },
         { find: /^@ui\//, replacement: `${UI_SRC}/` },
+        { find: /^@shared$/, replacement: path.join(SHARED_SRC, 'index.ts') },
+        { find: /^@shared\//, replacement: `${SHARED_SRC}/` },
       ],
     },
     build: {
@@ -151,9 +185,7 @@ for (const pkg of selected) {
   }
 }
 
-console.log(
-  `\n完成：${built.length} 个构建，${skipped.length} 个跳过，${failed.length} 个失败。`,
-);
+console.log(`\n完成：${built.length} 个构建，${skipped.length} 个跳过，${failed.length} 个失败。`);
 if (skipped.length > 0) {
   console.log('跳过的脚本仍是 legacy 原版，迁移方法见 docs/migration-guide.md。');
 }

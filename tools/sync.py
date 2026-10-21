@@ -5,7 +5,7 @@
   1. 遍历用户页（含分页）发现全部脚本；
   2. 从脚本详情页解析真实安装地址并下载最新 .user.js；
   3. 写入该包的 legacy/ 目录（线上版本快照），必要时补齐 package.json 与
-     userscript.meta.js；
+     元数据块（userscript.meta.ts / .js，已迁移的包不重复创建）；
   4. 重新生成 scripts.json 清单，并刷新 README.md 里的脚本表格。
 
 用法：
@@ -255,7 +255,12 @@ def ensure_package(slug: str, script_id: int, text: str, metadata: dict[str, lis
         print(f"  已创建 scripts/{slug}/package.json")
 
     meta_file = directory / "userscript.meta.js"
-    if not meta_file.exists():
+    # 已迁移的包用 .ts 保存元数据（版本由构建注入），两种后缀都算已存在，
+    # 否则每次 sync 都会多出一个过期、不参与构建的 .js 副本。
+    exists = any(
+        (directory / name).exists() for name in ("userscript.meta.ts", "userscript.meta.js")
+    )
+    if not exists:
         meta_file.write_text(extract_banner(text), encoding="utf-8", newline="\n")
         print(f"  已创建 scripts/{slug}/userscript.meta.js")
 

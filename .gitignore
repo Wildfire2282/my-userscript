@@ -4,6 +4,12 @@ dist/
 # 依赖
 node_modules/
 
+# npm 缓存（沙箱下 HOME 不可写，安装时重定向到仓库内）
+.npm-cache/
+
+# 本地临时目录（浏览器检查的临时配置、调试产物）
+.tmp/
+
 # Python
 __pycache__/
 *.py[cod]

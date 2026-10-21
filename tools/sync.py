@@ -1,16 +1,19 @@
 #!/usr/bin/env python3
-"""从 Greasy Fork 同步 Wildfire2282 发布的全部用户脚本。
+"""从 Greasy Fork 同步 Wildfire2282 发布的全部用户脚本到 monorepo。
 
-脚本会自动发现用户页上的所有脚本（含分页），解析每个脚本页里的安装地址，
-下载最新的 .user.js 到 scripts/ 目录，随后重新生成 scripts.json 清单，
-并刷新 README.md 里的脚本表格。
+每个脚本对应 scripts/<slug>/ 包，本脚本负责：
+  1. 遍历用户页（含分页）发现全部脚本；
+  2. 从脚本详情页解析真实安装地址并下载最新 .user.js；
+  3. 写入该包的 legacy/ 目录（线上版本快照），必要时补齐 package.json 与
+     userscript.meta.js；
+  4. 重新生成 scripts.json 清单，并刷新 README.md 里的脚本表格。
 
 用法：
     python tools/sync.py             # 下载/更新有变化的脚本
     python tools/sync.py --check     # 只检查，不写文件；有更新时退出码为 1
     python tools/sync.py --force     # 忽略内容比对，强制重写全部脚本
 
-仅依赖 Python 3.9+ 标准库，无需安装第三方包。
+仅依赖 Python 3.10+ 标准库，无需安装第三方包。
 """
 
 from __future__ import annotations
@@ -33,7 +36,7 @@ from pathlib import Path
 # ---------------------------------------------------------------------------
 
 ROOT = Path(__file__).resolve().parent.parent
-SCRIPT_DIR = ROOT / "scripts"
+SCRIPTS_DIR = ROOT / "scripts"
 MANIFEST_PATH = ROOT / "scripts.json"
 README_PATH = ROOT / "README.md"
 
@@ -42,8 +45,8 @@ USER_ID = 852134
 USER_NAME = "Wildfire2282"
 USER_URL = f"{BASE_URL}/zh-CN/users/{USER_ID}-wildfire2282"
 
-# 本地文件名用的英文别名：Greasy Fork ID -> 别名。
-# 新增脚本若不在表中，会退化为 script-<ID>，此时在下面补一行即可获得更好的文件名。
+# 包目录名（英文别名）：Greasy Fork ID -> slug。
+# 不在表中的新脚本会退化为 script-<ID>；同步后把目录重命名为更友好的 slug 即可。
 SLUGS: dict[int, str] = {
     579560: "youtube-transcript-copy",
     580630: "super-drag",
@@ -51,6 +54,8 @@ SLUGS: dict[int, str] = {
     582576: "selection-copy",
     584534: "input-autofill",
 }
+
+ENTRY_CANDIDATES = ("src/main.ts", "src/main.js", "src/index.ts", "src/index.js")
 
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -183,23 +188,80 @@ def parse_metadata(text: str) -> dict[str, list[str]]:
     return metadata
 
 
+def extract_banner(text: str) -> str:
+    """取出文件顶部的 ==UserScript== 元数据块，用于生成 userscript.meta.js。"""
+    lines: list[str] = []
+    for line in text.splitlines():
+        lines.append(line)
+        if re.match(r"^//\s*==/UserScript==$", line.strip()):
+            break
+    return "\n".join(lines) + "\n"
+
+
 def first(metadata: dict[str, list[str]], key: str) -> str | None:
     values = metadata.get(key)
     return values[0] if values else None
 
 
-def derive_slug(script_id: int, page_slug: str) -> str:
+def slug_for(script_id: int, page_slug: str) -> str:
     """优先用配置里的别名，其次用页面 slug（若为纯 ASCII）。"""
     if script_id in SLUGS:
         return SLUGS[script_id]
     if re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", page_slug or ""):
         return page_slug
     print(
-        f"  提示：脚本 {script_id} 没有配置英文别名，暂用 script-{script_id} 作为文件名；"
+        f"  提示：脚本 {script_id} 没有配置英文别名，暂用 script-{script_id} 作为包名；"
         "可在 tools/sync.py 的 SLUGS 中补充。",
         file=sys.stderr,
     )
     return f"script-{script_id}"
+
+
+# ---------------------------------------------------------------------------
+# 包结构
+# ---------------------------------------------------------------------------
+
+
+def package_dir(slug: str) -> Path:
+    return SCRIPTS_DIR / slug
+
+
+def legacy_path(slug: str, script_id: int) -> Path:
+    return package_dir(slug) / "legacy" / f"{script_id}-{slug}.user.js"
+
+
+def ensure_package(slug: str, script_id: int, text: str, metadata: dict[str, list[str]]) -> None:
+    """补齐包骨架（package.json / userscript.meta.js），已存在时不覆盖。"""
+    directory = package_dir(slug)
+    (directory / "legacy").mkdir(parents=True, exist_ok=True)
+
+    package_file = directory / "package.json"
+    if not package_file.exists():
+        version = first(metadata, "version") or "0.0.0"
+        description = first(metadata, "description") or ""
+        package = {
+            "name": f"@my-userscript/{slug}",
+            "version": version,
+            "private": True,
+            "description": description,
+            "type": "module",
+            "scripts": {"build": f"node ../../tools/build.mjs {slug}"},
+        }
+        package_file.write_text(
+            json.dumps(package, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+            newline="\n",
+        )
+        print(f"  已创建 scripts/{slug}/package.json")
+
+    meta_file = directory / "userscript.meta.js"
+    if not meta_file.exists():
+        meta_file.write_text(extract_banner(text), encoding="utf-8", newline="\n")
+        print(f"  已创建 scripts/{slug}/userscript.meta.js")
+
+
+def is_migrated(slug: str) -> bool:
+    return any((package_dir(slug) / name).exists() for name in ENTRY_CANDIDATES)
 
 
 # ---------------------------------------------------------------------------
@@ -238,15 +300,16 @@ def escape_cell(value: str) -> str:
 
 def render_table(entries: list[dict]) -> str:
     lines = [
-        "| ID | 脚本 | 版本 | 说明 | 安装 |",
+        "| 脚本 | 版本 | 状态 | 简介 | 安装 |",
         "| --- | --- | --- | --- | --- |",
     ]
     for entry in entries:
         name = escape_cell(entry.get("name") or entry["slug"])
         description = escape_cell(entry.get("description") or "")
+        status = "已迁移" if is_migrated(entry["slug"]) else "原版"
         lines.append(
-            f"| {entry['id']} | [{name}]({entry['scriptUrl']}) | {entry.get('version') or '-'} "
-            f"| {description} | [安装]({entry['downloadUrl']}) |"
+            f"| [{name}](scripts/{entry['slug']}/README.md) | {entry.get('version') or '-'} "
+            f"| {status} | {description} | [安装]({entry['downloadUrl']}) |"
         )
     return "\n".join(lines)
 
@@ -284,7 +347,7 @@ def sync(*, check_only: bool, force: bool) -> int:
         return 2
     print(f"共发现 {len(discovered)} 个脚本。\n")
 
-    SCRIPT_DIR.mkdir(parents=True, exist_ok=True)
+    SCRIPTS_DIR.mkdir(parents=True, exist_ok=True)
 
     previous_manifest: dict | None = None
     if MANIFEST_PATH.exists():
@@ -298,9 +361,8 @@ def sync(*, check_only: bool, force: bool) -> int:
 
     for index, script_id in enumerate(sorted(discovered), start=1):
         listing_name, page_slug = discovered[script_id]
-        slug = derive_slug(script_id, page_slug)
-        filename = f"{script_id}-{slug}.user.js"
-        path = SCRIPT_DIR / filename
+        slug = slug_for(script_id, page_slug)
+        path = legacy_path(slug, script_id)
 
         install_url = resolve_install_url(script_id)
         raw = fetch(install_url)
@@ -316,9 +378,10 @@ def sync(*, check_only: bool, force: bool) -> int:
 
         if changed:
             changes.append(
-                f"{filename}: {old_version or '(新增)'} -> {version or '(未知版本)'}"
+                f"{slug}/legacy/{path.name}: {old_version or '(新增)'} -> {version or '(未知版本)'}"
             )
             if not check_only:
+                ensure_package(slug, script_id, text, metadata)
                 path.write_bytes(text.encode("utf-8"))
 
         entries.append(
@@ -326,7 +389,8 @@ def sync(*, check_only: bool, force: bool) -> int:
                 "id": script_id,
                 "name": first(metadata, "name") or listing_name or slug,
                 "slug": slug,
-                "file": f"scripts/{filename}",
+                "package": f"scripts/{slug}",
+                "file": f"scripts/{slug}/legacy/{path.name}",
                 "version": version,
                 "description": first(metadata, "description"),
                 "author": first(metadata, "author") or USER_NAME,
@@ -339,7 +403,7 @@ def sync(*, check_only: bool, force: bool) -> int:
                 "size": len(text.encode("utf-8")),
             }
         )
-        print(f"[{index}/{len(discovered)}] {filename}  v{version or '?'}")
+        print(f"[{index}/{len(discovered)}] scripts/{slug}/  v{version or '?'}")
         time.sleep(0.4)
 
     if check_only:
@@ -365,20 +429,24 @@ def sync(*, check_only: bool, force: bool) -> int:
     if readme_changed:
         print("README 脚本表格已刷新。")
 
-    # 远端已删除、但本地仍留着的脚本文件只做提示，不自动删除
+    # legacy/ 里已不在远端列表的文件只做提示，不自动删除
     known = {Path(entry["file"]).name for entry in entries}
-    orphans = sorted(item.name for item in SCRIPT_DIR.glob("*.user.js") if item.name not in known)
+    orphans = sorted(
+        item.relative_to(SCRIPTS_DIR).as_posix()
+        for item in SCRIPTS_DIR.glob("*/legacy/*.user.js")
+        if item.name not in known
+    )
     if orphans:
         print("\n提示：以下本地文件已不在远端列表中，请确认后手动删除：")
         for name in orphans:
-            print(f"  scripts/{name}")
+            print(f"  {name}")
 
     return 0
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="从 Greasy Fork 同步 Wildfire2282 的全部用户脚本。"
+        description="从 Greasy Fork 同步 Wildfire2282 的全部用户脚本到 monorepo。"
     )
     parser.add_argument(
         "--check", action="store_true", help="只检查更新，不写入任何文件；有更新时退出码为 1"

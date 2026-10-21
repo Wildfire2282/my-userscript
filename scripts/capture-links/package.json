@@ -1,0 +1,10 @@
+{
+  "name": "@my-userscript/capture-links",
+  "version": "1.0.0",
+  "private": true,
+  "description": "捕获页面中的全部链接，支持关键词筛选与批量复制",
+  "type": "module",
+  "scripts": {
+    "build": "node ../../tools/build.mjs capture-links"
+  }
+}

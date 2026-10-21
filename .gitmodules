@@ -1,0 +1,3 @@
+[submodule "packages/userscript-ui"]
+	path = packages/userscript-ui
+	url = https://github.com/Wildfire2282/userscript-ui.git

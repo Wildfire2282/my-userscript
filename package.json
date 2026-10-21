@@ -1,0 +1,22 @@
+{
+  "name": "my-userscript",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Wildfire2282 的用户脚本 monorepo：多个脚本共享同一套 Shadow DOM UI 设计体系。",
+  "workspaces": [
+    "scripts/*"
+  ],
+  "engines": {
+    "node": ">=20.19"
+  },
+  "scripts": {
+    "build": "node tools/build.mjs",
+    "build:min": "node tools/build.mjs --minify",
+    "sync": "python tools/sync.py",
+    "sync:check": "python tools/sync.py --check"
+  },
+  "devDependencies": {
+    "vite": "^8.3.4"
+  }
+}

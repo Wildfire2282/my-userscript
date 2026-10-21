@@ -1,14 +1,18 @@
-# 操作系统与编辑器产生的杂项文件
+# 构建产物（每个脚本包下的 dist/）
+dist/
+
+# 依赖
+node_modules/
+
+# Python
+__pycache__/
+*.py[cod]
+
+# 操作系统与编辑器
 Thumbs.db
 Desktop.ini
 .DS_Store
 *.log
-
-# 编辑器 / IDE 配置
 .vscode/
 .idea/
 *.swp
-
-# Python 运行时缓存
-__pycache__/
-*.py[cod]

@@ -1,7 +1,10 @@
 * text=auto eol=lf
 
-# 用户脚本按下载原文保存，避免换行符转换引入无意义 diff
+# 用户脚本与源码统一 LF，避免换行符转换引入无意义 diff
 *.user.js text eol=lf
+*.js      text eol=lf
+*.mjs     text eol=lf
+*.ts      text eol=lf
 *.py      text eol=lf
 *.json    text eol=lf
 *.md      text eol=lf

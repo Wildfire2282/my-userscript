@@ -368,6 +368,7 @@ check = lint + format:check + typecheck + test + build + check:meta + check:size
 - npm workspaces：https://docs.npmjs.com/cli/using-npm/workspaces/
 - Conventional Commits：https://www.conventionalcommits.org/
 - Keep a Changelog：https://keepachangelog.com/
+- 本仓库协作与工程规范：`AGENTS.md`
 - 本仓库设计体系约束：`packages/userscript-ui/AGENTS.md`
 
 ## 附录 B：体积预算

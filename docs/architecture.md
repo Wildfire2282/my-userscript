@@ -40,6 +40,8 @@ tree-shake）。
 单一事实来源，后者保证线上快照与 GreasyFork 逐字节一致，便于比对。迁移完成、删除 `legacy/`
 之后，元数据只剩 `userscript.meta.js` 一处。
 
+命名、注释、文档与验证规范见根目录 `AGENTS.md`；UI 硬约束见 `packages/userscript-ui/AGENTS.md`。
+
 ## 构建
 
 ```powershell

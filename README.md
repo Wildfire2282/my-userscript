@@ -23,6 +23,7 @@ Wildfire2282 的用户脚本 monorepo。多个脚本共享同一套 Shadow DOM U
 
 ```
 .
+├─ AGENTS.md                   # 协作与工程规范：命名、注释、文档、验证
 ├─ packages/
 │  └─ userscript-ui/           # 共享 UI 设计体系（git submodule，独立仓库）
 ├─ scripts/                    # 每个用户脚本一个 workspace 包
@@ -38,7 +39,8 @@ Wildfire2282 的用户脚本 monorepo。多个脚本共享同一套 Shadow DOM U
 ├─ docs/
 │  ├─ architecture.md          # 结构、构建与发布流程
 │  ├─ migration-guide.md       # 单个脚本的迁移步骤与检查清单
-│  └─ refactoring-plan.md      # 工程重构方案（RFC-0001，待评审）
+│  ├─ refactoring-plan.md      # 工程重构方案（RFC-0001，待评审）
+│  └─ archive/                 # 历史方案稿，只读
 ├─ scripts.json                # 自动生成的清单（版本 / SHA-256 / 下载地址）
 └─ package.json                # npm workspaces 根配置
 ```
@@ -61,6 +63,7 @@ npm run sync:check           # 只检查是否有新版本，有则退出码 1
 - UI 一律使用 `@ui`（`packages/userscript-ui/src`）的组件与 `--ds-*` Token，不再各写一套样式。
 - 构建产物（`scripts/<slug>/dist/`）不入库，发布时上传 GreasyFork。
 - 迁移完成并验证后，删除该包的 `legacy/` 目录。
+- 命名、注释、文档与提交规范见 [AGENTS.md](AGENTS.md)，所有改动（含 Agent 产出）按此执行。
 
 设计系统的硬性约束见 [packages/userscript-ui/AGENTS.md](packages/userscript-ui/AGENTS.md)。
 

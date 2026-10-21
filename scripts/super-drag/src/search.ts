@@ -1,0 +1,67 @@
+import { DEFAULT_SETTINGS, type Settings } from './settings';
+
+export const CUSTOM_ENGINE_ID = 'custom';
+
+/** 设置面板里“效果预览”使用的示例关键词。 */
+export const PREVIEW_KEYWORD = 'hello';
+
+/** 内置引擎的显示名；存储里新增的引擎直接用 ID 当名字。 */
+const ENGINE_LABELS: Record<string, string> = {
+  'cn.bing': 'Bing (CN)',
+  bing: 'Bing',
+  google: 'Google',
+  baidu: 'Baidu',
+};
+
+const GOOGLE_FALLBACK = 'https://www.google.com/search?q={keyword}';
+
+export interface EngineOption {
+  value: string;
+  label: string;
+}
+
+/** 下拉选项：存储里的引擎 + 自定义。顺序沿用存储顺序，保证旧用户看到的顺序不变。 */
+export function engineOptions(settings: Settings): EngineOption[] {
+  const options = Object.keys(settings.engines).map((id) => ({
+    value: id,
+    label: ENGINE_LABELS[id] ?? id,
+  }));
+  options.push({ value: CUSTOM_ENGINE_ID, label: '自定义' });
+  return options;
+}
+
+/** 解析当前引擎的地址模板；配置无效时回退 Google，而不是打开一个坏地址。 */
+export function resolveSearchTemplate(settings: Settings): string {
+  const template =
+    settings.defaultEngine === CUSTOM_ENGINE_ID
+      ? settings.customEngineUrl
+      : settings.engines[settings.defaultEngine];
+  if (typeof template !== 'string' || !template.includes('{keyword}')) return GOOGLE_FALLBACK;
+  return template;
+}
+
+/** 把关键词编码后填进模板，得到最终搜索地址。 */
+export function buildSearchUrl(settings: Settings, keyword: string): string {
+  return resolveSearchTemplate(settings).replace('{keyword}', encodeURIComponent(keyword));
+}
+
+/**
+ * 校验自定义搜索地址。
+ *
+ * @returns 错误文案；`null` 表示可用
+ */
+export function validateCustomEngineUrl(url: string): string | null {
+  const value = url.trim();
+  if (value === '') return '请填写自定义搜索 URL';
+  if (!value.includes('{keyword}')) return '自定义搜索 URL 必须包含 {keyword} 占位符';
+  if (!/^https?:\/\/[^/\s]+/i.test(value)) return '自定义搜索 URL 必须以 http:// 或 https:// 开头';
+  return null;
+}
+
+/** 默认设置的深拷贝，供“恢复默认”按钮使用。 */
+export function defaultSettings(): Settings {
+  return {
+    ...DEFAULT_SETTINGS,
+    engines: { ...DEFAULT_SETTINGS.engines },
+  };
+}

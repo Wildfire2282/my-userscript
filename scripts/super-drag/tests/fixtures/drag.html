@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>super-drag fixture</title>
+    <style>
+      body {
+        margin: 0;
+        padding: 40px;
+        max-width: 900px;
+        font:
+          16px/1.6 system-ui,
+          sans-serif;
+      }
+      #text {
+        width: 340px;
+        padding: 8px;
+      }
+      #image {
+        display: block;
+        width: 96px;
+        height: 96px;
+        background: #d8dee9;
+      }
+      #click-area {
+        padding: 16px;
+        border: 1px dashed #94a3b8;
+      }
+    </style>
+  </head>
+  <body>
+    <p id="text">这段话用来测试拖拽搜索：选中之后拖动应当拿去搜索。</p>
+    <p><a id="link" href="https://example.com/target?from=fixture&amp;x=1">一个普通链接</a></p>
+    <p><img id="image" alt="fixture" src="https://example.com/image.png" /></p>
+    <p><input id="field" type="text" value="输入框" /></p>
+    <div id="shadow-host"></div>
+    <div id="click-area">点击区</div>
+    <script>
+      // Shadow DOM 夹具：验证事件被重定向到宿主后仍能认领内部链接。
+      const host = document.getElementById('shadow-host');
+      const root = host.attachShadow({ mode: 'open' });
+      const link = document.createElement('a');
+      link.id = 'shadow-link';
+      link.href = 'https://example.com/shadow';
+      link.textContent = 'shadow 里的链接';
+      root.appendChild(link);
+
+      // 记录页面收到的点击，用来验证拖拽结束后的那次 click 被脚本吞掉。
+      window.__clicks = 0;
+      document.addEventListener('click', () => {
+        window.__clicks += 1;
+      });
+    </script>
+  </body>
+</html>

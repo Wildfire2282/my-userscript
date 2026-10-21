@@ -1,0 +1,100 @@
+{
+  "source": "https://greasyfork.org/zh-CN/users/852134-wildfire2282",
+  "generatedAt": "2026-10-21T10:26:32Z",
+  "scriptCount": 5,
+  "scripts": [
+    {
+      "id": 579560,
+      "name": "YouTube 转写文稿复制",
+      "slug": "youtube-transcript-copy",
+      "file": "scripts/579560-youtube-transcript-copy.user.js",
+      "version": "1.1.2",
+      "description": "视频播放页面出现可拖拽悬浮按钮，可一键复制转写文稿（transcript），支持英语等多语言界面",
+      "author": "Wildfire2282",
+      "namespace": "https://github.com/Wildfire2282",
+      "license": "MIT",
+      "match": [
+        "https://www.youtube.com/*"
+      ],
+      "downloadUrl": "https://update.greasyfork.org/scripts/579560/YouTube%20%E8%BD%AC%E5%86%99%E6%96%87%E7%A8%BF%E5%A4%8D%E5%88%B6.user.js",
+      "scriptUrl": "https://greasyfork.org/zh-CN/scripts/579560",
+      "sha256": "17DBE98DA1FD2A78CA1A1B115AA1397B408EB69405ED09430D9778978DBDE8B4",
+      "size": 26266
+    },
+    {
+      "id": 580630,
+      "name": "超级拖拽",
+      "slug": "super-drag",
+      "file": "scripts/580630-super-drag.user.js",
+      "version": "2.2.1",
+      "description": "拖拽文本搜索，拖拽链接在新标签页打开，拖拽图片查看。",
+      "author": "Wildfire2282",
+      "namespace": "https://github.com/Wildfire2282",
+      "license": "MIT",
+      "match": [
+        "https://*/*",
+        "http://*/*"
+      ],
+      "downloadUrl": "https://update.greasyfork.org/scripts/580630/%E8%B6%85%E7%BA%A7%E6%8B%96%E6%8B%BD.user.js",
+      "scriptUrl": "https://greasyfork.org/zh-CN/scripts/580630",
+      "sha256": "2B85E87D0EE770794F747A590154E6E4F0A9731A37D67B5D1F921458870BDB45",
+      "size": 41665
+    },
+    {
+      "id": 582371,
+      "name": "捕获链接",
+      "slug": "capture-links",
+      "file": "scripts/582371-capture-links.user.js",
+      "version": "1.0.0",
+      "description": "捕获页面中的全部链接，支持关键词筛选与批量复制",
+      "author": "Wildfire2282",
+      "namespace": "https://github.com/Wildfire2282",
+      "license": "MIT",
+      "match": [
+        "https://*/*",
+        "http://*/*"
+      ],
+      "downloadUrl": "https://update.greasyfork.org/scripts/582371/%E6%8D%95%E8%8E%B7%E9%93%BE%E6%8E%A5.user.js",
+      "scriptUrl": "https://greasyfork.org/zh-CN/scripts/582371",
+      "sha256": "7CE71487CBC9B22CBDB087F2AE3F8307B1A2B8D0A5133429DDE295E976DE447E",
+      "size": 20152
+    },
+    {
+      "id": 582576,
+      "name": "选中复制",
+      "slug": "selection-copy",
+      "file": "scripts/582576-selection-copy.user.js",
+      "version": "1.1.4",
+      "description": "选中文本后自动纯文本复制到剪贴板，去除首尾空白",
+      "author": "Wildfire2282",
+      "namespace": "https://github.com/Wildfire2282",
+      "license": "MIT",
+      "match": [
+        "*://*/*"
+      ],
+      "downloadUrl": "https://update.greasyfork.org/scripts/582576/%E9%80%89%E4%B8%AD%E5%A4%8D%E5%88%B6.user.js",
+      "scriptUrl": "https://greasyfork.org/zh-CN/scripts/582576",
+      "sha256": "D0C226ACCE17153413D564A426D418997B3607B6D3A8DEAAD0A19F663DF3625F",
+      "size": 18125
+    },
+    {
+      "id": 584534,
+      "name": "输入框自动填充",
+      "slug": "input-autofill",
+      "file": "scripts/584534-input-autofill.user.js",
+      "version": "1.0.0",
+      "description": "在指定网页的输入框聚焦时，显示预置内容下拉菜单并自动填充",
+      "author": "Wildfire2282",
+      "namespace": "https://github.com/Wildfire2282",
+      "license": "MIT",
+      "match": [
+        "http://*/*",
+        "https://*/*"
+      ],
+      "downloadUrl": "https://update.greasyfork.org/scripts/584534/%E8%BE%93%E5%85%A5%E6%A1%86%E8%87%AA%E5%8A%A8%E5%A1%AB%E5%85%85.user.js",
+      "scriptUrl": "https://greasyfork.org/zh-CN/scripts/584534",
+      "sha256": "C78B7F59EE1074EB8C81F6EEA8281195AB69B62E29451F38B1EA3BF911431BEE",
+      "size": 26410
+    }
+  ]
+}

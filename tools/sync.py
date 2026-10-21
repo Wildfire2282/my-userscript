@@ -1,0 +1,406 @@
+#!/usr/bin/env python3
+"""从 Greasy Fork 同步 Wildfire2282 发布的全部用户脚本。
+
+脚本会自动发现用户页上的所有脚本（含分页），解析每个脚本页里的安装地址，
+下载最新的 .user.js 到 scripts/ 目录，随后重新生成 scripts.json 清单，
+并刷新 README.md 里的脚本表格。
+
+用法：
+    python tools/sync.py             # 下载/更新有变化的脚本
+    python tools/sync.py --check     # 只检查，不写文件；有更新时退出码为 1
+    python tools/sync.py --force     # 忽略内容比对，强制重写全部脚本
+
+仅依赖 Python 3.9+ 标准库，无需安装第三方包。
+"""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import html
+import json
+import re
+import sys
+import time
+import urllib.error
+import urllib.request
+from datetime import datetime, timezone
+from html.parser import HTMLParser
+from pathlib import Path
+
+# ---------------------------------------------------------------------------
+# 配置
+# ---------------------------------------------------------------------------
+
+ROOT = Path(__file__).resolve().parent.parent
+SCRIPT_DIR = ROOT / "scripts"
+MANIFEST_PATH = ROOT / "scripts.json"
+README_PATH = ROOT / "README.md"
+
+BASE_URL = "https://greasyfork.org"
+USER_ID = 852134
+USER_NAME = "Wildfire2282"
+USER_URL = f"{BASE_URL}/zh-CN/users/{USER_ID}-wildfire2282"
+
+# 本地文件名用的英文别名：Greasy Fork ID -> 别名。
+# 新增脚本若不在表中，会退化为 script-<ID>，此时在下面补一行即可获得更好的文件名。
+SLUGS: dict[int, str] = {
+    579560: "youtube-transcript-copy",
+    580630: "super-drag",
+    582371: "capture-links",
+    582576: "selection-copy",
+    584534: "input-autofill",
+}
+
+USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36 "
+    "my-userscript-sync/1.0"
+)
+
+README_START = "<!-- scripts:start -->"
+README_END = "<!-- scripts:end -->"
+
+MAX_PAGES = 30
+
+
+# ---------------------------------------------------------------------------
+# HTTP
+# ---------------------------------------------------------------------------
+
+
+class FetchError(RuntimeError):
+    """下载失败且重试无效。"""
+
+
+def fetch(url: str, *, timeout: int = 30, retries: int = 3) -> bytes:
+    """GET 一个 URL，返回原始字节；网络错误按退避重试。"""
+    last_error: Exception | None = None
+    for attempt in range(1, retries + 1):
+        request = urllib.request.Request(
+            url,
+            headers={
+                "User-Agent": USER_AGENT,
+                "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+            },
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=timeout) as response:
+                return response.read()
+        except urllib.error.HTTPError as exc:
+            if exc.code in (404, 410):
+                raise FetchError(f"{url} 返回 {exc.code}") from exc
+            last_error = exc
+        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            last_error = exc
+        if attempt < retries:
+            time.sleep(1.5 * attempt)
+    raise FetchError(f"无法下载 {url}：{last_error}") from last_error
+
+
+# ---------------------------------------------------------------------------
+# 解析
+# ---------------------------------------------------------------------------
+
+
+class ScriptLinkParser(HTMLParser):
+    """从用户页里收集 <a class="script-link" href="/zh-CN/scripts/<ID>-<slug>"> 名称</a>。"""
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.links: dict[int, tuple[str, str]] = {}
+        self._pending: tuple[int, str] | None = None
+        self._text: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag != "a" or self._pending is not None:
+            return
+        attributes = {key: value or "" for key, value in attrs}
+        if "script-link" not in attributes.get("class", "").split():
+            return
+        match = re.search(r"/scripts/(\d+)(?:-([^/?#]+))?", attributes.get("href", ""))
+        if match:
+            self._pending = (int(match.group(1)), match.group(2) or "")
+            self._text = []
+
+    def handle_data(self, data: str) -> None:
+        if self._pending is not None:
+            self._text.append(data)
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag != "a" or self._pending is None:
+            return
+        script_id, slug = self._pending
+        name = " ".join("".join(self._text).split())
+        self.links.setdefault(script_id, (name, slug))
+        self._pending = None
+        self._text = []
+
+
+def discover_scripts() -> dict[int, tuple[str, str]]:
+    """遍历用户页（含分页），返回 {ID: (名称, 页面 slug)}。"""
+    found: dict[int, tuple[str, str]] = {}
+    for page in range(1, MAX_PAGES + 1):
+        url = USER_URL if page == 1 else f"{USER_URL}?page={page}"
+        parser = ScriptLinkParser()
+        parser.feed(fetch(url).decode("utf-8", "replace"))
+        new_ids = [sid for sid in parser.links if sid not in found]
+        for sid in new_ids:
+            found[sid] = parser.links[sid]
+        if not new_ids:
+            break
+        time.sleep(0.3)
+    return found
+
+
+def resolve_install_url(script_id: int) -> str:
+    """从脚本详情页里取出 update.greasyfork.org 的安装地址。"""
+    page = fetch(f"{BASE_URL}/zh-CN/scripts/{script_id}").decode("utf-8", "replace")
+    match = re.search(
+        rf"https://update\.greasyfork\.org/scripts/{script_id}/[^\"'<>\s]+\.user\.js", page
+    ) or re.search(r"https://update\.greasyfork\.org/scripts/[^\"'<>\s]+\.user\.js", page)
+    if not match:
+        raise FetchError(f"无法从脚本页解析安装地址：scripts/{script_id}")
+    return html.unescape(match.group(0))
+
+
+def parse_metadata(text: str) -> dict[str, list[str]]:
+    """解析 ==UserScript== 元数据块，保留重复键（如 @match）。"""
+    metadata: dict[str, list[str]] = {}
+    inside = False
+    for line in text.splitlines():
+        stripped = line.strip()
+        if re.match(r"^//\s*==UserScript==$", stripped):
+            inside = True
+            continue
+        if re.match(r"^//\s*==/UserScript==$", stripped):
+            break
+        if not inside:
+            continue
+        match = re.match(r"^//\s*@([\w:.-]+)\s+(.*)$", stripped)
+        if match:
+            metadata.setdefault(match.group(1), []).append(match.group(2).strip())
+    return metadata
+
+
+def first(metadata: dict[str, list[str]], key: str) -> str | None:
+    values = metadata.get(key)
+    return values[0] if values else None
+
+
+def derive_slug(script_id: int, page_slug: str) -> str:
+    """优先用配置里的别名，其次用页面 slug（若为纯 ASCII）。"""
+    if script_id in SLUGS:
+        return SLUGS[script_id]
+    if re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", page_slug or ""):
+        return page_slug
+    print(
+        f"  提示：脚本 {script_id} 没有配置英文别名，暂用 script-{script_id} 作为文件名；"
+        "可在 tools/sync.py 的 SLUGS 中补充。",
+        file=sys.stderr,
+    )
+    return f"script-{script_id}"
+
+
+# ---------------------------------------------------------------------------
+# 清单与 README
+# ---------------------------------------------------------------------------
+
+
+def manifest_payload(entries: list[dict]) -> str:
+    """用于判断清单是否真的变化（忽略 generatedAt）。"""
+    return json.dumps(entries, ensure_ascii=False, sort_keys=True, indent=2)
+
+
+def write_manifest(entries: list[dict], previous: dict | None) -> bool:
+    """写 scripts.json；内容未变时保留旧的 generatedAt，避免无意义 diff。"""
+    if previous and manifest_payload(previous.get("scripts", [])) == manifest_payload(entries):
+        return False
+
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    payload = {
+        "source": USER_URL,
+        "generatedAt": now,
+        "scriptCount": len(entries),
+        "scripts": entries,
+    }
+    MANIFEST_PATH.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    return True
+
+
+def escape_cell(value: str) -> str:
+    return value.replace("|", "\\|").replace("\n", " ").strip()
+
+
+def render_table(entries: list[dict]) -> str:
+    lines = [
+        "| ID | 脚本 | 版本 | 说明 | 安装 |",
+        "| --- | --- | --- | --- | --- |",
+    ]
+    for entry in entries:
+        name = escape_cell(entry.get("name") or entry["slug"])
+        description = escape_cell(entry.get("description") or "")
+        lines.append(
+            f"| {entry['id']} | [{name}]({entry['scriptUrl']}) | {entry.get('version') or '-'} "
+            f"| {description} | [安装]({entry['downloadUrl']}) |"
+        )
+    return "\n".join(lines)
+
+
+def update_readme(entries: list[dict]) -> bool:
+    """替换 README 中标记块之间的脚本表格；没有标记时原样返回。"""
+    if not README_PATH.exists():
+        return False
+    text = README_PATH.read_text(encoding="utf-8")
+    start = text.find(README_START)
+    end = text.find(README_END)
+    if start == -1 or end == -1 or end < start:
+        return False
+
+    header_end = text.find("\n", start)
+    if header_end == -1:
+        return False
+    new_text = text[: header_end + 1] + render_table(entries) + "\n" + text[end:]
+    if new_text == text:
+        return False
+    README_PATH.write_text(new_text, encoding="utf-8", newline="\n")
+    return True
+
+
+# ---------------------------------------------------------------------------
+# 主流程
+# ---------------------------------------------------------------------------
+
+
+def sync(*, check_only: bool, force: bool) -> int:
+    print(f"发现脚本来源：{USER_URL}")
+    discovered = discover_scripts()
+    if not discovered:
+        print("错误：没有在用户页上找到任何脚本。", file=sys.stderr)
+        return 2
+    print(f"共发现 {len(discovered)} 个脚本。\n")
+
+    SCRIPT_DIR.mkdir(parents=True, exist_ok=True)
+
+    previous_manifest: dict | None = None
+    if MANIFEST_PATH.exists():
+        try:
+            previous_manifest = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            previous_manifest = None
+
+    entries: list[dict] = []
+    changes: list[str] = []
+
+    for index, script_id in enumerate(sorted(discovered), start=1):
+        listing_name, page_slug = discovered[script_id]
+        slug = derive_slug(script_id, page_slug)
+        filename = f"{script_id}-{slug}.user.js"
+        path = SCRIPT_DIR / filename
+
+        install_url = resolve_install_url(script_id)
+        raw = fetch(install_url)
+        text = raw.decode("utf-8-sig", "replace").replace("\r\n", "\n").replace("\r", "\n")
+        if not text.endswith("\n"):
+            text += "\n"
+
+        metadata = parse_metadata(text)
+        version = first(metadata, "version")
+        old_text = path.read_text(encoding="utf-8") if path.exists() else None
+        old_version = first(parse_metadata(old_text), "version") if old_text else None
+        changed = force or old_text != text
+
+        if changed:
+            changes.append(
+                f"{filename}: {old_version or '(新增)'} -> {version or '(未知版本)'}"
+            )
+            if not check_only:
+                path.write_bytes(text.encode("utf-8"))
+
+        entries.append(
+            {
+                "id": script_id,
+                "name": first(metadata, "name") or listing_name or slug,
+                "slug": slug,
+                "file": f"scripts/{filename}",
+                "version": version,
+                "description": first(metadata, "description"),
+                "author": first(metadata, "author") or USER_NAME,
+                "namespace": first(metadata, "namespace"),
+                "license": first(metadata, "license"),
+                "match": metadata.get("match", []),
+                "downloadUrl": install_url,
+                "scriptUrl": f"{BASE_URL}/zh-CN/scripts/{script_id}",
+                "sha256": hashlib.sha256(text.encode("utf-8")).hexdigest().upper(),
+                "size": len(text.encode("utf-8")),
+            }
+        )
+        print(f"[{index}/{len(discovered)}] {filename}  v{version or '?'}")
+        time.sleep(0.4)
+
+    if check_only:
+        if not changes:
+            print("\n所有脚本均为最新版本。")
+            return 0
+        print("\n检测到更新：")
+        for line in changes:
+            print(f"  {line}")
+        return 1
+
+    manifest_changed = write_manifest(entries, previous_manifest)
+    readme_changed = update_readme(entries)
+
+    print()
+    if changes:
+        print(f"已写入 {len(changes)} 个脚本：")
+        for line in changes:
+            print(f"  {line}")
+    else:
+        print("脚本内容无变化。")
+    print(f"清单：{'已更新' if manifest_changed else '无变化'}（scripts.json）")
+    if readme_changed:
+        print("README 脚本表格已刷新。")
+
+    # 远端已删除、但本地仍留着的脚本文件只做提示，不自动删除
+    known = {Path(entry["file"]).name for entry in entries}
+    orphans = sorted(item.name for item in SCRIPT_DIR.glob("*.user.js") if item.name not in known)
+    if orphans:
+        print("\n提示：以下本地文件已不在远端列表中，请确认后手动删除：")
+        for name in orphans:
+            print(f"  scripts/{name}")
+
+    return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        description="从 Greasy Fork 同步 Wildfire2282 的全部用户脚本。"
+    )
+    parser.add_argument(
+        "--check", action="store_true", help="只检查更新，不写入任何文件；有更新时退出码为 1"
+    )
+    parser.add_argument(
+        "--force", action="store_true", help="忽略内容比对，强制重新下载并重写全部脚本"
+    )
+    args = parser.parse_args(argv)
+
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
+        sys.stderr.reconfigure(encoding="utf-8")
+
+    try:
+        return sync(check_only=args.check, force=args.force)
+    except FetchError as exc:
+        print(f"错误：{exc}", file=sys.stderr)
+        return 2
+    except KeyboardInterrupt:
+        print("\n已取消。", file=sys.stderr)
+        return 130
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

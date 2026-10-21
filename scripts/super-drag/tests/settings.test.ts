@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { GmApi } from '@shared';
 import {
+  CUSTOM_ENGINE_ID,
   DEFAULT_SETTINGS,
   SETTINGS_KEY,
   createSettingsStore,
@@ -58,6 +59,25 @@ describe('normalizeSettings', () => {
     }).engines;
     expect(engines.duckduckgo).toBe('https://duckduckgo.com/?q={keyword}');
     expect(engines.google).toContain('google.com');
+  });
+
+  it('默认引擎指向已被丢弃的引擎时收敛到内置默认值', () => {
+    const normalized = normalizeSettings({
+      defaultEngine: 'duckduckgo',
+      engines: { duckduckgo: '' },
+    });
+    expect(normalized.defaultEngine).toBe(DEFAULT_SETTINGS.defaultEngine);
+    expect(normalized.engines.duckduckgo).toBeUndefined();
+  });
+
+  it('自定义与仍然存在的引擎都保留', () => {
+    expect(normalizeSettings({ defaultEngine: CUSTOM_ENGINE_ID }).defaultEngine).toBe('custom');
+    expect(
+      normalizeSettings({
+        defaultEngine: 'duckduckgo',
+        engines: { duckduckgo: 'https://duckduckgo.com/?q={keyword}' },
+      }).defaultEngine,
+    ).toBe('duckduckgo');
   });
 });
 

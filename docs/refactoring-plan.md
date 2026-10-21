@@ -404,6 +404,9 @@ check = lint + format:check + typecheck + test + build + check:meta + check:size
 | 2026-10-21 | `super-drag` 缺陷 | 拖拽后的「吞一次点击」改为 400ms 时间窗，且 `mousedown` 立即失效 | 浏览器场景发现原逻辑会误吞之后对设置开关的点击（真实回归，已修） |
 | 2026-10-21 | 体积观察 | `super-drag` 79.5 KB raw / 21.8 KB gzip，贴近 80 KB raw 上限 | 再加 UI 组件或业务前需先评估；后续脚本迁移时重新记录真实体积 |
 | 2026-10-21 | 文档 | `docs/migration-guide.md` 按实际操作重写，收录 15 条实测坑；`AGENTS.md` 增补 9.1「模块化源码 + 构建单文件」 | 同类任务不再重复踩坑，开发方式固定为规范 |
+| 2026-10-21 | `super-drag` 系统复查 | 修 4 处实现缺陷：① 选区命中改用 `Range.comparePoint`（原实现把同一段文字里选区之外的按下点也算命中，拖链接被当成拖文字）；② 页面卸载不再提前回收查看器 blob，`openers.release()` 随之删除，只保留 5 分钟定时回收；③ `normalizeSettings` 把指向已失效引擎的 `defaultEngine` 收敛到默认引擎；④ 建不了 blob 时退回直接打开原图，设置面板打开失败不再抛给脚本管理器 | 都是老代码沿袭下来的误判与资源时序问题；同时删掉被容差判断覆盖的冗余矩形分支、恒真的环境判断，并把「选区优先」收进 `decideDrag` 单一事实来源 |
+| 2026-10-21 | `super-drag` 验证 | 单测 56 → 70（新增 `selection` 5 条、`openers` 7 条、`settings` 2 条），浏览器场景 16 → 25；`npm run check` 全绿 | 新增场景覆盖富文本拖入、`href="#"` 包着图片、相对地址、`draggable` 元素、Ctrl 拖拽、Esc 取消、点击吞噬时间窗、恢复默认等此前无覆盖的分支 |
+| 2026-10-21 | 体积 | `super-drag` 79.9 KB raw（余量 100 字节）/ 22.0 KB gzip | 已到预警线：下一次功能改动必须先减体积（精简注释或按需引入 `@ui` 组件），不能直接加代码 |
 
 ## 附录 A：参考与依据
 

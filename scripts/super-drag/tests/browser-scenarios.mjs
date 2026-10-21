@@ -72,11 +72,11 @@ export async function run(ctx) {
     return { url: opened.url, content };
   });
   record(
-    '拖图片 → 打开查看器页面并带上原图地址',
-    'blob: 开头且包含原图地址',
+    '拖图片 → 打开查看器页面，带原图地址与页面标题',
+    'blob: 开头且包含原图地址与标题 Image',
     `${imageDrag.url.startsWith('blob:') ? 'blob: 开头' : imageDrag.url}且${
       imageDrag.content.includes('https://example.com/image.png') ? '包含' : '不包含'
-    }原图地址`,
+    }原图地址与标题 ${imageDrag.content.includes('<title>Image</title>') ? 'Image' : '缺失'}`,
   );
 
   // 6. 拖进输入框 → 交给页面处理，不打开任何页面
@@ -99,7 +99,18 @@ export async function run(ctx) {
   record('拖拽后的那一次点击被吞掉', '0', String(clickAfterDrop.swallowed));
   record('之后的点击照常送达页面', '1', String(clickAfterDrop.restored));
 
-  // 8. 没有任何可拖内容的空白处 → 不接管
+  // 8. 拖拽已经过去一会儿，点击不该再被吞掉
+  const lateClick = await ctx.evaluate(async () => {
+    const before = window.__clicks;
+    const link = document.querySelector('#link');
+    window.__page.drag(link, link);
+    await new Promise((resolve) => setTimeout(resolve, 450));
+    document.querySelector('#click-area').click();
+    return window.__clicks - before;
+  });
+  record('拖拽 450ms 之后的点击 → 照常送达页面', '1', String(lateClick));
+
+  // 9. 没有任何可拖内容的空白处 → 不接管
   const plainDrag = await ctx.evaluate(() => {
     window.__page.clearSelection();
     const paragraph = document.querySelector('#text');
@@ -107,7 +118,7 @@ export async function run(ctx) {
   });
   record('没有选中文字时拖普通段落 → 不接管', '', plainDrag);
 
-  // 9. Shadow DOM 里的链接也能认领
+  // 10. Shadow DOM 里的链接也能认领
   const shadowDrag = await ctx.evaluate(() => {
     const link = document.querySelector('#shadow-host').shadowRoot.getElementById('shadow-link');
     window.__page.drag(link, link);
@@ -119,7 +130,7 @@ export async function run(ctx) {
     shadowDrag?.url ?? '',
   );
 
-  // 10. 菜单项能打开设置面板
+  // 11. 菜单项能打开设置面板
   const menuState = await ctx.evaluate(() => {
     const available = typeof window.__gm.menu === 'function';
     window.__gm.menu?.();
@@ -136,7 +147,7 @@ export async function run(ctx) {
     `${menuState.label} / ${menuState.visible ? '面板可见' : '面板不可见'}`,
   );
 
-  // 11. 自定义地址缺少 {keyword} → 保存被拦下面板不关
+  // 12. 自定义地址缺少 {keyword} → 保存被拦下面板不关
   const guard = await ctx.evaluate(() => {
     const panel = window.__page.panel();
     const [engineSelect] = panel.querySelectorAll('select');
@@ -160,7 +171,7 @@ export async function run(ctx) {
     } / ${guard.storedEngine === 'custom' ? '已写入 custom' : '未写入 custom'}`,
   );
 
-  // 12. 填好自定义地址 → 保存写入
+  // 13. 填好自定义地址 → 保存写入
   const saved = await ctx.evaluate(() => {
     const panel = window.__page.panel();
     const input = panel.querySelector('input[type="url"]');
@@ -180,7 +191,7 @@ export async function run(ctx) {
     }`,
   );
 
-  // 13. 新引擎立刻生效
+  // 14. 新引擎立刻生效
   const customSearch = await dragSelectedText();
   const customOpened = await ctx.evaluate(() => window.__page.lastOpened());
   record(
@@ -189,7 +200,174 @@ export async function run(ctx) {
     customOpened?.url ?? '',
   );
 
-  // 14. 关掉开关后完全不动网站内容
+  // 15. 恢复默认后保存 → 回到内置设置
+  const restored = await ctx.evaluate(() => {
+    window.__gm.menu?.();
+    window.__page.clickButton('恢复默认');
+    window.__page.clickButton('保存');
+    const stored = window.__gm.store.settings ?? {};
+    return {
+      engine: stored.defaultEngine,
+      enabled: stored.enabled,
+      custom: stored.customEngineUrl === '' ? '空' : stored.customEngineUrl,
+      mode: stored.linkOpenMode,
+      closed: window.__page.panel().hidden,
+    };
+  });
+  record(
+    '恢复默认并保存 → 回到 Google / 启用 / 后台 / 自定义地址清空',
+    'google / true / 空 / background / 面板已关闭',
+    `${restored.engine} / ${String(restored.enabled)} / ${restored.custom} / ${restored.mode} / ${
+      restored.closed ? '面板已关闭' : '面板仍打开'
+    }`,
+  );
+
+  // 16. 拖进富文本编辑器 → 交给页面原生插入，不打开页面
+  const editorDrop = await ctx.evaluate(() => {
+    const before = window.__gm.opened.length;
+    const paragraph = document.querySelector('#text');
+    const point = window.__page.select(paragraph);
+    const editorText = document.querySelector('#editor-text');
+    window.__page.drag(paragraph, editorText, { point });
+    return { opened: window.__gm.opened.length - before };
+  });
+  record('拖进富文本编辑器 → 不接管、不打开页面', '0', String(editorDrop.opened));
+
+  // 17. 链接包着图片且 href 是 # → 按图片处理
+  const deadLinkDrag = await ctx.evaluate(async () => {
+    window.__page.clearSelection();
+    const image = document.querySelector('#dead-link-image');
+    window.__page.drag(image, image);
+    const opened = window.__gm.opened.at(-1);
+    if (!opened) return { url: '', content: '' };
+    const content = await (await fetch(opened.url)).text();
+    return { url: opened.url, content };
+  });
+  record(
+    '拖动 href="#" 链接里的图片 → 打开图片查看器',
+    'blob: 开头且包含原图地址',
+    `${deadLinkDrag.url.startsWith('blob:') ? 'blob: 开头' : deadLinkDrag.url}且${
+      deadLinkDrag.content.includes('https://example.com/wrapped.png') ? '包含' : '不包含'
+    }原图地址`,
+  );
+
+  // 18. 相对地址链接 → 补成绝对地址再打开
+  const relativeDrag = await ctx.evaluate(() => {
+    const link = document.querySelector('#relative-link');
+    window.__page.drag(link, link);
+    return {
+      expected: new URL('/rel/path?x=1', document.baseURI).href,
+      opened: window.__gm.opened.at(-1),
+    };
+  });
+  record(
+    '拖相对地址链接 → 打开补全后的绝对地址',
+    relativeDrag.expected,
+    relativeDrag.opened?.url ?? '',
+  );
+
+  // 19. 页面自己的 draggable 元素 → 不接管
+  const cardDrag = await ctx.evaluate(() => {
+    window.__page.clearSelection();
+    const card = document.querySelector('#card');
+    return window.__page.drag(card, card);
+  });
+  record('拖页面自己的 draggable 卡片 → 不接管', '', cardDrag);
+
+  // 20. 按住 Ctrl 拖链接 → 不接管（保留多选/系统手势）
+  const ctrlDrag = await ctx.evaluate(() => {
+    const link = document.querySelector('#link');
+    const point = window.__page.point(link);
+    const dataTransfer = new DataTransfer();
+    const init = {
+      bubbles: true,
+      cancelable: true,
+      composed: true,
+      dataTransfer,
+      clientX: point.x,
+      clientY: point.y,
+      ctrlKey: true,
+    };
+    const before = window.__gm.opened.length;
+    link.dispatchEvent(new DragEvent('dragstart', init));
+    const claimed = dataTransfer.getData('text/plain');
+    link.dispatchEvent(new DragEvent('drop', init));
+    return { claimed, opened: window.__gm.opened.length - before };
+  });
+  record(
+    '按住 Ctrl 拖链接 → 不接管、不打开页面',
+    ' / 0',
+    `${ctrlDrag.claimed} / ${String(ctrlDrag.opened)}`,
+  );
+
+  // 21. 链接文字只选中一部分 → 按在未选中的字符上仍然是拖链接
+  const partialDrag = await ctx.evaluate(() => {
+    window.__page.clearSelection();
+    const link = document.querySelector('#partial-link');
+    const text = link.firstChild;
+    const selected = document.createRange();
+    selected.setStart(text, 0);
+    selected.setEnd(text, 4);
+    const selection = window.getSelection();
+    selection.removeAllRanges();
+    selection.addRange(selected);
+    const later = document.createRange();
+    later.setStart(text, 8);
+    later.setEnd(text, 10);
+    const rect = later.getBoundingClientRect();
+    const point = {
+      x: Math.round(rect.left + 1),
+      y: Math.round(rect.top + rect.height / 2),
+    };
+    window.__page.drag(link, link, { point });
+    return {
+      selected: selection.toString(),
+      opened: window.__gm.opened.at(-1)?.url ?? '',
+    };
+  });
+  record(
+    '链接里只选中一部分时，按在未选中的字符上 → 打开链接（不是搜索选中文字）',
+    'https://example.com/partial',
+    partialDrag.opened,
+  );
+
+  // 22. Esc 取消拖拽后再落下 → 不打开页面
+  const cancelled = await ctx.evaluate(() => {
+    // 上一个场景可能刚 drop 过，先按下一次清掉“吞掉下一次点击”的窗口。
+    document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+    window.__page.clearSelection();
+    const link = document.querySelector('#link');
+    const point = window.__page.point(link);
+    const dataTransfer = new DataTransfer();
+    const init = {
+      bubbles: true,
+      cancelable: true,
+      composed: true,
+      dataTransfer,
+      clientX: point.x,
+      clientY: point.y,
+    };
+    const before = window.__gm.opened.length;
+    const clicksBefore = window.__clicks;
+    link.dispatchEvent(new DragEvent('dragstart', init));
+    const claimed = dataTransfer.getData('text/plain');
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    link.dispatchEvent(new DragEvent('drop', init));
+    link.dispatchEvent(new DragEvent('dragend', init));
+    document.querySelector('#click-area').click();
+    return {
+      claimed: claimed !== '',
+      opened: window.__gm.opened.length - before,
+      clicks: window.__clicks - clicksBefore,
+    };
+  });
+  record(
+    '按 Esc 取消拖拽 → 不打开页面，随后的点击照常送达',
+    'true / 0 / 1',
+    `${String(cancelled.claimed)} / ${String(cancelled.opened)} / ${String(cancelled.clicks)}`,
+  );
+
+  // 23. 关掉开关后完全不动网站内容
   const disabled = await ctx.evaluate(() => {
     window.__gm.menu?.();
     const panel = window.__page.panel();
@@ -215,7 +393,7 @@ export async function run(ctx) {
     } / enabled=${String(disabled.enabled)}`,
   );
 
-  // 15. Escape 关闭面板
+  // 24. Escape 关闭面板
   const escaped = await ctx.evaluate(() => {
     window.__gm.menu?.();
     const panel = window.__page.panel();

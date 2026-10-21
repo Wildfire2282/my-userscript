@@ -1,12 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
-  CUSTOM_ENGINE_ID,
   buildSearchUrl,
   defaultSettings,
   engineOptions,
   validateCustomEngineUrl,
 } from '../src/search';
-import { DEFAULT_SETTINGS, type Settings } from '../src/settings';
+import { CUSTOM_ENGINE_ID, DEFAULT_SETTINGS, type Settings } from '../src/settings';
 
 function settings(patch: Partial<Settings> = {}): Settings {
   return { ...defaultSettings(), ...patch };

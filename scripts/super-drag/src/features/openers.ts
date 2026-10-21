@@ -2,6 +2,7 @@
  * 打开新标签页：链接直接打开；图片包一层深色查看器；后台打开时把焦点还给当前页。
  *
  * GM_openInTab 优先（脚本管理器能正确处理后台标签页），没有时退回 window.open。
+ * 查看器 blob 只在 5 分钟后回收：提前回收会让刚打开、还没加载完的标签页变成空白页。
  */
 
 const BLOB_REVOKE_DELAY_MS = 5 * 60 * 1000;
@@ -20,8 +21,6 @@ interface OpenScope {
 export interface Openers {
   openUrl: (url: string, active: boolean) => void;
   openImage: (url: string, active: boolean) => void;
-  /** 清掉还没触发的回收定时器，并立即释放查看器 blob。 */
-  release: () => void;
 }
 
 /**
@@ -54,30 +53,12 @@ function defaultScope(): OpenScope {
   return {
     GM_openInTab:
       typeof globals.GM_openInTab === 'function' ? globals.GM_openInTab.bind(globals) : undefined,
-    open: typeof window !== 'undefined' ? window.open.bind(window) : undefined,
-    focus: typeof window !== 'undefined' ? () => window.focus() : undefined,
+    open: window.open.bind(window),
+    focus: () => window.focus(),
   };
 }
 
 export function createOpeners(scope: OpenScope = defaultScope()): Openers {
-  const timers = new Set<ReturnType<typeof setTimeout>>();
-  const blobUrls = new Set<string>();
-
-  const revoke = (url: string) => {
-    blobUrls.delete(url);
-    URL.revokeObjectURL(url);
-  };
-
-  // 后台标签页可能几秒后才真正加载 blob，所以延后回收。
-  const scheduleRevoke = (url: string) => {
-    blobUrls.add(url);
-    const timer = setTimeout(() => {
-      timers.delete(timer);
-      revoke(url);
-    }, BLOB_REVOKE_DELAY_MS);
-    timers.add(timer);
-  };
-
   const openUrl = (url: string, active: boolean) => {
     if (typeof scope.GM_openInTab === 'function') {
       try {
@@ -104,19 +85,17 @@ export function createOpeners(scope: OpenScope = defaultScope()): Openers {
       openUrl(imageUrl, active);
       return;
     }
-    const html = buildImageViewerHtml(imageUrl);
-    const url = URL.createObjectURL(new Blob([html], { type: 'text/html' }));
-    scheduleRevoke(url);
+    let url: string;
+    try {
+      url = URL.createObjectURL(new Blob([buildImageViewerHtml(imageUrl)], { type: 'text/html' }));
+    } catch {
+      // 环境不允许建 blob（部分管理器的隔离环境）：退回直接打开原图。
+      openUrl(imageUrl, active);
+      return;
+    }
+    setTimeout(() => URL.revokeObjectURL(url), BLOB_REVOKE_DELAY_MS);
     openUrl(url, active);
   };
 
-  return {
-    openUrl,
-    openImage,
-    release() {
-      for (const timer of timers) clearTimeout(timer);
-      timers.clear();
-      for (const url of [...blobUrls]) revoke(url);
-    },
-  };
+  return { openUrl, openImage };
 }

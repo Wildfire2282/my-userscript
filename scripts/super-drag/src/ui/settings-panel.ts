@@ -10,14 +10,13 @@ import {
   type UI,
 } from '@ui';
 import {
-  CUSTOM_ENGINE_ID,
   PREVIEW_KEYWORD,
   buildSearchUrl,
   defaultSettings,
   engineOptions,
   validateCustomEngineUrl,
 } from '../search';
-import type { Settings } from '../settings';
+import { CUSTOM_ENGINE_ID, type Settings } from '../settings';
 
 /**
  * 设置面板。

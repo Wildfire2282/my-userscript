@@ -2,6 +2,9 @@ import { createGmApi, mergeDefaults, saveStoredSettings, type GmApi } from '@sha
 
 export type LinkOpenMode = 'background' | 'foreground';
 
+/** 「自定义」引擎在 `defaultEngine` 里的取值；`engines` 里不会有这个键。 */
+export const CUSTOM_ENGINE_ID = 'custom';
+
 /** 本脚本的全部设置；字段与线上旧版存储格式逐项对应。 */
 export interface Settings {
   /** 当前搜索引擎 ID：内置引擎、存储里带进来的引擎，或 `'custom'`。 */
@@ -48,13 +51,19 @@ function sanitizeEngines(value: unknown): Record<string, string> {
  */
 export function normalizeSettings(stored: unknown): Settings {
   const merged = mergeDefaults(DEFAULT_SETTINGS, stored);
+  const engines = sanitizeEngines(merged.engines);
+  const engine =
+    typeof merged.defaultEngine === 'string' && merged.defaultEngine !== ''
+      ? merged.defaultEngine
+      : DEFAULT_SETTINGS.defaultEngine;
   return {
+    // 引擎表里没有的 ID 会让面板显示第一个引擎、实际却按 Google 搜索，收敛成默认值。
     defaultEngine:
-      typeof merged.defaultEngine === 'string' && merged.defaultEngine !== ''
-        ? merged.defaultEngine
+      engine === CUSTOM_ENGINE_ID || Object.hasOwn(engines, engine)
+        ? engine
         : DEFAULT_SETTINGS.defaultEngine,
     customEngineUrl: typeof merged.customEngineUrl === 'string' ? merged.customEngineUrl : '',
-    engines: sanitizeEngines(merged.engines),
+    engines,
     enabled: merged.enabled !== false,
     linkOpenMode: merged.linkOpenMode === 'foreground' ? 'foreground' : 'background',
   };

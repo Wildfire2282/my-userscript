@@ -32,10 +32,7 @@ export function isIgnorableHref(href: string | null): boolean {
  * 所以统一读原始属性并用 `document.baseURI` 补全，顺带支持 `xlink:href`。
  */
 export function resolveLinkHref(node: Element): string {
-  const href = node.getAttribute('href');
-  const xlink =
-    typeof node.getAttributeNS === 'function' ? node.getAttributeNS(XLINK_NS, 'href') : null;
-  const raw = href ?? xlink ?? '';
+  const raw = node.getAttribute('href') ?? node.getAttributeNS(XLINK_NS, 'href') ?? '';
   if (raw === '') return '';
   try {
     return new URL(raw, document.baseURI).href;

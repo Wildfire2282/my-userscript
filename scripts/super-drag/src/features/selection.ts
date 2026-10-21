@@ -2,7 +2,7 @@
  * 选区命中判断：按下的位置是否落在已有选区上。
  *
  * 评论类页面常把文字包在带内边距的容器里，或盖一层手势层，按下的点可能偏离字形几个像素，
- * 所以先看矩形（留 `SELECTION_HIT_SLOP_PX` 容差），再用插入符所在节点做最可靠的确认。
+ * 所以先看矩形（留 `SELECTION_HIT_SLOP_PX` 容差），再用插入符的位置做最可靠的确认。
  */
 
 export const SELECTION_HIT_SLOP_PX = 4;
@@ -51,6 +51,31 @@ function caretRangeFromPoint(x: number, y: number): Range | null {
 }
 
 /**
+ * 判断按下点上的字符是否在选区内部。
+ *
+ * 不用 `selection.containsNode(node, true)`：它只要求节点与选区有交集，同一段文字里
+ * 选区之外的按下点也算命中；`comparePoint` 比的是具体偏移，才对得上“按下的字符”。
+ */
+function isCaretInsideRange(range: Range, container: Node, offset: number): boolean {
+  if (typeof range.comparePoint === 'function') {
+    try {
+      return range.comparePoint(container, offset) === 0;
+    } catch {
+      // 节点已脱离文档时 comparePoint 会抛错，退回粗糙的节点级判断。
+    }
+  }
+  const selection = window.getSelection();
+  if (selection && typeof selection.containsNode === 'function') {
+    try {
+      return selection.containsNode(container, true);
+    } catch {
+      return false;
+    }
+  }
+  return false;
+}
+
+/**
  * 判断坐标是否落在当前选区上。
  *
  * @param x 客户端坐标 X
@@ -68,19 +93,13 @@ export function isPointInSelection(x: number, y: number): boolean {
     rects = [];
   }
   for (const rect of rects) {
-    if (pointInRect(x, y, rect)) return true;
+    // 容差已经包含“正好落在字形上”，不必再单独判断一次矩形内部。
     if (pointNearRect(x, y, rect, SELECTION_HIT_SLOP_PX)) return true;
   }
 
   // 最强信号：按下的字符本身就在选区里。
   const caret = caretRangeFromPoint(x, y);
-  if (caret && typeof selection.containsNode === 'function') {
-    try {
-      if (selection.containsNode(caret.startContainer, true)) return true;
-    } catch {
-      // 节点已脱离文档时会抛错，交给下面的矩形兜底
-    }
-  }
+  if (caret && isCaretInsideRange(range, caret.startContainer, caret.startOffset)) return true;
 
   if (rects.length > 0) return false;
 

@@ -73,6 +73,12 @@ export function installDragSensor(deps: DragSensorDeps): DragSensor {
     }
   };
 
+  /** 事件发生处的链接 / 图片。 */
+  const hitTestAt = (event: DragEvent) => {
+    const target = realTarget(event);
+    return hitTest(event.clientX, event.clientY, target instanceof Element ? target : null);
+  };
+
   const handleDragStart = (event: DragEvent) => {
     if (phase !== 'idle' || deps.getSettings().enabled === false) return;
     // 多选、系统级手势留给浏览器；Shift 不拦，它表示“这一次前台打开”。
@@ -86,20 +92,16 @@ export function installDragSensor(deps: DragSensorDeps): DragSensor {
     const selection = window.getSelection();
     const selected = selection && !selection.isCollapsed ? getSelectionText() : '';
 
-    let payload: { kind: DragKind; data: string } | null;
-    if (selected !== '' && isPointInSelection(event.clientX, event.clientY)) {
-      // 按在选区里（即使压在链接上）也按文字处理，跳过命中测试，避免强制布局。
-      payload = { kind: 'text', data: selected };
-    } else {
-      const target = realTarget(event);
-      const hit = hitTest(event.clientX, event.clientY, target instanceof Element ? target : null);
-      payload = decideDrag({
-        link: hit.link,
-        image: hit.image,
-        selection: selected,
-        selectionHit: false,
-      });
-    }
+    // 按在选区里就按文字处理（即使压在链接上），并跳过命中测试：省一次强制布局。
+    // “选区优先”只在 decideDrag 里判断一次，这里只提供结果。
+    const selectionHit = selected !== '' && isPointInSelection(event.clientX, event.clientY);
+    const hit = selectionHit ? { link: '', image: '' } : hitTestAt(event);
+    const payload = decideDrag({
+      link: hit.link,
+      image: hit.image,
+      selection: selected,
+      selectionHit,
+    });
 
     if (!payload || !claim(transfer, payload.data)) return;
 

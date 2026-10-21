@@ -33,6 +33,15 @@
     <p><a id="link" href="https://example.com/target?from=fixture&amp;x=1">一个普通链接</a></p>
     <p><img id="image" alt="fixture" src="https://example.com/image.png" /></p>
     <p><input id="field" type="text" value="输入框" /></p>
+    <p><a id="partial-link" href="https://example.com/partial">链接文字前半段和后半段</a></p>
+    <div id="editor" contenteditable="true"><p id="editor-text">这里是富文本编辑器</p></div>
+    <p>
+      <a id="dead-link" href="#"
+        ><img id="dead-link-image" alt="wrapped" src="https://example.com/wrapped.png"
+      /></a>
+    </p>
+    <p><a id="relative-link" href="/rel/path?x=1">相对链接</a></p>
+    <div id="card" draggable="true">可拖拽卡片（页面自己的拖拽）</div>
     <div id="shadow-host"></div>
     <div id="click-area">点击区</div>
     <script>

@@ -1,6 +1,4 @@
-import { DEFAULT_SETTINGS, type Settings } from './settings';
-
-export const CUSTOM_ENGINE_ID = 'custom';
+import { CUSTOM_ENGINE_ID, DEFAULT_SETTINGS, type Settings } from './settings';
 
 /** 设置面板里“效果预览”使用的示例关键词。 */
 export const PREVIEW_KEYWORD = 'hello';

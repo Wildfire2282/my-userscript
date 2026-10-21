@@ -26,22 +26,24 @@ function start(): void {
 
   let panel: SettingsPanelHandle | null = null;
   const openSettings = () => {
-    if (!panel) {
-      panel = createSettingsPanel({
-        getSettings: store.get,
-        save: (patch) => void store.update(patch),
-      });
+    try {
+      if (!panel) {
+        panel = createSettingsPanel({
+          getSettings: store.get,
+          save: (patch) => void store.update(patch),
+        });
+      }
+      panel.open();
+    } catch (error) {
+      // 面板建不起来只影响设置入口，不能把菜单回调的异常抛给脚本管理器。
+      console.error('[super-drag] 设置面板打开失败', error);
     }
-    panel.open();
   };
 
   if (!gm.registerMenuCommand(MENU_LABEL, openSettings)) {
     // 没有菜单项时设置无从打开，但不影响拖拽本身。
     console.warn('[super-drag] 菜单命令不可用，设置面板无法打开');
   }
-
-  // 页面离开时把还没回收的图片查看器 blob 释放掉。
-  window.addEventListener('pagehide', () => openers.release(), { once: true });
 }
 
 try {

@@ -30,6 +30,9 @@ push main
 - 有 `src/main.ts`：发布 `scripts/<slug>/dist/<slug>.user.js`（构建产物）；
 - 没有入口：发布 `scripts/<slug>/legacy/*.user.js`（线上原版快照）。
 
+脚本从仓库删除后，下一次发布会清掉 `release` 分支里的旧文件；Greasy Fork 上的脚本不会被自动删除，
+需要到脚本管理页手动停用或删除。清理只处理发布目录里的 `*.user.js`，不会动源码仓库。
+
 版本规则：
 
 | 情况 | 行为 |
@@ -71,7 +74,6 @@ CI 不跑 `check:browser`（runner 没有浏览器）。改交互的版本发布
 | 超级拖拽 | `https://raw.githubusercontent.com/Wildfire2282/my-userscript/release/super-drag.user.js` |
 | 捕获链接 | `https://raw.githubusercontent.com/Wildfire2282/my-userscript/release/capture-links.user.js` |
 | 选中复制 | `https://raw.githubusercontent.com/Wildfire2282/my-userscript/release/selection-copy.user.js` |
-| 输入框自动填充 | `https://raw.githubusercontent.com/Wildfire2282/my-userscript/release/input-autofill.user.js` |
 | YouTube 转写文稿复制 | `https://raw.githubusercontent.com/Wildfire2282/my-userscript/release/youtube-transcript-copy.user.js` |
 
 发布物版本必须高于线上版本；相同版本会显示为已是最新，不会产生更新记录。

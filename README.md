@@ -15,7 +15,6 @@ Wildfire2282 的用户脚本合集。装好之后，对应的网站会多出一�
 | 超级拖拽 | 拖拽文本搜索，拖拽链接在新标签页打开，拖拽图片查看。 | [点此安装](https://update.greasyfork.org/scripts/580630/%E8%B6%85%E7%BA%A7%E6%8B%96%E6%8B%BD.user.js) |
 | 捕获链接 | 捕获页面中的全部链接，支持关键词筛选与批量复制 | [点此安装](https://update.greasyfork.org/scripts/582371/%E6%8D%95%E8%8E%B7%E9%93%BE%E6%8E%A5.user.js) |
 | 选中复制 | 选中文本后自动纯文本复制到剪贴板，去除首尾空白 | [点此安装](https://update.greasyfork.org/scripts/582576/%E9%80%89%E4%B8%AD%E5%A4%8D%E5%88%B6.user.js) |
-| 输入框自动填充 | 在指定网页的输入框聚焦时，显示预置内容下拉菜单并自动填充 | [点此安装](https://update.greasyfork.org/scripts/584534/%E8%BE%93%E5%85%A5%E6%A1%86%E8%87%AA%E5%8A%A8%E5%A1%AB%E5%85%85.user.js) |
 <!-- scripts:end -->
 
 ## 安装与更新

@@ -49,6 +49,9 @@
 
 ### 2.2 现状数据
 
+> 2026-10-23：`input-autofill` 已从项目下线（Greasy Fork 上的脚本也已删除）。下表的脚本数与
+> `!important` 统计保留为下线前的 5 脚本快照；迁移范围改为 4 个，顺序中跳过它。
+
 统计口径：`legacy/*.user.js` 去掉元数据块后的正文。
 
 | 指标 | 当前值 | 说明 |
@@ -301,7 +304,7 @@ check = lint + format:check + typecheck + test + build + check:meta + check:size
 | P3 发布流程 | 版本脚本、Release、回滚文档 | 完整发布链路与演练 | 成功发布一次并完成回滚演练 | 2 |
 | P4 收尾 | 清理与文档 | 删除无用的 `legacy/`，更新 README 与架构文档 | 文档与实现一致，无未解释的迁移残留 | 1 |
 
-迁移顺序：`capture-links` → `selection-copy` → `youtube-transcript-copy` → `input-autofill` → `super-drag`。完成前两个后复盘共享接口是否成立；若某抽象没有实际复用价值，调整接口而不是硬塞进 `shared`。
+迁移顺序：`capture-links` → `selection-copy` → `youtube-transcript-copy` → `super-drag`。完成前两个后复盘共享接口是否成立；若某抽象没有实际复用价值，调整接口而不是硬塞进 `shared`。
 
 > 实际执行偏差（2026-10-21）：维护者要求先做 `super-drag`，已把它提前完成，其余按原顺序。
 > 提前迁移的原因是它的交互最依赖真实浏览器，先把验证链路跑通，后面 4 个脚本直接复用。

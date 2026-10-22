@@ -12,11 +12,13 @@
  *   - 版本相同但内容不同：报错，提醒先提升版本；
  *   - 版本更低：报错，拒绝回退。
  *
+ * 发布目录里已经不存在对应脚本包的文件会被清理，避免下线脚本继续被 webhook 命中。
+ *
  * 用法：
  *   node tools/release.mjs <发布目录>
  */
 
-import { access, mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
+import { access, mkdir, readdir, readFile, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -127,9 +129,13 @@ await mkdir(OUT_DIR, { recursive: true });
 const changed = [];
 const unchanged = [];
 const skipped = [];
+const removed = [];
 const problems = [];
 
-for (const pkg of await loadPackages()) {
+const packages = await loadPackages();
+const expected = new Set(packages.map((pkg) => `${pkg.slug}.user.js`));
+
+for (const pkg of packages) {
   const artifact = await findArtifact(pkg.dir, pkg.slug);
   if (!artifact) {
     skipped.push(`${pkg.slug}（没有构建产物，也没有 legacy 原版）`);
@@ -182,9 +188,21 @@ for (const pkg of await loadPackages()) {
   changed.push(`${pkg.slug}@${version}（${artifact.kind}）`);
 }
 
+// 脚本包已从仓库删除时，清掉发布目录里的旧文件；有任何问题时不动，避免半成品。
+if (problems.length === 0) {
+  for (const entry of await readdir(OUT_DIR)) {
+    if (!entry.endsWith('.user.js') || expected.has(entry)) continue;
+    await unlink(path.join(OUT_DIR, entry));
+    removed.push(entry);
+  }
+}
+
 if (changed.length > 0) {
   console.log(`待发布 ${changed.length} 个：`);
   for (const item of changed) console.log(`  + ${item}`);
+}
+if (removed.length > 0) {
+  console.log(`清理已下线 ${removed.length} 个：${removed.join('、')}`);
 }
 if (unchanged.length > 0) {
   console.log(`未变化 ${unchanged.length} 个：${unchanged.join('、')}`);
@@ -196,6 +214,6 @@ if (problems.length > 0) {
   console.error(`\n发现 ${problems.length} 个问题：`);
   for (const problem of problems) console.error(`  ✗ ${problem}`);
   process.exitCode = 1;
-} else if (changed.length === 0) {
+} else if (changed.length === 0 && removed.length === 0) {
   console.log('没有需要发布的变更。');
 }

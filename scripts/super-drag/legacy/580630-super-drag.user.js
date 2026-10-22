@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         超级拖拽
 // @namespace    https://github.com/Wildfire2282
-// @version      2.2.1
+// @version      2.4.0
 // @description  拖拽文本搜索，拖拽链接在新标签页打开，拖拽图片查看。
 // @author       Wildfire2282
 // @license      MIT
@@ -16,1116 +16,1909 @@
 // @downloadURL https://update.greasyfork.org/scripts/580630/%E8%B6%85%E7%BA%A7%E6%8B%96%E6%8B%BD.user.js
 // @updateURL https://update.greasyfork.org/scripts/580630/%E8%B6%85%E7%BA%A7%E6%8B%96%E6%8B%BD.meta.js
 // ==/UserScript==
-
-"use strict";
-
-/* ================= Config ================= */
-
-const BLOB_REVOKE_DELAY_MS = 5 * 60 * 1000;
-const PREVIEW_SAMPLE_KEYWORD = "hello";
-// Upper bound for direct-open URL detection: longer single-token drops are
-// never treated as URLs (avoids running the URL regex over megabytes).
-const DIRECT_URL_MAX_LEN = 2048;
-
-const DEFAULT_SETTINGS = {
-  defaultEngine: "google",
-  customEngineUrl: "",
-  engines: {
-    "cn.bing": "https://cn.bing.com/search?q={keyword}",
-    bing: "https://www.bing.com/search?q={keyword}",
-    google: "https://www.google.com/search?q={keyword}",
-    baidu: "https://www.baidu.com/s?wd={keyword}",
-  },
-  enabled: true,
-  linkOpenMode: "background", // "background" | "foreground"
-};
-
-const ENGINE_NAMES = {
-  "cn.bing": "Bing (CN)",
-  bing: "Bing",
-  google: "Google",
-  baidu: "Baidu",
-};
-
-/* ================= Settings (cached, GM I/O only on load/save) ================= */
-
-function cloneDefaults() {
-  if (typeof structuredClone === "function") return structuredClone(DEFAULT_SETTINGS);
-  return JSON.parse(JSON.stringify(DEFAULT_SETTINGS));
-}
-
-function loadSettings() {
-  let stored = null;
-  try {
-    stored = GM_getValue("settings");
-  } catch {
-    stored = null; // storage unavailable: run on defaults
-  }
-  if (!stored || typeof stored !== "object") return cloneDefaults();
-  return {
-    ...DEFAULT_SETTINGS,
-    ...stored,
-    engines: { ...DEFAULT_SETTINGS.engines, ...(stored.engines || {}) },
-  };
-}
-
-let settings = null; // lazy: GM read once on first gesture/panel, not page load
-
-function getSettings() {
-  if (!settings) settings = loadSettings();
-  return settings;
-}
-
-function saveSettings(patch) {
-  settings = { ...getSettings(), ...patch };
-  try {
-    GM_setValue("settings", settings);
-  } catch {
-    // storage write failed (quota/denied): keep the in-memory copy
-  }
-}
-
-/* ================= State ================= */
-
-const state = {
-  phase: "idle", // "idle" | "dragging" (motion is owned by native DnD)
-  dragType: null, // "link" | "text" | "image"
-  dragData: null,
-  blockNextClick: false,
-};
-
-function resetDrag() {
-  state.phase = "idle";
-  state.dragType = null;
-  state.dragData = null;
-}
-
-/* ================= DOM helpers ================= */
-
-function el(tag, className, text) {
-  const node = document.createElement(tag);
-  if (className) node.className = className;
-  if (text !== undefined) node.textContent = text;
-  return node;
-}
-
-function escapeHtml(str) {
-  return String(str).replace(/[&<>"']/g, (c) => {
-    switch (c) {
-      case "&":
-        return "&amp;";
-      case "<":
-        return "&lt;";
-      case ">":
-        return "&gt;";
-      case '"':
-        return "&quot;";
-      default:
-        return "&#39;";
-    }
-  });
-}
-
-function addStyle(css) {
-  const style = document.createElement("style");
-  style.setAttribute("data-super-drag", "1");
-  style.textContent = css;
-  (document.head || document.documentElement).appendChild(style);
-  return style;
-}
-
-let panelStyleLoaded = false;
-
-function ensurePanelStyle() {
-  if (panelStyleLoaded) return;
-  panelStyleLoaded = true;
-  addStyle(PANEL_STYLES);
-}
-
-/* ================= Hit testing (single elementFromPoint per event) ================= */
-
-function deepElementFromPoint(x, y) {
-  let root = document;
-  let element = null;
-  for (;;) {
-    let next = null;
-    try {
-      next = root.elementFromPoint(x, y);
-    } catch {
-      next = null;
-    }
-    if (!next) break;
-    element = next;
-    if (next.shadowRoot && next.shadowRoot.mode === "open") root = next.shadowRoot;
-    else break;
-  }
-  return element;
-}
-
-function parentAcrossShadow(node) {
-  if (node.parentElement) return node.parentElement;
-  const root = typeof node.getRootNode === "function" ? node.getRootNode() : null;
-  return root instanceof ShadowRoot ? root.host : null;
-}
-
-function isIgnorableHref(href) {
-  return !href || href === "#" || href.toLowerCase().startsWith("javascript:");
-}
-
-// HTMLAnchorElement.href is already an absolute URL string, but SVG <a>
-// returns SVGAnimatedString instead. Resolve the raw attribute manually so
-// SVG/MathML links (and xlink:href) also work.
-function resolveLinkHref(node) {
-  const raw =
-    node.getAttribute("href") ||
-    (typeof node.getAttributeNS === "function" &&
-      node.getAttributeNS("http://www.w3.org/1999/xlink", "href")) ||
-    "";
-  if (!raw) return "";
-  try {
-    return new URL(raw, document.baseURI).href;
-  } catch {
-    return "";
-  }
-}
-
-// Fast path: closest() on the press target covers the flat-DOM case without
-// elementFromPoint + manual climbing. Shadow DOM falls back to hitTestSlow.
-function hitTestFast(target) {
-  if (!target || target.nodeType !== 1 || typeof target.closest !== "function") return null;
-  const tag = (target.tagName || "").toUpperCase();
-  let link = null;
-  const linkEl = tag === "A" ? target : target.closest("a");
-  if (linkEl && !isIgnorableHref(linkEl.getAttribute("href"))) {
-    link = resolveLinkHref(linkEl);
-  }
-  let imgSrc = "";
-  if (tag === "IMG") imgSrc = target.currentSrc || target.src || "";
-  if (link || imgSrc) return { link, imgSrc };
-  return null;
-}
-
-// One lookup per dragstart: walk up once, collect nearest link / image.
-function hitTestSlow(x, y) {
-  const found = { link: null, imgSrc: "" };
-  let node = deepElementFromPoint(x, y);
-  while (node) {
-    const tag = node.tagName || "";
-    if (!found.link && (tag === "A" || tag === "a")) {
-      if (!isIgnorableHref(node.getAttribute("href"))) {
-        found.link = resolveLinkHref(node);
-        // A link decides the outcome (callers prefer it over images),
-        // so stop climbing instead of walking to the document root.
-        if (found.link) break;
-      }
-    } else if (!found.imgSrc && (tag === "IMG" || tag === "img")) {
-      found.imgSrc = node.currentSrc || node.src || "";
-    }
-    node = parentAcrossShadow(node);
-  }
-  return found;
-}
-
-function hitTest(x, y, target) {
-  return hitTestFast(target) || hitTestSlow(x, y);
-}
-
-const SELECTION_HIT_SLOP_PX = 4; // tolerate presses just outside selection rects
-
-function isEditableField(node) {
-  if (!node || node.nodeType !== 1) return false;
-  const tag = (node.tagName || "").toLowerCase();
-  if (tag === "input" || tag === "textarea" || tag === "select") return true;
-  if (node.isContentEditable) return true;
-  if (typeof node.getAttribute === "function") {
-    if (node.getAttribute("contenteditable") === "true") return true;
-    if (node.getAttribute("role") === "textbox") return true;
-  }
-  return false;
-}
-
-// Only the actual press target (and a real form control ancestor, e.g. an
-// input nested in a label) can veto text drag. A contenteditable ancestor such
-// as a comment rich-text container must not veto static comment text.
-// Events observed at window capture are retargeted out of shadow DOM; the
-// composed path reveals the real node (e.g. an <input> inside a component).
-function realTarget(e) {
-  try {
-    if (typeof e.composedPath === "function") {
-      const path = e.composedPath();
-      if (path && path.length) return path[0];
-    }
-  } catch {
-    // fall through to e.target
-  }
-  return e.target;
-}
-
-function isInputElement(e) {
-  const raw = realTarget(e);
-  const target = raw && raw.nodeType === 1 ? raw : null;
-  if (target && isEditableField(target)) return true;
-  let node = target ? target.parentElement : null;
-  while (node) {
-    const tag = (node.tagName || "").toLowerCase();
-    if (tag === "input" || tag === "textarea" || tag === "select") return true;
-    if (node.isContentEditable) break;
-    node = node.parentElement;
-  }
-  return false;
-}
-
-function pointInRect(x, y, r) {
-  return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
-}
-
-function pointNearRect(x, y, r, slop) {
-  return (
-    x >= r.left - slop && x <= r.right + slop && y >= r.top - slop && y <= r.bottom + slop
-  );
-}
-
-function caretRangeFromPoint(x, y) {
-  try {
-    if (typeof document.caretRangeFromPoint === "function") {
-      return document.caretRangeFromPoint(x, y);
-    }
-  } catch {
-    // fall through to caretPositionFromPoint
-  }
-  try {
-    if (typeof document.caretPositionFromPoint === "function") {
-      const pos = document.caretPositionFromPoint(x, y);
-      if (pos) {
-        const range = document.createRange();
-        range.setStart(pos.offsetNode, pos.offset);
-        range.collapse(true);
-        return range;
-      }
-    }
-  } catch {
-    // unsupported; caller falls back to rect checks
-  }
-  return null;
-}
-
-function isPointInSelection(x, y) {
-  const sel = window.getSelection();
-  if (!sel || sel.isCollapsed || !sel.rangeCount) return false;
-  const range = sel.getRangeAt(0);
-  let rects = [];
-  try {
-    rects = Array.from(range.getClientRects());
-  } catch {
-    rects = [];
-  }
-  for (const r of rects) {
-    if (pointInRect(x, y, r)) return true;
-    // Comment UIs often wrap text in padded containers or overlay gesture
-    // layers, so the press can land a few pixels outside the glyph rects.
-    if (pointNearRect(x, y, r, SELECTION_HIT_SLOP_PX)) return true;
-  }
-  // Strongest signal: the pressed character itself is inside the selection.
-  const caret = caretRangeFromPoint(x, y);
-  if (caret && typeof sel.containsNode === "function") {
-    try {
-      const anchor = caret.startContainer;
-      if (anchor && sel.containsNode(anchor, true)) return true;
-    } catch {
-      // containsNode may throw on detached nodes; use rect fallback below
-    }
-  }
-  if (rects.length > 0) return false;
-  const anchor = range.commonAncestorContainer;
-  const host = anchor && anchor.nodeType === 1 ? anchor : anchor && anchor.parentElement;
-  if (host && typeof host.getBoundingClientRect === "function") {
-    return pointInRect(x, y, host.getBoundingClientRect());
-  }
-  return false;
-}
-
-function getSelectionText() {
-  const sel = window.getSelection();
-  if (!sel) return "";
-  return sel.toString().trim();
-}
-
-/* ================= Icons (used by the settings panel) ================= */
-
-const ICONS = {
-  link: '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.5 9.5a3 3 0 0 0 4.2 0l2-2a3 3 0 0 0-4.2-4.2l-1 1"/><path d="M9.5 6.5a3 3 0 0 0-4.2 0l-2 2a3 3 0 0 0 4.2 4.2l1-1"/></svg>',
-  image:
-    '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="1.5" y="3" width="13" height="10" rx="2"/><circle cx="5.5" cy="7" r="1.2"/><path d="M13.5 11l-3-3-5 5"/></svg>',
-  search:
-    '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5L14.5 14.5"/></svg>',
-  text: '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 4.5h10M8 4.5v8M6 12.5h4"/></svg>',
-  bulb: '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 1.8a4.2 4.2 0 0 0-2.4 7.6c.6.5 1 1.2 1.1 2H9.3c.1-.8.5-1.5 1.1-2A4.2 4.2 0 0 0 8 1.8z"/><path d="M6.5 13.5h3"/></svg>',
-};
-
-function svgIcon(name, cls) {
-  const wrap = document.createElement("span");
-  wrap.className = cls;
-  wrap.setAttribute("aria-hidden", "true");
-  wrap.innerHTML = ICONS[name];
-  return wrap;
-}
-
-/* ================= Resolver (ported from reference extension) ================= */
-
-// Verbatim port of the reference extension service-worker's URL test: only
-// absolute http(s)/ftp URLs count, so plain words never navigate by accident.
-function isURL(s) {
-  return /(ftp|http|https):\/\/(\w+:{0,1}\w*@)?(\S+)(:[0-9]+)?(\/|\/([\w#!:.?+=&%@!-/]))?/.test(
-    s
-  );
-}
-
-// Dragged text that is a bare URL (no surrounding whitespace) opens directly
-// instead of going through search.
-function asDirectURL(text) {
-  const keyword = typeof text === "string" ? text.trim() : "";
-  if (!keyword || keyword.length > DIRECT_URL_MAX_LEN || /\s/.test(keyword)) return "";
-  return isURL(keyword) ? keyword : "";
-}
-
-/* ================= Openers ================= */
-
-function openUrl(url, active) {
-  try {
-    if (typeof GM_openInTab === "function") {
-      GM_openInTab(url, { active: !!active, insert: true });
-      return;
-    }
-  } catch {
-    // fall through to window.open
-  }
-  const win = window.open(url, "_blank", "noopener");
-  if (win && !active) {
-    try {
-      win.blur();
-    } catch {
-      // ignore
-    }
-    window.focus();
-  }
-}
-
-function getSearchUrl(keyword) {
-  const cfg = getSettings();
-  const template =
-    cfg.defaultEngine === "custom" ? cfg.customEngineUrl : cfg.engines[cfg.defaultEngine];
-  const valid =
-    typeof template === "string" && template.includes("{keyword}")
-      ? template
-      : DEFAULT_SETTINGS.engines.google;
-  return valid.replace("{keyword}", encodeURIComponent(keyword));
-}
-
-function openImageViewer(imageUrl, active) {
-  const html =
-    '<!DOCTYPE html><html><head><meta charset="utf-8"><title>Image</title>' +
-    "<style>*{margin:0;padding:0}body{display:flex;align-items:center;justify-content:center;min-height:100vh;background:#000}" +
-    "img{max-width:100%;max-height:100vh;object-fit:contain}</style></head>" +
-    '<body><img src="' + escapeHtml(imageUrl) + '" alt="image"></body></html>';
-  const url = URL.createObjectURL(new Blob([html], { type: "text/html" }));
-  openUrl(url, active);
-  // Revoke late: a background tab may not have loaded the blob within seconds.
-  setTimeout(() => URL.revokeObjectURL(url), BLOB_REVOKE_DELAY_MS);
-}
-
-function openImage(imageUrl, active) {
-  // Page-owned blob:/data: images break when re-wrapped in a viewer blob,
-  // so open them directly; http(s) keeps the dark viewer shell.
-  if (/^(blob:|data:)/i.test(imageUrl)) {
-    openUrl(imageUrl, active);
-    return;
-  }
-  openImageViewer(imageUrl, active);
-}
-
-/* ================= Sensor (native DnD, cf. reference extension) ================= */
-
-// Delegated listeners only: dragstart/dragover/drop/dragend bubble, so one
-// capture listener per event covers the whole document. The reference
-// extension instead attaches to every element plus a MutationObserver, which
-// is far heavier. Anything we do not claim is left to the browser untouched.
-
-let ghostPixel = null;
-
-// Hide the OS drag ghost: no visual feedback during the drag.
-function ensureGhostPixel() {
-  if (!ghostPixel) {
-    ghostPixel = document.createElement("img");
-    ghostPixel.src =
-      "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
-  }
-  return ghostPixel;
-}
-
-function safeSetDragData(transfer, data) {
-  try {
-    // Required: without setData, Firefox never starts the drag.
-    transfer.setData("text/plain", data);
-    return true;
-  } catch {
-    // Oversized selections etc: give up and let the native drag run alone.
-    return false;
-  }
-}
-
-function beginNativeDrag(type, data) {
-  state.phase = "dragging";
-  state.dragType = type;
-  state.dragData = data;
-}
-
-function handleDragStart(e) {
-  if (state.phase !== "idle" || getSettings().enabled === false) return;
-  // Leave multi-select / OS-level gestures alone. Shift is allowed:
-  // it forces this drop into the foreground (see handleDrop).
-  if (e.ctrlKey || e.metaKey || e.altKey) return;
-  // Editable fields keep their native move-text drag.
-  if (isInputElement(e)) return;
-  const transfer = e.dataTransfer;
-  if (!transfer) return;
-
-  // Cheap selection presence check first: sel.toString() copies the whole
-  // selection, so only pay for it when a selection actually exists.
-  const sel = window.getSelection();
-  const selected = sel && !sel.isCollapsed ? getSelectionText() : "";
-
-  let type = null;
-  let data = "";
-  if (selected && isPointInSelection(e.clientX, e.clientY)) {
-    // Press began inside the selection (even on a link): drag the text,
-    // mirroring the reference extension's selection-first rule. Skips
-    // hit-testing entirely (no forced layout).
-    type = "text";
-    data = selected;
-  } else {
-    const rawTarget = realTarget(e);
-    const hit = hitTest(
-      e.clientX,
-      e.clientY,
-      rawTarget && rawTarget.nodeType === 1 ? rawTarget : null
-    );
-    if (hit && hit.link) {
-      type = "link";
-      data = hit.link;
-    } else if (hit && hit.imgSrc) {
-      type = "image";
-      data = hit.imgSrc;
-    } else if (selected) {
-      // Draggable element carrying a stray selection: search it.
-      type = "text";
-      data = selected;
-    }
-  }
-  if (!type || !data) return; // not ours: page widgets, bare draggables, etc.
-
-  if (!safeSetDragData(transfer, data)) return;
-  try {
-    transfer.effectAllowed = "copy";
-    transfer.setDragImage(ensureGhostPixel(), 0, 0);
-  } catch {
-    // setDragImage unsupported: the native ghost remains visible.
-  }
-  beginNativeDrag(type, data);
-}
-
-function handleDragOver(e) {
-  if (state.phase !== "dragging") return; // not our drag: OS files etc.
-  // Required: without preventDefault the browser will not fire drop.
-  e.preventDefault();
-  e.stopPropagation();
-  try {
-    e.dataTransfer.dropEffect = "copy";
-  } catch {
-    // Read-only dataTransfer on some engines; harmless.
-  }
-}
-
-function handleDrop(e) {
-  if (state.phase !== "dragging") return; // not our drag: OS files etc.
-  // Drops into editable fields belong to the page (native paste-drop).
-  if (isInputElement(e)) {
-    resetDrag();
-    return;
-  }
-  e.preventDefault();
-  e.stopPropagation();
-  state.blockNextClick = true;
-  // Shift forces this drop into the foreground (mirrors the reference
-  // extension, which reports `foreground: e.shiftKey` on drop).
-  const foreground =
-    e.shiftKey === true ||
-    (state.dragType === "link" && getSettings().linkOpenMode === "foreground");
-  try {
-    dispatchDrop(state.dragType, state.dragData, foreground);
-  } finally {
-    // Never leave a half-open drag: a throwing opener must not disable
-    // all future drags for the rest of the page session.
-    resetDrag();
-  }
-}
-
-function handleDragEnd() {
-  // Fires after drop AND on cancel (Esc / dropped outside the page).
-  // Drop already reset and set blockNextClick; cancel just needs cleanup.
-  if (state.phase !== "idle") resetDrag();
-}
-
-// Action dispatch: the content-side equivalent of the reference extension's
-// service-worker (URL-vs-search decision + open).
-function dispatchDrop(type, data, foreground) {
-  if (!data) return;
-  if (type === "link") {
-    openUrl(data, foreground);
-  } else if (type === "image") {
-    openImage(data, foreground);
-  } else if (type === "text") {
-    const direct = asDirectURL(data);
-    openUrl(direct || getSearchUrl(data), foreground);
-  }
-}
-
-function handleClickCapture(e) {
-  if (state.blockNextClick) {
-    state.blockNextClick = false;
-    e.preventDefault();
-    e.stopPropagation();
-    e.stopImmediatePropagation();
-    return;
-  }
-  // Safety net: never leave a stale drag behind.
-  if (state.phase !== "idle") resetDrag();
-}
-
-function handleKeyDown(e) {
-  if (e.key === "Escape") {
-    if (state.phase !== "idle") resetDrag();
-    closeSettingsPanel();
-  }
-}
-
-function initDrag() {
-  // One capture listener per native DnD event covers the whole document:
-  // these events bubble, so no per-element attach is needed and idle pages
-  // stay cheap (mousedown/click/keydown only).
-  window.addEventListener("dragstart", handleDragStart, true);
-  window.addEventListener("dragover", handleDragOver, true);
-  window.addEventListener("drop", handleDrop, true);
-  // dragend fires both after drop and on cancel (Esc / outside the window).
-  window.addEventListener("dragend", handleDragEnd, true);
-  document.addEventListener("click", handleClickCapture, true);
-  document.addEventListener("keydown", handleKeyDown, true);
-  // Safety net for lost context (e.g. window blurred mid-drag).
-  window.addEventListener("blur", resetDrag);
-}
-
-/* ================= Styles (lazy: panel styles on open) ================= */
-
-const PANEL_STYLES = `
-.sd-overlay {
-  --sd-bg: hsl(0, 0%, 100%);
-  --sd-fg: hsl(222, 47%, 11%);
-  --sd-muted: hsl(215, 16%, 47%);
-  --sd-border: hsl(214, 32%, 91%);
-  --sd-soft: hsl(210, 40%, 98%);
-  --sd-field: hsl(0, 0%, 100%);
-  --sd-ring: hsl(210, 40%, 96%);
-  --sd-danger: hsl(0, 72%, 51%);
-  --sd-focus: hsl(222, 47%, 11%);
-  --sd-control: hsl(215, 16%, 47%);
-  display: flex !important;
-  position: fixed !important;
-  inset: 0 !important;
-  z-index: 2147483646 !important;
-  background: hsla(0, 0%, 0%, .6) !important;
-  align-items: center !important;
-  justify-content: center !important;
-  padding: 24px !important;
-  box-sizing: border-box !important;
-  overflow-y: auto !important;
-  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif !important;
-  font-size: 16px !important;
-  line-height: 1.5;
-  -webkit-font-smoothing: antialiased !important;
-}
-@media (prefers-color-scheme: dark) {
-  .sd-overlay {
-    --sd-bg: hsl(222, 47%, 11%);
-    --sd-fg: hsl(210, 40%, 96%);
-    --sd-muted: hsl(215, 20%, 65%);
-    --sd-border: hsl(217, 33%, 17%);
-    --sd-soft: hsl(222, 84%, 5%);
-    --sd-field: hsl(222, 84%, 5%);
-    --sd-ring: hsl(217, 33%, 17%);
-    --sd-danger: hsl(0, 94%, 82%);
-    --sd-focus: hsl(214, 32%, 91%);
-    --sd-control: hsl(209, 23%, 60%);
-  }
-}
-.sd-panel {
-  box-sizing: border-box !important;
-  margin: auto !important;
-  background: var(--sd-bg) !important;
-  color: var(--sd-fg) !important;
-  border-radius: 12px !important;
-  border: 1px solid var(--sd-border) !important;
-  box-shadow: 0 15px 35px hsla(0, 0%, 0%, .2) !important;
-  width: 100% !important;
-  max-width: 384px !important;
-  max-height: calc(100vh - 48px) !important;
-  display: flex !important;
-  flex-direction: column !important;
-  overflow: hidden !important;
-}
-.sd-panel * { box-sizing: border-box !important; }
-.sd-head { padding: 24px 24px 0 !important; }
-.sd-title { font-size: 18px !important; font-weight: 600 !important; line-height: 20px !important; color: var(--sd-fg) !important; margin: 0 0 4px !important; letter-spacing: -.025em !important; }
-.sd-subtitle { font-size: 12px !important; line-height: 18px !important; color: var(--sd-muted) !important; margin: 0 !important; }
-.sd-body { padding: 24px !important; display: flex !important; flex-direction: column !important; gap: 24px !important; overflow-y: auto !important; }
-.sd-section { display: flex !important; flex-direction: column !important; gap: 16px !important; }
-.sd-section-title { display: flex !important; align-items: center !important; gap: 8px !important; font-size: 14px !important; font-weight: 600 !important; line-height: 20px !important; color: var(--sd-fg) !important; }
-.sd-title-icon { flex: none !important; display: inline-flex !important; align-items: center !important; justify-content: center !important; width: 24px !important; height: 24px !important; border-radius: 8px !important; background: var(--sd-soft) !important; color: var(--sd-muted) !important; }
-.sd-title-icon svg { display: block !important; }
-.sd-field { display: flex !important; flex-direction: column !important; gap: 8px !important; }
-.sd-label { font-size: 14px !important; font-weight: 500 !important; line-height: 20px !important; color: var(--sd-muted) !important; }
-.sd-hint { margin: 0 !important; font-size: 12px !important; line-height: 18px !important; color: var(--sd-muted) !important; }
-.sd-error { margin: 0 !important; font-size: 12px !important; line-height: 18px !important; color: var(--sd-danger) !important; }
-.sd-select, .sd-input {
-  display: block !important;
-  width: 100% !important;
-  height: 48px !important;
-  padding: 8px 12px !important;
-  font-size: 14px !important;
-  line-height: 20px !important;
-  color: var(--sd-fg) !important;
-  background-color: var(--sd-field) !important;
-  border: 1px solid var(--sd-control) !important;
-  border-radius: 8px !important;
-  outline: none !important;
-  transition: border-color .15s, box-shadow .15s !important;
-}
-.sd-select { padding-right: 32px !important; appearance: none !important; cursor: pointer !important;
-  background-image: url(data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E) !important;
-  background-repeat: no-repeat !important;
-  background-position: right 12px center !important;
-}
-.sd-select:focus, .sd-input:focus { border-color: var(--sd-focus) !important; box-shadow: 0 0 0 2px var(--sd-ring) !important; }
-.sd-preview {
-  border-radius: 8px !important;
-  background: var(--sd-soft) !important;
-  padding: 12px !important;
-  display: flex !important;
-  flex-direction: column !important;
-  gap: 4px !important;
-}
-.sd-preview-label { font-size: 12px !important; font-weight: 600 !important; line-height: 18px !important; color: var(--sd-muted) !important; }
-.sd-preview-url {
-  font-size: 12px !important;
-  line-height: 18px !important;
-  color: var(--sd-muted) !important;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace !important;
-  word-break: break-all !important;
-  display: -webkit-box !important;
-  -webkit-line-clamp: 2 !important;
-  -webkit-box-orient: vertical !important;
-  overflow: hidden !important;
-}
-.sd-switch-row { display: flex !important; align-items: center !important; gap: 12px !important; cursor: pointer !important; }
-.sd-switch-input { position: absolute !important; opacity: 0 !important; width: 1px !important; height: 1px !important; margin: 0 !important; }
-.sd-switch {
-  flex: none !important;
-  width: 48px !important;
-  height: 24px !important;
-  border-radius: 999px !important;
-  background: var(--sd-control) !important;
-  position: relative !important;
-  transition: background .15s !important;
-}
-.sd-switch-thumb {
-  position: absolute !important;
-  top: 4px !important;
-  left: 4px !important;
-  width: 16px !important;
-  height: 16px !important;
-  border-radius: 50% !important;
-  background: hsl(0, 0%, 100%) !important;
-  box-shadow: 0 1px 3px hsla(0, 0%, 0%, .2) !important;
-  transition: transform .15s !important;
-}
-.sd-switch-input:checked + .sd-switch { background: var(--sd-focus) !important; }
-.sd-switch-input:checked + .sd-switch .sd-switch-thumb { transform: translateX(24px) !important; }
-.sd-switch-input:focus-visible + .sd-switch { box-shadow: 0 0 0 2px var(--sd-bg), 0 0 0 4px var(--sd-focus) !important; }
-.sd-switch-text { display: flex !important; flex-direction: column !important; gap: 4px !important; }
-.sd-check-title { font-size: 14px !important; font-weight: 600 !important; line-height: 20px !important; color: var(--sd-fg) !important; }
-.sd-check-desc { font-size: 12px !important; line-height: 18px !important; color: var(--sd-muted) !important; }
-.sd-tips { margin: 0 !important; padding: 12px !important; list-style: none !important; display: flex !important; flex-direction: column !important; gap: 12px !important; background: var(--sd-soft) !important; border-radius: 8px !important; }
-.sd-tips li { font-size: 14px !important; line-height: 20px !important; color: var(--sd-muted) !important; display: flex !important; align-items: center !important; gap: 8px !important; margin: 0 !important; padding: 0 !important; }
-.sd-tip-icon { flex: none !important; display: inline-flex !important; color: var(--sd-muted) !important; }
-.sd-tip-icon svg { display: block !important; }
-.sd-footer { display: flex !important; justify-content: space-between !important; align-items: center !important; gap: 8px !important; padding: 16px 24px !important; background: var(--sd-soft) !important; }
-.sd-footer-actions { display: flex !important; gap: 8px !important; }
-.sd-btn { padding: 8px 16px !important; font-size: 14px !important; font-weight: 500 !important; line-height: 20px !important; border-radius: 8px !important; cursor: pointer !important; transition: background .15s !important; }
-.sd-btn-ghost { color: var(--sd-muted) !important; background: transparent !important; border: 1px solid transparent !important; }
-.sd-btn-ghost:hover { color: var(--sd-fg) !important; background: var(--sd-ring) !important; }
-.sd-btn-cancel { color: var(--sd-fg) !important; background: var(--sd-field) !important; border: 1px solid var(--sd-border) !important; }
-.sd-btn-cancel:hover { background: var(--sd-ring) !important; }
-.sd-btn-save { color: hsl(0, 0%, 100%) !important; background: hsl(222, 47%, 11%) !important; border: 1px solid hsl(222, 47%, 11%) !important; box-shadow: 0 1px 3px hsla(0, 0%, 0%, .2) !important; }
-.sd-btn-save:hover { background: hsl(217, 33%, 17%) !important; }
-@media (prefers-color-scheme: dark) {
-  .sd-btn-save { background: hsl(214, 32%, 91%) !important; border-color: hsl(214, 32%, 91%) !important; color: hsl(222, 47%, 11%) !important; box-shadow: 0 1px 3px hsla(0, 0%, 0%, .4) !important; }
-  .sd-btn-save:hover { background: hsl(210, 40%, 96%) !important; }
-  .sd-switch-input:checked + .sd-switch .sd-switch-thumb { background: hsl(222, 47%, 11%) !important; }
-}
-@media (max-width: 480px) {
-  .sd-overlay { padding: 12px !important; }
-  .sd-panel { max-height: calc(100vh - 24px) !important; }
-  .sd-head { padding: 16px 16px 0 !important; }
-  .sd-body { padding: 16px !important; }
-  .sd-footer { padding: 12px 16px !important; }
-}
-`;
-
-/* ================= Settings panel ================= */
-
-let panelLastFocused = null;
-let panelSavedOverflow = null;
-
-function closeSettingsPanel() {
-  const overlay = document.getElementById("super-drag-settings-overlay");
-  if (!overlay) return;
-  overlay.remove();
-  if (panelSavedOverflow !== null) {
-    if (panelSavedOverflow) document.documentElement.style.overflow = panelSavedOverflow;
-    else document.documentElement.style.removeProperty("overflow");
-    panelSavedOverflow = null;
-  }
-  if (panelLastFocused && typeof panelLastFocused.focus === "function") {
-    try {
-      panelLastFocused.focus();
-    } catch {
-      // original element may be gone; ignore
-    }
-  }
-  panelLastFocused = null;
-}
-
-function isValidCustomEngine(url) {
-  if (!url.includes("{keyword}")) return "自定义搜索 URL 必须包含 {keyword} 占位符";
-  if (!/^https?:\/\/[^/\s]+/i.test(url)) return "自定义搜索 URL 必须以 http:// 或 https:// 开头";
-  return null;
-}
-
-function appendOption(select, value, label, selected) {
-  const opt = document.createElement("option");
-  opt.value = value;
-  opt.textContent = label;
-  if (value === selected) opt.selected = true;
-  select.appendChild(opt);
-}
-
-function buildEngineOptions(select, engines, selected) {
-  select.textContent = "";
-  for (const key of Object.keys(engines)) {
-    appendOption(select, key, ENGINE_NAMES[key] || key, selected);
-  }
-  appendOption(select, "custom", "自定义", selected);
-}
-
-function sectionTitle(icon, text) {
-  const title = el("div", "sd-section-title");
-  title.append(svgIcon(icon, "sd-title-icon"), document.createTextNode(text));
-  return title;
-}
-
-function makeButton(className, text) {
-  const btn = el("button", className, text);
-  btn.type = "button";
-  return btn;
-}
-
-function showFieldError(errorLine, message) {
-  errorLine.textContent = message;
-  errorLine.style.display = "";
-}
-
-function hideFieldError(errorLine) {
-  errorLine.style.display = "none";
-}
-
-function buildEnabledSection(current) {
-  const section = el("div", "sd-section");
-  const row = el("label", "sd-switch-row");
-  const box = document.createElement("input");
-  box.type = "checkbox";
-  box.className = "sd-switch-input";
-  box.checked = current.enabled !== false;
-  const track = el("span", "sd-switch");
-  track.appendChild(el("span", "sd-switch-thumb"));
-  const labelWrap = el("div", "sd-switch-text");
-  labelWrap.append(
-    el("div", "sd-check-title", "启用超级拖拽"),
-    el("div", "sd-check-desc", "关闭后拖拽文字、链接、图片均无响应")
-  );
-  row.append(box, track, labelWrap);
-  section.appendChild(row);
-  return { section, enabledBox: box };
-}
-
-function buildTextSection(current) {
-  const section = el("div", "sd-section");
-  section.appendChild(sectionTitle("text", "文字拖拽"));
-
-  const engineField = el("div", "sd-field");
-  engineField.appendChild(el("label", "sd-label", "搜索引擎"));
-  const engineSelect = el("select", "sd-select");
-  buildEngineOptions(engineSelect, current.engines, current.defaultEngine);
-  engineField.appendChild(engineSelect);
-  section.appendChild(engineField);
-
-  const customRow = el("div", "sd-field");
-  if (current.defaultEngine !== "custom") customRow.style.display = "none";
-  customRow.appendChild(el("label", "sd-label", "自定义搜索 URL"));
-  const customInput = el("input", "sd-input");
-  customInput.type = "text";
-  customInput.value = current.customEngineUrl || "";
-  customInput.placeholder = "https://www.google.com/search?q={keyword}";
-  customInput.spellcheck = false;
-  customInput.setAttribute("aria-describedby", "sd-custom-error");
-  customRow.appendChild(customInput);
-  customRow.appendChild(el("p", "sd-hint", "使用 {keyword} 作为搜索关键词占位符"));
-  const errorLine = el("p", "sd-error");
-  errorLine.id = "sd-custom-error";
-  errorLine.setAttribute("aria-live", "polite");
-  errorLine.style.display = "none";
-  customRow.appendChild(errorLine);
-  section.appendChild(customRow);
-
-  const previewBox = el("div", "sd-preview");
-  previewBox.appendChild(el("div", "sd-preview-label", `效果预览（示例关键词 ${PREVIEW_SAMPLE_KEYWORD}）`));
-  const previewUrl = el("div", "sd-preview-url");
-  previewUrl.setAttribute("aria-live", "polite");
-  previewBox.appendChild(previewUrl);
-  section.appendChild(previewBox);
-
-  return { section, engineSelect, customRow, customInput, errorLine, previewUrl };
-}
-
-function buildLinkSection(current) {
-  const section = el("div", "sd-section");
-  section.appendChild(sectionTitle("link", "链接拖拽"));
-  const openField = el("div", "sd-field");
-  openField.appendChild(el("label", "sd-label", "新窗口打开方式"));
-  const openSelect = el("select", "sd-select");
-  appendOption(openSelect, "background", "后台打开（停留在当前页）", current.linkOpenMode);
-  appendOption(openSelect, "foreground", "前台打开（立即切换过去）", current.linkOpenMode);
-  openField.appendChild(openSelect);
-  section.appendChild(openField);
-  return { section, openSelect };
-}
-
-const TIP_ITEMS = [
-  ["search", "选中文字并拖动 —— 搜索，网址文本直接打开"],
-  ["link", "按住链接拖动 —— 新标签页打开"],
-  ["image", "按住图片拖动 —— 新标签页查看"],
-  ["link", "拖拽时按住 Shift —— 本次前台打开"],
-  ["text", "按 Esc —— 取消本次拖拽"],
-];
-
-function buildTipsSection() {
-  const section = el("div", "sd-section");
-  section.appendChild(sectionTitle("bulb", "使用方式"));
-  const tips = el("ul", "sd-tips");
-  for (const [icon, text] of TIP_ITEMS) {
-    const li = document.createElement("li");
-    li.append(svgIcon(icon, "sd-tip-icon"), document.createTextNode(text));
-    tips.appendChild(li);
-  }
-  section.appendChild(tips);
-  return section;
-}
-
-function buildFooter() {
-  const footer = el("div", "sd-footer");
-  const btnReset = makeButton("sd-btn sd-btn-ghost", "恢复默认");
-  const actions = el("div", "sd-footer-actions");
-  const btnCancel = makeButton("sd-btn sd-btn-cancel", "取消");
-  const btnSave = makeButton("sd-btn sd-btn-save", "保存");
-  actions.append(btnCancel, btnSave);
-  footer.append(btnReset, actions);
-  return { footer, btnReset, btnCancel, btnSave };
-}
-
-function trapTabFocus(e, panel) {
-  if (e.key !== "Tab") return;
-  const items = Array.from(panel.querySelectorAll("button, select, input")).filter(
-    (n) => !n.disabled && n.offsetParent !== null
-  );
-  if (!items.length) return;
-  const first = items[0];
-  const last = items[items.length - 1];
-  if (e.shiftKey && document.activeElement === first) {
-    e.preventDefault();
-    last.focus();
-  } else if (!e.shiftKey && document.activeElement === last) {
-    e.preventDefault();
-    first.focus();
-  }
-}
-
-function createSettingsPanel() {
-  ensurePanelStyle();
-  closeSettingsPanel();
-  const current = loadSettings();
-  panelLastFocused = document.activeElement;
-  panelSavedOverflow = document.documentElement.style.overflow;
-  document.documentElement.style.overflow = "hidden";
-
-  const overlay = el("div", "sd-overlay");
-  overlay.id = "super-drag-settings-overlay";
-
-  const panel = el("div", "sd-panel");
-  panel.setAttribute("role", "dialog");
-  panel.setAttribute("aria-modal", "true");
-  panel.setAttribute("aria-label", "超级拖拽设置");
-
-  const head = el("div", "sd-head");
-  head.appendChild(el("h2", "sd-title", "超级拖拽设置"));
-  head.appendChild(el("p", "sd-subtitle", "拖拽文字搜索，拖拽链接、图片在新标签页打开"));
-  panel.appendChild(head);
-
-  const body = el("div", "sd-body");
-  const { section: general, enabledBox } = buildEnabledSection(current);
-  body.appendChild(general);
-
-  const { section: textSection, engineSelect, customRow, customInput, errorLine, previewUrl } =
-    buildTextSection(current);
-  body.appendChild(textSection);
-
-  const { section: linkSection, openSelect } = buildLinkSection(current);
-  body.appendChild(linkSection);
-  body.appendChild(buildTipsSection());
-  panel.appendChild(body);
-
-  const { footer, btnReset, btnCancel, btnSave } = buildFooter();
-  panel.appendChild(footer);
-
-  overlay.appendChild(panel);
-  (document.body || document.documentElement).appendChild(overlay);
-
-  // Live preview + validation
-  function setPreviewText(message, resolved) {
-    previewUrl.textContent = message;
-    if (resolved) previewUrl.title = resolved;
-    else previewUrl.removeAttribute("title");
-  }
-
-  function refreshPreview() {
-    const isCustom = engineSelect.value === "custom";
-    customRow.style.display = isCustom ? "" : "none";
-    const template = isCustom ? customInput.value.trim() : current.engines[engineSelect.value];
-    if (!template) {
-      setPreviewText(isCustom ? "请填写自定义搜索 URL" : "—");
-      return;
-    }
-    if (!template.includes("{keyword}")) {
-      setPreviewText("URL 中缺少 {keyword} 占位符，保存时将回退默认搜索引擎");
-      return;
-    }
-    const resolved = template.replace("{keyword}", encodeURIComponent(PREVIEW_SAMPLE_KEYWORD));
-    setPreviewText(resolved, resolved);
-  }
-
-  function validateLive() {
-    const value = customInput.value.trim();
-    if (engineSelect.value !== "custom" || !value) {
-      hideFieldError(errorLine);
-      return;
-    }
-    const problem = isValidCustomEngine(value);
-    if (problem) showFieldError(errorLine, problem);
-    else hideFieldError(errorLine);
-  }
-
-  engineSelect.addEventListener("change", () => {
-    hideFieldError(errorLine);
-    refreshPreview();
-  });
-  customInput.addEventListener("input", () => {
-    validateLive();
-    refreshPreview();
-  });
-
-  btnReset.addEventListener("click", () => {
-    const def = cloneDefaults();
-    enabledBox.checked = def.enabled;
-    buildEngineOptions(engineSelect, { ...current.engines, ...def.engines }, def.defaultEngine);
-    customInput.value = "";
-    openSelect.value = def.linkOpenMode;
-    hideFieldError(errorLine);
-    refreshPreview();
-  });
-
-  btnCancel.addEventListener("click", closeSettingsPanel);
-  overlay.addEventListener("mousedown", (e) => {
-    if (e.target === overlay) closeSettingsPanel();
-  });
-  // Keep Tab focus inside the dialog while it is open.
-  overlay.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") {
-      e.stopPropagation();
-      closeSettingsPanel();
-      return;
-    }
-    trapTabFocus(e, panel);
-  });
-
-  btnSave.addEventListener("click", () => {
-    const customUrl = customInput.value.trim();
-    if (engineSelect.value === "custom" && customUrl) {
-      const problem = isValidCustomEngine(customUrl);
-      if (problem) {
-        showFieldError(errorLine, problem);
-        customInput.focus();
-        return;
-      }
-    }
-    saveSettings({
-      ...current,
-      enabled: enabledBox.checked,
-      defaultEngine: engineSelect.value,
-      customEngineUrl: customUrl,
-      linkOpenMode: openSelect.value,
-    });
-    closeSettingsPanel();
-  });
-
-  refreshPreview();
-  try {
-    enabledBox.focus();
-  } catch {
-    // focus optional; panel is fully usable without it
-  }
-}
-
-/* ================= Main ================= */
-
-function init() {
-  initDrag();
-  try {
-    if (typeof GM_registerMenuCommand === "function") {
-      GM_registerMenuCommand("超级拖拽：设置", createSettingsPanel);
-    }
-  } catch {
-    // menu command unavailable; panel stays unreachable but drag still works
-  }
-}
-
-try {
-  init();
-} catch (err) {
-  console.error("[Super Drag] Fatal error", err);
-}
+(function() {
+	//#region packages/shared/src/gm.ts
+	/**
+	* 把全局 GM 函数包成可注入的接口。
+	*
+	* @param scope 通常是 `globalThis`；测试里传假对象即可验证降级分支。
+	*/
+	function createGmApi(scope = globalThis) {
+		return {
+			getValue(key, fallback) {
+				if (typeof scope.GM_getValue !== "function") return fallback;
+				try {
+					const stored = scope.GM_getValue(key, fallback);
+					return stored === void 0 ? fallback : stored;
+				} catch {
+					return fallback;
+				}
+			},
+			setValue(key, value) {
+				if (typeof scope.GM_setValue !== "function") return false;
+				try {
+					scope.GM_setValue(key, value);
+					return true;
+				} catch {
+					return false;
+				}
+			},
+			registerMenuCommand(label, run) {
+				if (typeof scope.GM_registerMenuCommand !== "function") return false;
+				try {
+					scope.GM_registerMenuCommand(label, run);
+					return true;
+				} catch {
+					return false;
+				}
+			}
+		};
+	}
+	//#endregion
+	//#region packages/shared/src/storage.ts
+	/**
+	* 设置读写：默认值合并 + 异常兜底。
+	*
+	* 合并规则刻意与线上脚本 `{ ...DEFAULT, ...stored }` 的行为保持一致：
+	* 只合并普通对象，数组和标量整体覆盖，`null`/`undefined` 视为“没存过”。
+	* 存储里多出来的键会保留，避免旧版本回退时丢掉新版本写入的字段。
+	*/
+	function isRecord(value) {
+		return typeof value === "object" && value !== null && !Array.isArray(value);
+	}
+	function clone(value) {
+		if (typeof structuredClone === "function") return structuredClone(value);
+		return JSON.parse(JSON.stringify(value));
+	}
+	function mergeValue(defaultValue, storedValue) {
+		if (storedValue == null) return isRecord(defaultValue) ? mergeRecords(defaultValue, {}) : clone(defaultValue);
+		if (isRecord(defaultValue) && isRecord(storedValue)) return mergeRecords(defaultValue, storedValue);
+		return storedValue;
+	}
+	function mergeRecords(defaults, stored) {
+		const merged = {};
+		for (const [key, value] of Object.entries(defaults)) merged[key] = Object.hasOwn(stored, key) ? mergeValue(value, stored[key]) : mergeValue(value, void 0);
+		for (const [key, value] of Object.entries(stored)) if (!Object.hasOwn(merged, key)) merged[key] = value;
+		return merged;
+	}
+	/**
+	* 把存储里读到的任意值合并到默认值上。
+	*
+	* @param defaults 默认设置（不会被修改）
+	* @param stored 存储里读到的原始值，可能是 null、字符串或残缺对象
+	* @returns 新对象；调用方可以安全修改
+	*/
+	function mergeDefaults(defaults, stored) {
+		if (!isRecord(defaults)) throw new TypeError("mergeDefaults 需要一个对象作为默认值");
+		if (!isRecord(stored)) return mergeRecords(defaults, {});
+		return mergeRecords(defaults, stored);
+	}
+	/**
+	* 写入设置；失败时返回 false，由调用方决定是否保留内存副本。
+	*/
+	function saveStoredSettings(api, key, value) {
+		return api.setValue(key, value);
+	}
+	//#endregion
+	//#region scripts/super-drag/src/settings.ts
+	/** 「自定义」引擎在 `defaultEngine` 里的取值；`engines` 里不会有这个键。 */
+	var CUSTOM_ENGINE_ID = "custom";
+	/** 线上旧键，按 AGENTS.md 6.4 不改名，否则老用户设置会丢。 */
+	var SETTINGS_KEY = "settings";
+	/** 没有存量设置时使用的值。 */
+	var DEFAULT_SETTINGS = {
+		defaultEngine: "google",
+		customEngineUrl: "",
+		engines: {
+			"cn.bing": "https://cn.bing.com/search?q={keyword}",
+			bing: "https://www.bing.com/search?q={keyword}",
+			google: "https://www.google.com/search?q={keyword}",
+			baidu: "https://www.baidu.com/s?wd={keyword}"
+		},
+		linkOpenMode: "background",
+		urlTextAction: "open",
+		imageAction: "viewer",
+		dragKinds: {
+			text: true,
+			link: true,
+			image: true
+		}
+	};
+	function sanitizeEngines(value) {
+		if (typeof value !== "object" || value === null) return { ...DEFAULT_SETTINGS.engines };
+		const engines = {};
+		for (const [id, template] of Object.entries(value)) if (typeof template === "string" && template !== "") engines[id] = template;
+		return Object.keys(engines).length > 0 ? engines : { ...DEFAULT_SETTINGS.engines };
+	}
+	/**
+	* 归一化三类拖拽开关。
+	*
+	* 只认显式的 `false`：存储里多出来的键、字符串、缺字段都按“开启”处理，
+	* 避免坏值把用户唯一能用的拖拽也关掉。
+	*/
+	function sanitizeDragKinds(value) {
+		const stored = typeof value === "object" && value !== null ? value : {};
+		return {
+			text: stored.text !== false,
+			link: stored.link !== false,
+			image: stored.image !== false
+		};
+	}
+	/**
+	* 把存储里读到的任意值收敛成可用设置。
+	*
+	* 存储可能被旧版本、手改或别的脚本写坏；单个字段坏掉只回退该字段，不让整页拖拽失效。
+	* 旧版的 `enabled` 总开关不再读取：整体停用交给脚本管理器的开关。
+	*/
+	function normalizeSettings(stored) {
+		const merged = mergeDefaults(DEFAULT_SETTINGS, stored);
+		const engines = sanitizeEngines(merged.engines);
+		const engine = typeof merged.defaultEngine === "string" && merged.defaultEngine !== "" ? merged.defaultEngine : DEFAULT_SETTINGS.defaultEngine;
+		return {
+			defaultEngine: engine === "custom" || Object.hasOwn(engines, engine) ? engine : DEFAULT_SETTINGS.defaultEngine,
+			customEngineUrl: typeof merged.customEngineUrl === "string" ? merged.customEngineUrl : "",
+			engines,
+			linkOpenMode: merged.linkOpenMode === "foreground" ? "foreground" : "background",
+			urlTextAction: merged.urlTextAction === "search" ? "search" : "open",
+			imageAction: merged.imageAction === "original" ? "original" : "viewer",
+			dragKinds: sanitizeDragKinds(merged.dragKinds)
+		};
+	}
+	/**
+	* 创建设置仓库。
+	*
+	* @param api GM 适配层；测试里可以传入假实现
+	*/
+	function createSettingsStore(api = createGmApi()) {
+		let cache = null;
+		const get = () => {
+			if (!cache) cache = normalizeSettings(api.getValue(SETTINGS_KEY, null));
+			return cache;
+		};
+		return {
+			get,
+			update(patch) {
+				const next = {
+					...get(),
+					...patch
+				};
+				cache = next;
+				saveStoredSettings(api, SETTINGS_KEY, next);
+				return next;
+			}
+		};
+	}
+	//#endregion
+	//#region scripts/super-drag/src/search.ts
+	/** 设置面板里“效果预览”使用的示例关键词。 */
+	var PREVIEW_KEYWORD = "hello";
+	/** 内置引擎的显示名；存储里新增的引擎直接用 ID 当名字。 */
+	var ENGINE_LABELS = {
+		"cn.bing": "Bing (CN)",
+		bing: "Bing",
+		google: "Google",
+		baidu: "Baidu"
+	};
+	var GOOGLE_FALLBACK = "https://www.google.com/search?q={keyword}";
+	/** 下拉选项：存储里的引擎 + 自定义。顺序沿用存储顺序，保证旧用户看到的顺序不变。 */
+	function engineOptions(settings) {
+		const options = Object.keys(settings.engines).map((id) => ({
+			value: id,
+			label: ENGINE_LABELS[id] ?? id
+		}));
+		options.push({
+			value: CUSTOM_ENGINE_ID,
+			label: "自定义"
+		});
+		return options;
+	}
+	/** 解析当前引擎的地址模板；配置无效时回退 Google，而不是打开一个坏地址。 */
+	function resolveSearchTemplate(settings) {
+		const template = settings.defaultEngine === "custom" ? settings.customEngineUrl : settings.engines[settings.defaultEngine];
+		if (typeof template !== "string" || !template.includes("{keyword}")) return GOOGLE_FALLBACK;
+		return template;
+	}
+	/** 把关键词编码后填进模板，得到最终搜索地址。 */
+	function buildSearchUrl(settings, keyword) {
+		return resolveSearchTemplate(settings).replace("{keyword}", encodeURIComponent(keyword));
+	}
+	/**
+	* 校验自定义搜索地址。
+	*
+	* @returns 错误文案；`null` 表示可用
+	*/
+	function validateCustomEngineUrl(url) {
+		const value = url.trim();
+		if (value === "") return "请填写自定义搜索 URL";
+		if (!value.includes("{keyword}")) return "自定义搜索 URL 必须包含 {keyword} 占位符";
+		if (!/^https?:\/\/[^/\s]+/i.test(value)) return "自定义搜索 URL 必须以 http:// 或 https:// 开头";
+		return null;
+	}
+	/** 默认设置的深拷贝，供“恢复默认”按钮使用。 */
+	function defaultSettings() {
+		return {
+			...DEFAULT_SETTINGS,
+			engines: { ...DEFAULT_SETTINGS.engines },
+			dragKinds: { ...DEFAULT_SETTINGS.dragKinds }
+		};
+	}
+	var URL_PATTERN = /(ftp|http|https):\/\/(\w+:{0,1}\w*@)?(\S+)(:[0-9]+)?(\/|\/([\w#!:.?+=&%@!-/]))?/;
+	/** @param text 任意文本 */
+	function looksLikeUrl(text) {
+		return URL_PATTERN.test(text);
+	}
+	/**
+	* 把拖拽的文本转成“直接打开”的地址。
+	*
+	* @returns 可直接打开的地址；`''` 表示应当走搜索
+	*/
+	function asDirectUrl(text) {
+		const keyword = typeof text === "string" ? text.trim() : "";
+		if (keyword === "" || keyword.length > 2048 || /\s/.test(keyword)) return "";
+		return looksLikeUrl(keyword) ? keyword : "";
+	}
+	//#endregion
+	//#region scripts/super-drag/src/features/drop-action.ts
+	/**
+	* 决定这次拖拽归不归脚本处理。
+	*
+	* 规则与线上原版一致：选区优先（按在选区里拖连接也是搜索），其次链接，再次图片，
+	* 最后才是“可拖拽元素上带着一段选区”的兜底。
+	*
+	* 按在选区里但文字拖拽被关掉时直接不接管：用户此刻想拖的是文字，交还给网页原生拖拽，
+	* 而不是突然打开压在下面的链接。
+	*
+	* @param kinds 三类拖拽各自的开关
+	* @returns 要接管的内容；`null` 表示交给浏览器原生拖拽
+	*/
+	function decideDrag(candidate, kinds) {
+		if (candidate.selection !== "" && candidate.selectionHit) return kinds.text ? {
+			kind: "text",
+			data: candidate.selection
+		} : null;
+		if (kinds.link && candidate.link !== "") return {
+			kind: "link",
+			data: candidate.link
+		};
+		if (kinds.image && candidate.image !== "") return {
+			kind: "image",
+			data: candidate.image
+		};
+		if (kinds.text && candidate.selection !== "") return {
+			kind: "text",
+			data: candidate.selection
+		};
+		return null;
+	}
+	/** 本次打开是否切到前台：按住 Shift，或设置里选了前台打开。 */
+	function shouldOpenInForeground(shiftKey, linkOpenMode) {
+		return shiftKey || linkOpenMode === "foreground";
+	}
+	/**
+	* 把拖拽内容转成“打开什么”。
+	*
+	* 文本：网址且设置为直接打开时打开它，否则拼搜索地址；链接：打开链接；
+	* 图片：交给图片打开流程（可能是查看器页面）。
+	*/
+	function resolveDropAction(kind, data, settings) {
+		if (data === "") return null;
+		if (kind === "link") return {
+			kind: "url",
+			url: data
+		};
+		if (kind === "image") return {
+			kind: "image",
+			url: data
+		};
+		if (settings.urlTextAction === "open") {
+			const direct = asDirectUrl(data);
+			if (direct !== "") return {
+				kind: "url",
+				url: direct
+			};
+		}
+		return {
+			kind: "search",
+			url: buildSearchUrl(settings, data)
+		};
+	}
+	//#endregion
+	//#region scripts/super-drag/src/features/editable.ts
+	/**
+	* 判断事件发生在可编辑控件上。
+	*
+	* 输入框里的拖拽是浏览器原生的“移动文字 / 拖入粘贴”，脚本不能抢；
+	* 但 contenteditable 祖先（例如评论富文本容器）不能一层层往上否决，否则静态评论文字也会失效。
+	*/
+	/** 元素本身是否是表单控件或可编辑区域。 */
+	function isEditableField(node) {
+		if (!node || node.nodeType !== Node.ELEMENT_NODE) return false;
+		const tag = node.tagName.toLowerCase();
+		if (tag === "input" || tag === "textarea" || tag === "select") return true;
+		if (node.isContentEditable) return true;
+		if (node.getAttribute("contenteditable") === "true") return true;
+		if (node.getAttribute("role") === "textbox") return true;
+		return false;
+	}
+	/**
+	* 取真实的事件目标。
+	*
+	* 在 window 捕获阶段监听时，Shadow DOM 内的事件会被重定向到宿主；
+	* `composedPath()` 能拿回真正的内部节点（例如组件里的 `<input>`）。
+	*/
+	function realTarget(event) {
+		try {
+			if (typeof event.composedPath === "function") {
+				const path = event.composedPath();
+				if (path.length > 0) return path[0] ?? null;
+			}
+		} catch {}
+		return event.target;
+	}
+	/**
+	* 事件是否发生在输入框里（含 label 包着 input 这类结构）。
+	*/
+	function isInputElement(event) {
+		const raw = realTarget(event);
+		const target = raw instanceof Element ? raw : null;
+		if (isEditableField(target)) return true;
+		let node = target?.parentElement ?? null;
+		while (node) {
+			const tag = node.tagName.toLowerCase();
+			if (tag === "input" || tag === "textarea" || tag === "select") return true;
+			if (node.isContentEditable) break;
+			node = node.parentElement;
+		}
+		return false;
+	}
+	//#endregion
+	//#region scripts/super-drag/src/features/hit-test.ts
+	var XLINK_NS = "http://www.w3.org/1999/xlink";
+	/** 跨 Shadow 边界找父元素：先看 parentElement，再回到宿主。 */
+	function parentAcrossShadow(node) {
+		if (node.parentElement) return node.parentElement;
+		const root = node.getRootNode();
+		return root instanceof ShadowRoot ? root.host : null;
+	}
+	function isIgnorableHref(href) {
+		return !href || href === "#" || href.toLowerCase().startsWith("javascript:");
+	}
+	/**
+	* 解析链接地址。
+	*
+	* HTML 的 `a.href` 已是绝对地址，但 SVG 的 `<a>` 返回 SVGAnimatedString，
+	* 所以统一读原始属性并用 `document.baseURI` 补全，顺带支持 `xlink:href`。
+	*/
+	function resolveLinkHref(node) {
+		const raw = node.getAttribute("href") ?? node.getAttributeNS(XLINK_NS, "href") ?? "";
+		if (raw === "") return "";
+		try {
+			return new URL(raw, document.baseURI).href;
+		} catch {
+			return "";
+		}
+	}
+	/** 逐层穿透 open Shadow Root 取真实元素。 */
+	function deepElementFromPoint(x, y) {
+		let root = document;
+		let element = null;
+		for (;;) {
+			let next;
+			try {
+				next = root.elementFromPoint(x, y);
+			} catch {
+				next = null;
+			}
+			if (!next) break;
+			element = next;
+			if (next.shadowRoot && next.shadowRoot.mode === "open") root = next.shadowRoot;
+			else break;
+		}
+		return element;
+	}
+	/** 快路径：事件目标本身或其祖先就是链接 / 图片。 */
+	function hitTestFast(target) {
+		if (!target || target.nodeType !== Node.ELEMENT_NODE || typeof target.closest !== "function") return null;
+		const tag = target.tagName.toUpperCase();
+		let link = "";
+		const linkEl = tag === "A" ? target : target.closest("a");
+		if (linkEl && !isIgnorableHref(linkEl.getAttribute("href"))) link = resolveLinkHref(linkEl);
+		let image = "";
+		if (tag === "IMG") {
+			const img = target;
+			image = img.currentSrc || img.src || "";
+		}
+		return link || image ? {
+			link,
+			image
+		} : null;
+	}
+	/** 慢路径：一次命中测试后往上爬，收集最近的链接 / 图片。 */
+	function hitTestSlow(x, y) {
+		const found = {
+			link: "",
+			image: ""
+		};
+		let node = deepElementFromPoint(x, y);
+		while (node) {
+			const tag = node.tagName.toUpperCase();
+			if (found.link === "" && tag === "A") {
+				if (!isIgnorableHref(node.getAttribute("href"))) {
+					found.link = resolveLinkHref(node);
+					if (found.link !== "") break;
+				}
+			} else if (found.image === "" && tag === "IMG") {
+				const img = node;
+				found.image = img.currentSrc || img.src || "";
+			}
+			node = parentAcrossShadow(node);
+		}
+		return found;
+	}
+	function hitTest(x, y, target) {
+		return hitTestFast(target) ?? hitTestSlow(x, y);
+	}
+	/** 当前选中文本；没有选区时返回空字符串。 */
+	function getSelectionText() {
+		const selection = window.getSelection();
+		return selection ? selection.toString().trim() : "";
+	}
+	function pointInRect(x, y, rect) {
+		return x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
+	}
+	function pointNearRect(x, y, rect, slop) {
+		return x >= rect.left - slop && x <= rect.right + slop && y >= rect.top - slop && y <= rect.bottom + slop;
+	}
+	function caretRangeFromPoint(x, y) {
+		try {
+			if (typeof document.caretRangeFromPoint === "function") return document.caretRangeFromPoint(x, y);
+		} catch {}
+		try {
+			if (typeof document.caretPositionFromPoint === "function") {
+				const position = document.caretPositionFromPoint(x, y);
+				if (position) {
+					const range = document.createRange();
+					range.setStart(position.offsetNode, position.offset);
+					range.collapse(true);
+					return range;
+				}
+			}
+		} catch {}
+		return null;
+	}
+	/**
+	* 判断按下点上的字符是否在选区内部。
+	*
+	* 不用 `selection.containsNode(node, true)`：它只要求节点与选区有交集，同一段文字里
+	* 选区之外的按下点也算命中；`comparePoint` 比的是具体偏移，才对得上“按下的字符”。
+	*/
+	function isCaretInsideRange(range, container, offset) {
+		if (typeof range.comparePoint === "function") try {
+			return range.comparePoint(container, offset) === 0;
+		} catch {}
+		const selection = window.getSelection();
+		if (selection && typeof selection.containsNode === "function") try {
+			return selection.containsNode(container, true);
+		} catch {
+			return false;
+		}
+		return false;
+	}
+	/**
+	* @param path 按下点途经的事件路径（内 → 外）；文档级选区被折叠时依次问带 `getSelection` 的节点
+	*/
+	function isPointInSelection(x, y, path = []) {
+		const selection = window.getSelection();
+		const active = selection && !selection.isCollapsed ? selection : path.map((node) => node.getSelection?.() ?? null).find((s) => s && !s.isCollapsed) ?? null;
+		if (!active) return false;
+		const range = active.getRangeAt(0);
+		let rects = [];
+		try {
+			rects = Array.from(range.getClientRects());
+		} catch {}
+		for (const rect of rects) if (pointNearRect(x, y, rect, 4)) return true;
+		const caret = caretRangeFromPoint(x, y);
+		if (caret && isCaretInsideRange(range, caret.startContainer, caret.startOffset)) return true;
+		if (rects.length > 0) return false;
+		const anchor = range.commonAncestorContainer;
+		const host = anchor.nodeType === Node.ELEMENT_NODE ? anchor : anchor.parentElement;
+		return !!host && pointInRect(x, y, host.getBoundingClientRect());
+	}
+	//#endregion
+	//#region scripts/super-drag/src/features/dnd.ts
+	var CLICK_SWALLOW_MS = 400;
+	var GHOST_PIXEL_SRC = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
+	function installDragSensor(deps) {
+		const controller = new AbortController();
+		const { signal } = controller;
+		const listenerOptions = {
+			capture: true,
+			signal
+		};
+		let phase = "idle";
+		let kind = "text";
+		let data = "";
+		let swallowClickUntil = 0;
+		let ghost = null;
+		const reset = () => {
+			phase = "idle";
+			kind = "text";
+			data = "";
+		};
+		const ghostPixel = () => {
+			if (!ghost) {
+				ghost = document.createElement("img");
+				ghost.src = GHOST_PIXEL_SRC;
+			}
+			return ghost;
+		};
+		const claim = (transfer, text) => {
+			try {
+				transfer.setData("text/plain", text);
+				return true;
+			} catch {
+				return false;
+			}
+		};
+		/** 事件发生处的链接 / 图片。 */
+		const hitTestAt = (event) => {
+			const target = realTarget(event);
+			return hitTest(event.clientX, event.clientY, target instanceof Element ? target : null);
+		};
+		const handleDragStart = (event) => {
+			if (phase !== "idle") return;
+			if (event.ctrlKey || event.metaKey || event.altKey) return;
+			if (isInputElement(event)) return;
+			const transfer = event.dataTransfer;
+			if (!transfer) return;
+			const settings = deps.getSettings();
+			const selected = getSelectionText();
+			const selectionHit = selected !== "" && isPointInSelection(event.clientX, event.clientY, event.composedPath());
+			const hit = selectionHit ? {
+				link: "",
+				image: ""
+			} : hitTestAt(event);
+			const payload = decideDrag({
+				link: hit.link,
+				image: hit.image,
+				selection: selected,
+				selectionHit
+			}, settings.dragKinds);
+			if (!payload || !claim(transfer, payload.data)) return;
+			try {
+				transfer.effectAllowed = "copy";
+				transfer.setDragImage(ghostPixel(), 0, 0);
+			} catch {}
+			phase = "dragging";
+			kind = payload.kind;
+			data = payload.data;
+		};
+		const handleDragOver = (event) => {
+			if (phase !== "dragging") return;
+			event.preventDefault();
+			event.stopPropagation();
+			try {
+				if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
+			} catch {}
+		};
+		const handleDrop = (event) => {
+			if (phase !== "dragging") return;
+			if (isInputElement(event)) {
+				reset();
+				return;
+			}
+			event.preventDefault();
+			event.stopPropagation();
+			swallowClickUntil = performance.now() + CLICK_SWALLOW_MS;
+			const settings = deps.getSettings();
+			const foreground = shouldOpenInForeground(event.shiftKey === true, settings.linkOpenMode);
+			const action = resolveDropAction(kind, data, settings);
+			try {
+				if (action?.kind === "image") {
+					if (settings.imageAction === "original") deps.openUrl(action.url, foreground);
+					else deps.openImage(action.url, foreground);
+				} else if (action) deps.openUrl(action.url, foreground);
+			} finally {
+				reset();
+			}
+		};
+		const handleDragEnd = () => {
+			if (phase !== "idle") reset();
+		};
+		const handleClickCapture = (event) => {
+			if (swallowClickUntil !== 0 && performance.now() <= swallowClickUntil) {
+				swallowClickUntil = 0;
+				event.preventDefault();
+				event.stopPropagation();
+				event.stopImmediatePropagation();
+				return;
+			}
+			swallowClickUntil = 0;
+			if (phase !== "idle") reset();
+		};
+		const handleKeyDown = (event) => {
+			if (event.key === "Escape" && phase !== "idle") reset();
+		};
+		const handlePressStart = () => {
+			swallowClickUntil = 0;
+		};
+		window.addEventListener("dragstart", handleDragStart, listenerOptions);
+		window.addEventListener("dragover", handleDragOver, listenerOptions);
+		window.addEventListener("drop", handleDrop, listenerOptions);
+		window.addEventListener("dragend", handleDragEnd, listenerOptions);
+		window.addEventListener("blur", reset, { signal });
+		document.addEventListener("click", handleClickCapture, listenerOptions);
+		document.addEventListener("keydown", handleKeyDown, listenerOptions);
+		document.addEventListener("mousedown", handlePressStart, listenerOptions);
+		return { destroy() {
+			controller.abort();
+			ghost = null;
+			reset();
+			swallowClickUntil = 0;
+		} };
+	}
+	//#endregion
+	//#region scripts/super-drag/src/features/openers.ts
+	/**
+	* 打开新标签页：链接直接打开；图片包一层深色查看器；后台打开时把焦点还给当前页。
+	*
+	* GM_openInTab 优先（脚本管理器能正确处理后台标签页），没有时退回 window.open。
+	* 查看器 blob 只在 5 分钟后回收：提前回收会让刚打开、还没加载完的标签页变成空白页。
+	*/
+	var BLOB_REVOKE_DELAY_MS = 3e5;
+	var VIEWER_CSS = "*{margin:0;padding:0}body{display:flex;align-items:center;justify-content:center;min-height:100vh;background:#000}img{max-width:100%;max-height:100vh;object-fit:contain}";
+	/**
+	* 生成图片查看器页面。
+	*
+	* 用 `createHTMLDocument` 建 DOM 再序列化，而不是拼 HTML 字符串：图片地址里的引号、
+	* `&`、`<` 由浏览器负责转义，不会把地址拼成标签。
+	*/
+	function buildImageViewerHtml(imageUrl) {
+		const doc = document.implementation.createHTMLDocument("Image");
+		const meta = doc.createElement("meta");
+		meta.setAttribute("charset", "utf-8");
+		doc.head.prepend(meta);
+		const style = doc.createElement("style");
+		style.textContent = VIEWER_CSS;
+		doc.head.appendChild(style);
+		const img = doc.createElement("img");
+		img.setAttribute("src", imageUrl);
+		img.setAttribute("alt", "image");
+		doc.body.appendChild(img);
+		return `<!DOCTYPE html>${new XMLSerializer().serializeToString(doc.documentElement)}`;
+	}
+	function defaultScope() {
+		const globals = globalThis;
+		return {
+			GM_openInTab: typeof globals.GM_openInTab === "function" ? globals.GM_openInTab.bind(globals) : void 0,
+			open: window.open.bind(window),
+			focus: () => window.focus()
+		};
+	}
+	function createOpeners(scope = defaultScope()) {
+		const openUrl = (url, active) => {
+			if (typeof scope.GM_openInTab === "function") try {
+				scope.GM_openInTab(url, {
+					active,
+					insert: true
+				});
+				return;
+			} catch {}
+			const win = scope.open?.(url, "_blank", "noopener") ?? null;
+			if (win && !active) {
+				try {
+					win.blur();
+				} catch {}
+				scope.focus?.();
+			}
+		};
+		const openImage = (imageUrl, active) => {
+			if (/^(blob:|data:)/i.test(imageUrl)) {
+				openUrl(imageUrl, active);
+				return;
+			}
+			let url;
+			try {
+				url = URL.createObjectURL(new Blob([buildImageViewerHtml(imageUrl)], { type: "text/html" }));
+			} catch {
+				openUrl(imageUrl, active);
+				return;
+			}
+			setTimeout(() => URL.revokeObjectURL(url), BLOB_REVOKE_DELAY_MS);
+			openUrl(url, active);
+		};
+		return {
+			openUrl,
+			openImage
+		};
+	}
+	//#endregion
+	//#region packages/userscript-ui/src/styles/base.css?inline
+	var base_default = ":host {\n  all: initial;\n}\n\n.ds-root {\n  all: initial;\n  /* all:initial also resets color-scheme; restore the host's theme for native UI. */\n  color-scheme: inherit;\n  display: contents;\n  font-family: var(--ds-font-sans);\n  font-size: var(--ds-text-base);\n  line-height: var(--ds-leading-normal);\n  color: var(--ds-foreground);\n  text-align: start;\n  -webkit-font-smoothing: antialiased;\n  -moz-osx-font-smoothing: grayscale;\n  -webkit-text-size-adjust: 100%;\n  text-size-adjust: 100%;\n}\n\n*,\n*::before,\n*::after {\n  box-sizing: border-box;\n}\n\n[hidden] {\n  display: none !important;\n}\n\n:host([data-ds-theme-switching]) *,\n:host([data-ds-theme-switching]) *::before,\n:host([data-ds-theme-switching]) *::after {\n  transition: none !important;\n}\n\nbutton,\ninput,\nselect,\ntextarea {\n  margin: 0;\n  font: inherit;\n  letter-spacing: inherit;\n  color: inherit;\n}\n\n.ds-layer {\n  position: fixed;\n  inset: 0;\n  pointer-events: none;\n}\n\n.ds-layer-base {\n  z-index: 1;\n}\n\n.ds-layer-toast {\n  z-index: 2;\n}\n\n.ds-layer-tooltip {\n  z-index: 3;\n}\n\n.ds-layer > * {\n  pointer-events: auto;\n}\n\n@media (prefers-reduced-motion: reduce) {\n  :host {\n    --ds-duration-fast: 0ms;\n    --ds-duration-base: 0ms;\n    --ds-duration-slow: 0ms;\n  }\n}\n\n@media print {\n  :host {\n    display: none !important;\n  }\n}\n";
+	//#endregion
+	//#region packages/userscript-ui/src/tokens/themes.css?inline
+	var themes_default = ":host,\n:host([data-ds-theme='light']) {\n  --ds-background: #ffffff;\n  --ds-foreground: #18181b;\n  --ds-card: #ffffff;\n  --ds-card-foreground: #18181b;\n  --ds-primary: #18181b;\n  --ds-primary-foreground: #fafafa;\n  --ds-secondary: #f4f4f5;\n  --ds-secondary-foreground: #18181b;\n  --ds-muted: #f4f4f5;\n  --ds-muted-foreground: #6b6b74;\n  --ds-border: #e4e4e7;\n  --ds-input: #8e8e97;\n  --ds-track: #8e8e97;\n  --ds-ring: #71717a;\n  --ds-destructive: #dc2626;\n  --ds-destructive-foreground: #fafafa;\n  --ds-success: #16a34a;\n  --ds-warning: #d97706;\n  --ds-switch-thumb: #ffffff;\n  --ds-overlay: rgb(9 9 11 / 0.45);\n}\n\n/* 深色主题遵循与浅色同一套语义 Token，只替换取值。\n   取值原则：\n   - 不使用纯黑/纯白：画布 #09090b，抬升表面 #18181b，正文 #fafafa。\n   - 深色下用“更亮的灰”表达层级：卡片 #18181b 浮于画布之上，边框 #2b2b31 与之分离。\n   - 状态色在深色背景上提亮，保证文字对比度 ≥ 4.5:1（destructive 改用亮红 + 深色前景）。 */\n:host([data-ds-theme='dark']) {\n  --ds-background: #09090b;\n  --ds-foreground: #fafafa;\n  --ds-card: #18181b;\n  --ds-card-foreground: #fafafa;\n  --ds-primary: #fafafa;\n  --ds-primary-foreground: #18181b;\n  --ds-secondary: #27272a;\n  --ds-secondary-foreground: #fafafa;\n  --ds-muted: #27272a;\n  --ds-muted-foreground: #a1a1aa;\n  --ds-border: #2b2b31;\n  --ds-input: #70707a;\n  --ds-track: #6b6b74;\n  --ds-ring: #d4d4d8;\n  --ds-destructive: #f87171;\n  --ds-destructive-foreground: #450a0a;\n  --ds-success: #4ade80;\n  --ds-warning: #fbbf24;\n  --ds-switch-thumb: #fafafa;\n  --ds-overlay: rgb(0 0 0 / 0.7);\n\n  --ds-shadow-sm: 0 1px 2px rgb(0 0 0 / 0.5);\n  --ds-shadow-md: 0 4px 14px rgb(0 0 0 / 0.6);\n  --ds-shadow-lg: 0 16px 40px rgb(0 0 0 / 0.72);\n}\n";
+	//#endregion
+	//#region packages/userscript-ui/src/tokens/tokens.css?inline
+	var tokens_default = ":host {\n  --ds-font-sans:\n    ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,\n    'Helvetica Neue', Arial, 'Noto Sans', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei',\n    sans-serif;\n  --ds-font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace;\n\n  --ds-text-xs: 12px;\n  --ds-text-sm: 13px;\n  --ds-text-base: 14px;\n  --ds-text-lg: 16px;\n  --ds-text-xl: 18px;\n\n  --ds-weight-normal: 400;\n  --ds-weight-medium: 500;\n  --ds-weight-semibold: 600;\n\n  --ds-leading-tight: 1.25;\n  --ds-leading-snug: 1.4;\n  --ds-leading-normal: 1.5;\n\n  --ds-space-0-5: 2px;\n  --ds-space-1: 4px;\n  --ds-space-1-5: 6px;\n  --ds-space-2: 8px;\n  --ds-space-2-5: 10px;\n  --ds-space-3: 12px;\n  --ds-space-4: 16px;\n  --ds-space-5: 20px;\n  --ds-space-6: 24px;\n  --ds-space-8: 32px;\n\n  --ds-control-h-sm: 28px;\n  --ds-control-h: 32px;\n  --ds-control-h-lg: 36px;\n  --ds-textarea-min-h: 72px;\n\n  --ds-icon-sm: 14px;\n  --ds-icon-xs: 12px;\n  --ds-icon: 16px;\n  --ds-accent-width: 3px;\n\n  --ds-radius-sm: 4px;\n  --ds-radius-md: 6px;\n  --ds-radius-lg: 8px;\n  --ds-radius-xl: 12px;\n  --ds-radius-full: 9999px;\n\n  --ds-border-width: 1px;\n  --ds-ring-width: 2px;\n  --ds-ring-offset: 2px;\n\n  --ds-shadow-sm: 0 1px 2px rgb(0 0 0 / 0.05);\n  --ds-shadow-md: 0 4px 12px rgb(0 0 0 / 0.08);\n  --ds-shadow-lg: 0 12px 32px rgb(0 0 0 / 0.16);\n\n  --ds-duration-fast: 120ms;\n  --ds-duration-base: 180ms;\n  --ds-duration-slow: 240ms;\n  --ds-ease: cubic-bezier(0.2, 0, 0, 1);\n\n  --ds-panel-width: 360px;\n  --ds-panel-width-wide: 440px;\n  --ds-panel-padding: var(--ds-space-4);\n  --ds-panel-max-h: 70vh;\n  --ds-dialog-width: 440px;\n  --ds-dialog-max-h: 640px;\n  --ds-dialog-max-h-vh: 80vh;\n  --ds-dialog-inset: 32px;\n  --ds-switch-width: 36px;\n  --ds-switch-height: 20px;\n  --ds-switch-thumb-size: 16px;\n  --ds-checkbox-size: 16px;\n  --ds-launcher-size: 40px;\n  --ds-launcher-offset: 20px;\n  --ds-launcher-icon: 18px;\n  --ds-toast-width: 320px;\n  --ds-tooltip-max-w: 240px;\n  --ds-tooltip-arrow-size: 8px;\n  --ds-scroll-hint-height: 56px;\n}\n";
+	//#endregion
+	//#region packages/userscript-ui/src/core/labels.ts
+	var DEFAULT_LABELS = {
+		close: "Close",
+		settings: "Settings",
+		notifications: "Notifications",
+		dismissNotification: "Dismiss notification",
+		closeSettings: "Close settings",
+		scrollHint: "Scroll for more",
+		cancel: "Cancel",
+		confirm: "Confirm"
+	};
+	function resolveLabels(overrides) {
+		return {
+			...DEFAULT_LABELS,
+			...overrides
+		};
+	}
+	//#endregion
+	//#region packages/userscript-ui/src/core/theme.ts
+	function resolveTheme(theme, prefersDark) {
+		if (theme === "system") return prefersDark ? "dark" : "light";
+		return theme;
+	}
+	//#endregion
+	//#region packages/userscript-ui/src/core/styles.ts
+	var seenByRoot = /* @__PURE__ */ new WeakMap();
+	var sheetCache = /* @__PURE__ */ new Map();
+	function useStyles(root, css) {
+		let seen = seenByRoot.get(root);
+		if (!seen) {
+			seen = /* @__PURE__ */ new Set();
+			seenByRoot.set(root, seen);
+		}
+		if (seen.has(css)) return;
+		seen.add(css);
+		if (canAdopt(root)) try {
+			let sheet = sheetCache.get(css);
+			if (!sheet) {
+				sheet = new CSSStyleSheet();
+				sheet.replaceSync(css);
+				sheetCache.set(css, sheet);
+			}
+			if (!root.adoptedStyleSheets.includes(sheet)) root.adoptedStyleSheets = [...root.adoptedStyleSheets, sheet];
+			return;
+		} catch {}
+		const style = document.createElement("style");
+		style.setAttribute("data-ds-style", "");
+		style.textContent = css;
+		root.appendChild(style);
+	}
+	function canAdopt(root) {
+		return typeof CSSStyleSheet !== "undefined" && "replaceSync" in CSSStyleSheet.prototype && "adoptedStyleSheets" in root;
+	}
+	//#endregion
+	//#region packages/userscript-ui/src/core/mount.ts
+	var HOST_TAG = "userscript-ui-root";
+	var DEFAULT_Z_INDEX = 2147483e3;
+	function mountUI(options = {}) {
+		const host = document.createElement(HOST_TAG);
+		host.setAttribute("data-ds-root", "");
+		setImportant(host, "all", "initial");
+		setImportant(host, "position", "fixed");
+		setImportant(host, "inset", "0");
+		setImportant(host, "z-index", String(options.zIndex ?? DEFAULT_Z_INDEX));
+		setImportant(host, "display", "block");
+		setImportant(host, "pointer-events", "none");
+		setImportant(host, "visibility", "visible");
+		setImportant(host, "opacity", "1");
+		setImportant(host, "transform", "none");
+		setImportant(host, "filter", "none");
+		const root = host.attachShadow({ mode: "open" });
+		const container = document.createElement("div");
+		container.className = "ds-root";
+		const base = layer("ds-layer-base");
+		const toast = layer("ds-layer-toast");
+		const tooltip = layer("ds-layer-tooltip");
+		container.append(base, toast, tooltip);
+		root.append(container);
+		for (const [name, value] of Object.entries(options.tokens ?? {})) {
+			if (!name.startsWith("--")) throw new Error(`Token name must start with "--": ${name}`);
+			host.style.setProperty(name, value);
+		}
+		const controller = new AbortController();
+		const destroyCallbacks = /* @__PURE__ */ new Set();
+		const media = typeof window.matchMedia === "function" ? window.matchMedia("(prefers-color-scheme: dark)") : null;
+		let requestedTheme = options.theme ?? "light";
+		let resolvedTheme = resolveTheme(requestedTheme, media?.matches ?? false);
+		const applyTheme = () => {
+			resolvedTheme = resolveTheme(requestedTheme, media?.matches ?? false);
+			host.setAttribute("data-ds-theme", resolvedTheme);
+			setImportant(host, "color-scheme", resolvedTheme);
+		};
+		applyTheme();
+		media?.addEventListener("change", () => {
+			if (requestedTheme === "system") applyTheme();
+		}, { signal: controller.signal });
+		useStyles(root, tokens_default);
+		useStyles(root, base_default);
+		useStyles(root, themes_default);
+		(options.target ?? document.documentElement).appendChild(host);
+		let destroyed = false;
+		const ensureAlive = (action) => {
+			if (destroyed) throw new Error(`Cannot ${action} after ui.destroy().`);
+		};
+		const labels = resolveLabels(options.labels);
+		return {
+			host,
+			root,
+			container,
+			layers: {
+				base,
+				toast,
+				tooltip
+			},
+			signal: controller.signal,
+			labels,
+			get theme() {
+				return resolvedTheme;
+			},
+			get destroyed() {
+				return destroyed;
+			},
+			setTheme(theme) {
+				ensureAlive("change the theme");
+				const previous = resolvedTheme;
+				requestedTheme = theme;
+				host.setAttribute("data-ds-theme-switching", "");
+				applyTheme();
+				if (previous !== resolvedTheme) {
+					const clear = () => host.removeAttribute("data-ds-theme-switching");
+					if (typeof requestAnimationFrame === "function") requestAnimationFrame(() => requestAnimationFrame(clear));
+					else window.setTimeout(clear, 0);
+				} else host.removeAttribute("data-ds-theme-switching");
+			},
+			useStyles(css) {
+				ensureAlive("add styles");
+				useStyles(root, css);
+			},
+			mount(node) {
+				ensureAlive("mount content");
+				base.appendChild(node);
+			},
+			onDestroy(callback) {
+				if (destroyed) {
+					callback();
+					return () => {};
+				}
+				destroyCallbacks.add(callback);
+				return () => destroyCallbacks.delete(callback);
+			},
+			destroy() {
+				if (destroyed) return;
+				destroyed = true;
+				for (const callback of [...destroyCallbacks].reverse()) try {
+					callback();
+				} catch {}
+				controller.abort();
+				host.remove();
+			}
+		};
+	}
+	function layer(className) {
+		const node = document.createElement("div");
+		node.className = `ds-layer ${className}`;
+		return node;
+	}
+	function setImportant(node, property, value) {
+		node.style.setProperty(property, value, "important");
+	}
+	//#endregion
+	//#region packages/userscript-ui/src/core/lifecycle.ts
+	function createScope(ui) {
+		const controller = new AbortController();
+		const callbacks = /* @__PURE__ */ new Set();
+		let destroyed = false;
+		let unregister = () => {};
+		const scope = {
+			signal: controller.signal,
+			get destroyed() {
+				return destroyed;
+			},
+			onDestroy(callback) {
+				if (destroyed) {
+					callback();
+					return () => {};
+				}
+				callbacks.add(callback);
+				return () => {
+					callbacks.delete(callback);
+				};
+			},
+			destroy() {
+				if (destroyed) return;
+				destroyed = true;
+				unregister();
+				for (const callback of [...callbacks].reverse()) try {
+					callback();
+				} catch {}
+				callbacks.clear();
+				controller.abort();
+			}
+		};
+		unregister = ui.onDestroy(() => scope.destroy());
+		return scope;
+	}
+	/**
+	* Components are unusable once the UI is destroyed: listeners on an aborted
+	* signal never fire and the host is detached. Fail loudly instead of returning
+	* a dead component.
+	*/
+	function assertAlive(ui, component) {
+		if (ui.destroyed) throw new Error(`Cannot create a ${component} after ui.destroy().`);
+	}
+	//#endregion
+	//#region packages/userscript-ui/src/components/button.css?inline
+	var button_default = ".ds-button {\n  --ds-button-bg: var(--ds-primary);\n  --ds-button-fg: var(--ds-primary-foreground);\n  --ds-button-border: transparent;\n  --ds-button-hover: color-mix(in srgb, var(--ds-primary) 90%, var(--ds-background));\n\n  display: inline-flex;\n  align-items: center;\n  justify-content: center;\n  gap: var(--ds-space-2);\n  min-width: 0;\n  height: var(--ds-control-h);\n  padding: 0 var(--ds-space-3);\n  border: var(--ds-border-width) solid var(--ds-button-border);\n  border-radius: var(--ds-radius-md);\n  background: var(--ds-button-bg);\n  color: var(--ds-button-fg);\n  font-family: inherit;\n  font-size: var(--ds-text-sm);\n  font-weight: var(--ds-weight-medium);\n  line-height: 1;\n  white-space: nowrap;\n  cursor: pointer;\n  user-select: none;\n  touch-action: manipulation;\n  transition:\n    background-color var(--ds-duration-fast) var(--ds-ease),\n    border-color var(--ds-duration-fast) var(--ds-ease),\n    color var(--ds-duration-fast) var(--ds-ease),\n    opacity var(--ds-duration-fast) var(--ds-ease);\n}\n\n.ds-button:hover:not(:disabled):not([aria-disabled='true']) {\n  background: var(--ds-button-hover);\n}\n\n.ds-button:active:not(:disabled):not([aria-disabled='true']) {\n  transform: translateY(var(--ds-border-width));\n}\n\n.ds-button:focus-visible {\n  outline: var(--ds-ring-width) solid var(--ds-ring);\n  outline-offset: var(--ds-ring-offset);\n}\n\n.ds-button:disabled,\n.ds-button[aria-disabled='true'] {\n  opacity: 0.5;\n  cursor: not-allowed;\n}\n\n.ds-button[data-loading='true'] {\n  cursor: progress;\n}\n\n.ds-button svg {\n  width: var(--ds-icon);\n  height: var(--ds-icon);\n  flex: none;\n}\n\n.ds-button--secondary {\n  --ds-button-bg: var(--ds-secondary);\n  --ds-button-fg: var(--ds-secondary-foreground);\n  --ds-button-hover: color-mix(in srgb, var(--ds-secondary) 92%, var(--ds-foreground));\n}\n\n.ds-button--outline {\n  --ds-button-bg: transparent;\n  --ds-button-fg: var(--ds-foreground);\n  --ds-button-border: var(--ds-input);\n  --ds-button-hover: var(--ds-muted);\n}\n\n.ds-button--ghost {\n  --ds-button-bg: transparent;\n  --ds-button-fg: var(--ds-foreground);\n  --ds-button-hover: var(--ds-muted);\n}\n\n.ds-button--destructive {\n  --ds-button-bg: var(--ds-destructive);\n  --ds-button-fg: var(--ds-destructive-foreground);\n  --ds-button-hover: color-mix(in srgb, var(--ds-destructive) 88%, var(--ds-foreground));\n}\n\n.ds-button--sm {\n  height: var(--ds-control-h-sm);\n  padding: 0 var(--ds-space-2-5);\n  font-size: var(--ds-text-xs);\n}\n\n.ds-button--lg {\n  height: var(--ds-control-h-lg);\n  padding: 0 var(--ds-space-4);\n  font-size: var(--ds-text-base);\n}\n\n.ds-button--icon {\n  width: var(--ds-control-h);\n  padding: 0;\n}\n\n.ds-button--icon.ds-button--sm {\n  width: var(--ds-control-h-sm);\n}\n\n.ds-button--icon.ds-button--lg {\n  width: var(--ds-control-h-lg);\n}\n\n.ds-button-label {\n  min-width: 0;\n  overflow: hidden;\n  text-overflow: ellipsis;\n}\n\n.ds-button[data-loading='true'] .ds-button-icon {\n  display: none;\n}\n\n.ds-button-spinner {\n  width: var(--ds-icon-sm);\n  height: var(--ds-icon-sm);\n  flex: none;\n  border: var(--ds-ring-width) solid currentColor;\n  border-right-color: transparent;\n  border-radius: var(--ds-radius-full);\n  animation: ds-button-spin 700ms linear infinite;\n}\n\n@keyframes ds-button-spin {\n  to {\n    transform: rotate(360deg);\n  }\n}\n\n@media (prefers-reduced-motion: reduce) {\n  .ds-button-spinner {\n    animation-duration: 1400ms;\n  }\n}\n";
+	//#endregion
+	//#region packages/userscript-ui/src/components/button.ts
+	function createButton(ui, options = {}) {
+		ui.useStyles(button_default);
+		assertAlive(ui, "button");
+		const scope = createScope(ui);
+		const iconOnly = options.size === "icon" || options.iconOnly === true;
+		const variant = options.variant ?? "primary";
+		const size = options.size ?? "md";
+		if (iconOnly && !options.ariaLabel) throw new Error("Icon-only buttons require an ariaLabel.");
+		if (!iconOnly && (options.label == null || typeof options.label === "string" && options.label.trim() === "")) throw new Error("Buttons require a label.");
+		const el = document.createElement("button");
+		el.type = options.type ?? "button";
+		el.className = `ds-button ds-button--${variant} ds-button--${size}`;
+		if (iconOnly) el.classList.add("ds-button--icon");
+		el.setAttribute("data-ds-button", "");
+		if (options.ariaLabel) el.setAttribute("aria-label", options.ariaLabel);
+		if (options.title) el.title = options.title;
+		const spinner = document.createElement("span");
+		spinner.className = "ds-button-spinner";
+		spinner.setAttribute("aria-hidden", "true");
+		if (options.icon) {
+			options.icon.classList.add("ds-button-icon");
+			el.appendChild(options.icon);
+		}
+		if (options.label != null) {
+			const label = document.createElement("span");
+			label.className = "ds-button-label";
+			appendContent(label, options.label);
+			el.appendChild(label);
+		}
+		let disabled = options.disabled ?? false;
+		let loading = options.loading ?? false;
+		const sync = () => {
+			el.disabled = disabled || loading;
+			el.dataset.loading = loading ? "true" : "false";
+			if (loading) {
+				el.setAttribute("aria-busy", "true");
+				el.setAttribute("aria-disabled", "true");
+				if (!spinner.isConnected) el.prepend(spinner);
+			} else {
+				el.removeAttribute("aria-busy");
+				el.removeAttribute("aria-disabled");
+				spinner.remove();
+			}
+		};
+		if (options.onClick) el.addEventListener("click", options.onClick, { signal: scope.signal });
+		sync();
+		return {
+			el,
+			setLoading(next) {
+				loading = next;
+				sync();
+			},
+			setDisabled(next) {
+				disabled = next;
+				sync();
+			},
+			destroy() {
+				scope.destroy();
+				el.remove();
+			}
+		};
+	}
+	function appendContent(parent, content) {
+		if (typeof content === "string") parent.textContent = content;
+		else if (content) parent.appendChild(content);
+	}
+	//#endregion
+	//#region packages/userscript-ui/src/core/dom.ts
+	function append(parent, ...items) {
+		for (const item of items) {
+			if (item == null) continue;
+			parent.appendChild(typeof item === "string" ? document.createTextNode(item) : item);
+		}
+	}
+	//#endregion
+	//#region packages/userscript-ui/src/core/focus.ts
+	var FOCUSABLE = [
+		"a[href]",
+		"button:not([disabled])",
+		"input:not([disabled])",
+		"select:not([disabled])",
+		"textarea:not([disabled])",
+		"[tabindex]:not([tabindex=\"-1\"])"
+	].join(",");
+	function focusFirst(container) {
+		const root = container.getRootNode();
+		for (const target of container.querySelectorAll(FOCUSABLE)) {
+			target.focus({ preventScroll: true });
+			if (root.activeElement === target) return;
+		}
+		container.focus({ preventScroll: true });
+	}
+	function focusIfConnected(target) {
+		if (target?.isConnected) target.focus({ preventScroll: true });
+	}
+	//#endregion
+	//#region packages/userscript-ui/src/core/id.ts
+	/**
+	* Element ids are global to the page, not to a shadow root. A per-module random
+	* token keeps them unique when two copies of the library (two userscripts, or
+	* an upgrade window with both versions loaded) run in the same document.
+	*/
+	var PAGE_TOKEN = Math.random().toString(36).slice(2, 8);
+	var counter = 0;
+	function uid(prefix = "ds") {
+		counter += 1;
+		return `${prefix}-${PAGE_TOKEN}-${counter}`;
+	}
+	//#endregion
+	//#region packages/userscript-ui/src/icons.ts
+	var SVG_NS = "http://www.w3.org/2000/svg";
+	function icon(paths, size = 16) {
+		const svg = document.createElementNS(SVG_NS, "svg");
+		svg.setAttribute("viewBox", "0 0 24 24");
+		svg.setAttribute("width", String(size));
+		svg.setAttribute("height", String(size));
+		svg.setAttribute("fill", "none");
+		svg.setAttribute("stroke", "currentColor");
+		svg.setAttribute("stroke-width", "2");
+		svg.setAttribute("stroke-linecap", "round");
+		svg.setAttribute("stroke-linejoin", "round");
+		svg.setAttribute("aria-hidden", "true");
+		svg.setAttribute("focusable", "false");
+		for (const definition of paths) {
+			const path = document.createElementNS(SVG_NS, "path");
+			path.setAttribute("d", definition);
+			svg.appendChild(path);
+		}
+		return svg;
+	}
+	var closeIcon = () => icon(["M18 6 6 18", "m6 6 12 12"]);
+	var chevronDownIcon = () => icon(["m6 9 6 6 6-6"]);
+	//#endregion
+	//#region packages/userscript-ui/src/styles/scroll-hint.css?inline
+	var scroll_hint_default = ".ds-scroll-hint {\n  position: absolute;\n  inset-inline: 0;\n  bottom: 0;\n  display: flex;\n  align-items: flex-end;\n  justify-content: center;\n  height: var(--ds-scroll-hint-height);\n  padding-bottom: var(--ds-space-1-5);\n  background: linear-gradient(to top, var(--ds-card) 30%, transparent);\n  color: var(--ds-muted-foreground);\n  font-size: var(--ds-text-xs);\n  pointer-events: none;\n  opacity: 1;\n  visibility: visible;\n  transition: opacity var(--ds-duration-fast) var(--ds-ease);\n}\n\n.ds-scroll-hint[data-state='hidden'] {\n  opacity: 0;\n  visibility: hidden;\n}\n\n.ds-scroll-hint-label {\n  display: inline-flex;\n  align-items: center;\n  gap: var(--ds-space-1);\n  padding: var(--ds-space-0-5) var(--ds-space-2);\n  border-radius: var(--ds-radius-full);\n  background: var(--ds-muted);\n  white-space: nowrap;\n}\n\n.ds-scroll-hint-label svg {\n  width: var(--ds-icon-xs);\n  height: var(--ds-icon-xs);\n  flex: none;\n}\n";
+	//#endregion
+	//#region packages/userscript-ui/src/core/scroll-hint.ts
+	var EDGE = 2;
+	function resolveScrollHint(option) {
+		if (option === false) return null;
+		if (option === true || option === void 0) return {};
+		return option;
+	}
+	/**
+	* Shows a hint above a scrollable area while more content is hidden below.
+	* The hint is decorative; the scroll area itself stays keyboard scrollable.
+	*/
+	function createScrollHint(ui, container, scroller, options = {}) {
+		ui.useStyles(scroll_hint_default);
+		const scope = createScope(ui);
+		const el = document.createElement("div");
+		el.className = "ds-scroll-hint";
+		el.setAttribute("data-ds-scroll-hint", "");
+		el.setAttribute("aria-hidden", "true");
+		el.dataset.state = "hidden";
+		const label = document.createElement("span");
+		label.className = "ds-scroll-hint-label";
+		label.appendChild(chevronDownIcon());
+		const text = document.createElement("span");
+		text.textContent = options.text ?? ui.labels.scrollHint;
+		label.appendChild(text);
+		el.appendChild(label);
+		container.appendChild(el);
+		const update = () => {
+			const scrollable = scroller.scrollHeight > scroller.clientHeight + EDGE;
+			const atEnd = scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - EDGE;
+			el.dataset.state = scrollable && !atEnd ? "visible" : "hidden";
+		};
+		scroller.addEventListener("scroll", update, {
+			passive: true,
+			signal: scope.signal
+		});
+		window.addEventListener("resize", update, {
+			passive: true,
+			signal: scope.signal
+		});
+		const mutations = new MutationObserver(update);
+		mutations.observe(scroller, {
+			childList: true,
+			subtree: true,
+			characterData: true
+		});
+		const resize = typeof ResizeObserver === "function" ? new ResizeObserver(update) : null;
+		resize?.observe(scroller);
+		update();
+		return {
+			el,
+			update,
+			destroy() {
+				scope.destroy();
+				mutations.disconnect();
+				resize?.disconnect();
+				el.remove();
+				mutations.disconnect();
+				resize?.disconnect();
+				el.remove();
+			}
+		};
+	}
+	//#endregion
+	//#region packages/userscript-ui/src/components/panel.css?inline
+	var panel_default = ".ds-panel {\n  position: fixed;\n  z-index: 1;\n  display: flex;\n  flex-direction: column;\n  width: min(var(--ds-panel-width), calc(100vw - 2 * var(--ds-launcher-offset)));\n  max-height: min(var(--ds-panel-max-h), calc(100vh - 2 * var(--ds-launcher-offset)));\n  overflow: hidden;\n  border: var(--ds-border-width) solid var(--ds-border);\n  border-radius: var(--ds-radius-lg);\n  background: var(--ds-card);\n  color: var(--ds-card-foreground);\n  box-shadow: var(--ds-shadow-lg);\n  pointer-events: auto;\n}\n\n/* 居中位置不跟 Launcher 的角落偏移；左右用 auto 外边距居中，避免 transform 影响 RTL。 */\n.ds-panel[data-position='center'] {\n  inset-block-start: 50%;\n  inset-inline: 0;\n  width: min(var(--ds-panel-width-wide), calc(100vw - 2 * var(--ds-launcher-offset)));\n  margin-inline: auto;\n  transform: translateY(-50%);\n}\n\n.ds-panel[data-position='bottom-right'] {\n  inset-block-end: calc(\n    var(--ds-launcher-offset) + env(safe-area-inset-bottom, 0px) + var(--ds-launcher-size) +\n      var(--ds-space-2)\n  );\n  inset-inline-end: calc(var(--ds-launcher-offset) + env(safe-area-inset-right, 0px));\n}\n\n.ds-panel[data-position='bottom-left'] {\n  inset-block-end: calc(\n    var(--ds-launcher-offset) + env(safe-area-inset-bottom, 0px) + var(--ds-launcher-size) +\n      var(--ds-space-2)\n  );\n  inset-inline-start: calc(var(--ds-launcher-offset) + env(safe-area-inset-left, 0px));\n}\n\n.ds-panel[data-position='top-right'] {\n  inset-block-start: calc(\n    var(--ds-launcher-offset) + env(safe-area-inset-top, 0px) + var(--ds-launcher-size) +\n      var(--ds-space-2)\n  );\n  inset-inline-end: calc(var(--ds-launcher-offset) + env(safe-area-inset-right, 0px));\n}\n\n.ds-panel[data-position='top-left'] {\n  inset-block-start: calc(\n    var(--ds-launcher-offset) + env(safe-area-inset-top, 0px) + var(--ds-launcher-size) +\n      var(--ds-space-2)\n  );\n  inset-inline-start: calc(var(--ds-launcher-offset) + env(safe-area-inset-left, 0px));\n}\n\n.ds-panel-header {\n  display: flex;\n  align-items: flex-start;\n  gap: var(--ds-space-3);\n  padding: var(--ds-panel-padding);\n  border-bottom: var(--ds-border-width) solid var(--ds-border);\n}\n\n.ds-panel-heading {\n  display: flex;\n  flex: 1;\n  flex-direction: column;\n  gap: var(--ds-space-0-5);\n  min-width: 0;\n}\n\n.ds-panel-title {\n  margin: 0;\n  font-size: var(--ds-text-lg);\n  font-weight: var(--ds-weight-semibold);\n  line-height: var(--ds-leading-tight);\n}\n\n.ds-panel-description {\n  margin: 0;\n  color: var(--ds-muted-foreground);\n  font-size: var(--ds-text-xs);\n  line-height: var(--ds-leading-snug);\n}\n\n.ds-panel-close {\n  flex: none;\n  margin-block-start: calc(-1 * var(--ds-space-1));\n  margin-inline-end: calc(-1 * var(--ds-space-1));\n}\n\n.ds-panel-content {\n  position: relative;\n  display: flex;\n  flex: 1;\n  flex-direction: column;\n  min-height: 0;\n}\n\n.ds-panel-body {\n  display: flex;\n  flex: 1;\n  flex-direction: column;\n  gap: var(--ds-space-4);\n  min-height: 0;\n  padding: var(--ds-panel-padding);\n  overflow-y: auto;\n  overscroll-behavior: contain;\n  scrollbar-width: thin;\n  scrollbar-color: var(--ds-border) transparent;\n}\n\n.ds-panel-body::-webkit-scrollbar {\n  width: var(--ds-space-2);\n}\n\n.ds-panel-body::-webkit-scrollbar-track {\n  background: transparent;\n}\n\n.ds-panel-body::-webkit-scrollbar-thumb {\n  border-radius: var(--ds-radius-full);\n  background: var(--ds-border);\n}\n\n.ds-panel-footer {\n  display: flex;\n  flex-wrap: wrap;\n  justify-content: flex-end;\n  gap: var(--ds-space-2);\n  padding: var(--ds-space-3) var(--ds-panel-padding);\n  border-top: var(--ds-border-width) solid var(--ds-border);\n}\n";
+	//#endregion
+	//#region packages/userscript-ui/src/components/panel.ts
+	function createPanel(ui, options = {}) {
+		assertAlive(ui, "panel");
+		ui.useStyles(panel_default);
+		const scope = createScope(ui);
+		const titleId = uid("ds-panel-title");
+		const descriptionId = uid("ds-panel-description");
+		const el = document.createElement("section");
+		el.className = "ds-panel";
+		el.setAttribute("data-ds-panel", "");
+		el.dataset.position = options.position ?? "bottom-right";
+		el.setAttribute("role", "region");
+		el.tabIndex = -1;
+		const header = document.createElement("header");
+		header.className = "ds-panel-header";
+		const heading = document.createElement("div");
+		heading.className = "ds-panel-heading";
+		const title = document.createElement("h2");
+		title.className = "ds-panel-title";
+		title.id = titleId;
+		title.textContent = options.title ?? "";
+		title.hidden = !options.title;
+		const description = document.createElement("p");
+		description.className = "ds-panel-description";
+		description.id = descriptionId;
+		description.textContent = options.description ?? "";
+		description.hidden = !options.description;
+		heading.append(title, description);
+		heading.hidden = !options.title && !options.description;
+		header.appendChild(heading);
+		const body = document.createElement("div");
+		body.className = "ds-panel-body";
+		const content = document.createElement("div");
+		content.className = "ds-panel-content";
+		content.appendChild(body);
+		const footer = document.createElement("div");
+		footer.className = "ds-panel-footer";
+		footer.hidden = true;
+		let isOpen = false;
+		let destroyed = false;
+		let returnFocus = null;
+		const openListeners = /* @__PURE__ */ new Set();
+		/**
+		* Listeners observe the current state, not a queue of transitions: when a
+		* listener changes the state mid-broadcast, the remaining listeners are
+		* skipped so nobody is told about a state that is already stale. The new
+		* state is broadcast by the nested `open()` / `close()` call.
+		*/
+		const notify = (open) => {
+			for (const listener of [...openListeners]) {
+				if (isOpen !== open) break;
+				if (!openListeners.has(listener)) continue;
+				listener(open);
+			}
+		};
+		const setTitle = (next) => {
+			title.textContent = next ?? "";
+			title.hidden = !next;
+			heading.hidden = title.hidden && description.hidden;
+			if (next) {
+				el.setAttribute("aria-labelledby", titleId);
+				el.removeAttribute("aria-label");
+			} else {
+				el.removeAttribute("aria-labelledby");
+				el.setAttribute("aria-label", options.ariaLabel ?? ui.labels.settings);
+			}
+		};
+		const setDescription = (next) => {
+			description.textContent = next ?? "";
+			description.hidden = !next;
+			heading.hidden = title.hidden && description.hidden;
+			const ids = new Set((el.getAttribute("aria-describedby") ?? "").split(/\s+/).filter(Boolean));
+			if (next) ids.add(descriptionId);
+			else ids.delete(descriptionId);
+			if (ids.size) el.setAttribute("aria-describedby", [...ids].join(" "));
+			else el.removeAttribute("aria-describedby");
+		};
+		const setFooter = (next) => {
+			footer.replaceChildren();
+			if (next == null) {
+				footer.hidden = true;
+				return;
+			}
+			const items = Array.isArray(next) ? next : [next];
+			append(footer, ...items);
+			footer.hidden = items.length === 0;
+		};
+		const close = () => {
+			if (!isOpen || destroyed) return;
+			const active = ui.root.activeElement;
+			const shouldRestoreFocus = active != null && el.contains(active);
+			isOpen = false;
+			el.hidden = true;
+			el.dataset.open = "false";
+			try {
+				if (shouldRestoreFocus) focusIfConnected(returnFocus);
+				options.onClose?.();
+			} finally {
+				if (!isOpen) notify(false);
+			}
+		};
+		const open = () => {
+			if (isOpen || destroyed) return;
+			isOpen = true;
+			returnFocus = ui.root.activeElement ?? document.activeElement;
+			el.hidden = false;
+			el.dataset.open = "true";
+			if (options.autoFocus !== false) {
+				focusFirst(body);
+				const active = ui.root.activeElement;
+				if (!active || !body.contains(active)) el.focus({ preventScroll: true });
+			}
+			hint?.update();
+			try {
+				options.onOpen?.();
+			} finally {
+				if (isOpen && !destroyed) notify(true);
+			}
+		};
+		const closeButton = createButton(ui, {
+			size: "sm",
+			variant: "ghost",
+			iconOnly: true,
+			ariaLabel: options.closeLabel ?? ui.labels.close,
+			icon: closeIcon()
+		});
+		closeButton.el.classList.add("ds-panel-close");
+		closeButton.el.addEventListener("click", close, { signal: scope.signal });
+		header.appendChild(closeButton.el);
+		el.append(header, content, footer);
+		const hintOptions = resolveScrollHint(options.scrollHint);
+		const hint = hintOptions ? createScrollHint(ui, content, body, hintOptions) : null;
+		el.addEventListener("keydown", (event) => {
+			if (event.key === "Escape" && !event.isComposing && isOpen) {
+				event.preventDefault();
+				event.stopPropagation();
+				close();
+			}
+		}, { signal: scope.signal });
+		if (options.title) el.setAttribute("aria-labelledby", titleId);
+		else el.setAttribute("aria-label", options.ariaLabel ?? ui.labels.settings);
+		setDescription(options.description);
+		if (options.footer) setFooter(options.footer);
+		el.hidden = options.open === false;
+		el.dataset.open = options.open === false ? "false" : "true";
+		isOpen = options.open !== false;
+		ui.layers.base.appendChild(el);
+		/**
+		* Runs for an explicit `destroy()` and for `ui.destroy()`: the scope callback
+		* invokes it, so a panel is always torn down exactly once.
+		*/
+		const teardown = () => {
+			if (destroyed) return;
+			const wasOpen = isOpen;
+			const active = ui.root.activeElement;
+			const shouldRestoreFocus = wasOpen && active != null && el.contains(active);
+			destroyed = true;
+			isOpen = false;
+			scope.destroy();
+			hint?.destroy();
+			closeButton.destroy();
+			el.remove();
+			if (wasOpen) try {
+				if (shouldRestoreFocus) focusIfConnected(returnFocus);
+				options.onClose?.();
+			} finally {
+				try {
+					notify(false);
+				} finally {
+					openListeners.clear();
+				}
+			}
+			else openListeners.clear();
+		};
+		scope.onDestroy(teardown);
+		return {
+			el,
+			body,
+			footer,
+			open,
+			close,
+			toggle() {
+				if (isOpen) close();
+				else open();
+			},
+			isOpen() {
+				return isOpen;
+			},
+			setTitle,
+			setDescription,
+			setFooter,
+			setPosition(position) {
+				el.dataset.position = position;
+			},
+			onOpenChange(listener) {
+				openListeners.add(listener);
+				return () => openListeners.delete(listener);
+			},
+			destroy: teardown
+		};
+	}
+	//#endregion
+	//#region packages/userscript-ui/src/components/section.css?inline
+	var section_default = ".ds-section {\n  display: flex;\n  flex-direction: column;\n  gap: var(--ds-space-3);\n  min-width: 0;\n}\n\n.ds-section + .ds-section {\n  padding-top: var(--ds-space-3);\n  border-top: var(--ds-border-width) solid var(--ds-border);\n}\n\n.ds-section-header {\n  display: flex;\n  flex-direction: column;\n  gap: var(--ds-space-0-5);\n  min-width: 0;\n}\n\n.ds-section-title {\n  margin: 0;\n  color: var(--ds-foreground);\n  font-size: var(--ds-text-sm);\n  font-weight: var(--ds-weight-semibold);\n  line-height: var(--ds-leading-snug);\n}\n\n.ds-section-description {\n  margin: 0;\n  color: var(--ds-muted-foreground);\n  font-size: var(--ds-text-xs);\n  line-height: var(--ds-leading-snug);\n}\n\n.ds-section-body {\n  display: flex;\n  flex-direction: column;\n  gap: var(--ds-space-3);\n  min-width: 0;\n}\n";
+	//#endregion
+	//#region packages/userscript-ui/src/components/section.ts
+	function createSection(ui, options = {}) {
+		assertAlive(ui, "section");
+		ui.useStyles(section_default);
+		const root = document.createElement("section");
+		root.className = "ds-section";
+		root.setAttribute("data-ds-section", "");
+		if (options.title || options.description) {
+			const header = document.createElement("header");
+			header.className = "ds-section-header";
+			if (options.title) {
+				const title = document.createElement("h3");
+				title.className = "ds-section-title";
+				title.textContent = options.title;
+				header.appendChild(title);
+			}
+			if (options.description) {
+				const description = document.createElement("p");
+				description.className = "ds-section-description";
+				description.textContent = options.description;
+				header.appendChild(description);
+			}
+			root.appendChild(header);
+		}
+		const body = document.createElement("div");
+		body.className = "ds-section-body";
+		root.appendChild(body);
+		return {
+			el: root,
+			body,
+			destroy() {
+				root.remove();
+			}
+		};
+	}
+	//#endregion
+	//#region packages/userscript-ui/src/core/form.ts
+	/**
+	* Invalid state has two independent owners: the control (`data-ds-invalid`)
+	* and its Field (`data-ds-field-invalid`). `aria-invalid` is always the union,
+	* so either side can change state without erasing the other's decision.
+	*/
+	function applyInvalid(input, invalid) {
+		input.toggleAttribute("data-ds-invalid", invalid);
+		syncAriaInvalid(input);
+	}
+	function setFieldInvalid(input, invalid) {
+		input.toggleAttribute("data-ds-field-invalid", invalid);
+		syncAriaInvalid(input);
+	}
+	function syncAriaInvalid(input) {
+		if (input.hasAttribute("data-ds-invalid") || input.hasAttribute("data-ds-field-invalid")) input.setAttribute("aria-invalid", "true");
+		else input.removeAttribute("aria-invalid");
+	}
+	//#endregion
+	//#region packages/userscript-ui/src/components/field.css?inline
+	var field_default = ".ds-field {\n  display: flex;\n  flex-direction: column;\n  gap: var(--ds-space-1-5);\n  min-width: 0;\n}\n\n.ds-field-text {\n  display: flex;\n  flex-direction: column;\n  gap: var(--ds-space-0-5);\n  min-width: 0;\n}\n\n.ds-field-label {\n  color: var(--ds-foreground);\n  font-size: var(--ds-text-sm);\n  font-weight: var(--ds-weight-medium);\n  line-height: var(--ds-leading-snug);\n  cursor: pointer;\n}\n\n.ds-field-description {\n  margin: 0;\n  color: var(--ds-muted-foreground);\n  font-size: var(--ds-text-xs);\n  line-height: var(--ds-leading-snug);\n}\n\n.ds-field-control {\n  min-width: 0;\n}\n\n.ds-field-error {\n  margin: 0;\n  color: var(--ds-destructive);\n  font-size: var(--ds-text-xs);\n  line-height: var(--ds-leading-snug);\n}\n\n.ds-field--inline {\n  display: grid;\n  grid-template-columns: minmax(0, 1fr) auto;\n  align-items: center;\n  column-gap: var(--ds-space-4);\n  row-gap: var(--ds-space-1);\n}\n\n.ds-field--inline .ds-field-text {\n  grid-column: 1;\n}\n\n.ds-field--inline .ds-field-control {\n  grid-column: 2;\n  width: auto;\n}\n\n.ds-field--inline .ds-field-error {\n  grid-column: 1 / -1;\n}\n";
+	//#endregion
+	//#region packages/userscript-ui/src/components/field.ts
+	function createField(ui, options) {
+		assertAlive(ui, "field");
+		ui.useStyles(field_default);
+		const scope = createScope(ui);
+		const input = options.control.input;
+		if (!input.id) input.id = options.id ?? uid("ds-control");
+		const root = document.createElement("div");
+		root.className = options.inline ? "ds-field ds-field--inline" : "ds-field";
+		root.setAttribute("data-ds-field", "");
+		const text = document.createElement("div");
+		text.className = "ds-field-text";
+		const label = document.createElement("label");
+		label.className = "ds-field-label";
+		label.htmlFor = input.id;
+		label.textContent = options.label ?? "";
+		label.hidden = !options.label;
+		text.appendChild(label);
+		const descriptionId = uid("ds-field-description");
+		const description = document.createElement("p");
+		description.className = "ds-field-description";
+		description.id = descriptionId;
+		description.textContent = options.description ?? "";
+		description.hidden = !options.description;
+		text.appendChild(description);
+		text.hidden = !options.label && !options.description;
+		root.appendChild(text);
+		const control = document.createElement("div");
+		control.className = "ds-field-control";
+		control.appendChild(options.control.el);
+		root.appendChild(control);
+		const errorId = uid("ds-field-error");
+		const error = document.createElement("p");
+		error.className = "ds-field-error";
+		error.id = errorId;
+		error.setAttribute("role", "alert");
+		error.hidden = true;
+		root.appendChild(error);
+		const syncDescribedBy = () => {
+			const ids = new Set((input.getAttribute("aria-describedby") ?? "").split(/\s+/).filter(Boolean));
+			ids.delete(descriptionId);
+			ids.delete(errorId);
+			if (!description.hidden) ids.add(descriptionId);
+			if (!error.hidden) ids.add(errorId);
+			if (ids.size) input.setAttribute("aria-describedby", [...ids].join(" "));
+			else input.removeAttribute("aria-describedby");
+		};
+		const syncInvalid = () => setFieldInvalid(input, !error.hidden);
+		const setError = (message) => {
+			const hasError = Boolean(message);
+			error.textContent = message ?? "";
+			error.hidden = !hasError;
+			root.toggleAttribute("data-invalid", hasError);
+			syncInvalid();
+			syncDescribedBy();
+		};
+		const setDescription = (message) => {
+			description.textContent = message ?? "";
+			description.hidden = !message;
+			text.hidden = label.hidden && description.hidden;
+			syncDescribedBy();
+		};
+		if (input.getAttribute("aria-invalid") === "true") input.setAttribute("data-ds-invalid", "");
+		if (options.error) setError(options.error);
+		else {
+			syncInvalid();
+			syncDescribedBy();
+		}
+		return {
+			el: root,
+			control: options.control.el,
+			setError,
+			setDescription,
+			destroy() {
+				description.hidden = true;
+				error.hidden = true;
+				syncDescribedBy();
+				setFieldInvalid(input, false);
+				scope.destroy();
+				root.remove();
+			}
+		};
+	}
+	//#endregion
+	//#region packages/userscript-ui/src/components/input.css?inline
+	var input_default = ".ds-input,\n.ds-textarea {\n  width: 100%;\n  min-width: 0;\n  border: var(--ds-border-width) solid var(--ds-input);\n  border-radius: var(--ds-radius-md);\n  background: transparent;\n  color: var(--ds-foreground);\n  font-family: inherit;\n  font-size: var(--ds-text-sm);\n  transition:\n    border-color var(--ds-duration-fast) var(--ds-ease),\n    box-shadow var(--ds-duration-fast) var(--ds-ease);\n}\n\n.ds-input {\n  height: var(--ds-control-h);\n  padding: 0 var(--ds-space-2-5);\n  line-height: normal;\n}\n\n.ds-textarea {\n  min-height: var(--ds-textarea-min-h);\n  padding: var(--ds-space-2) var(--ds-space-2-5);\n  line-height: var(--ds-leading-normal);\n  resize: vertical;\n}\n\n.ds-input::placeholder,\n.ds-textarea::placeholder {\n  color: var(--ds-muted-foreground);\n  opacity: 1;\n}\n\n.ds-input:hover:not(:disabled),\n.ds-textarea:hover:not(:disabled) {\n  border-color: color-mix(in srgb, var(--ds-input) 65%, var(--ds-foreground));\n}\n\n.ds-input:focus-visible,\n.ds-textarea:focus-visible {\n  border-color: var(--ds-ring);\n  outline: none;\n  box-shadow: 0 0 0 var(--ds-ring-width) color-mix(in srgb, var(--ds-ring) 24%, transparent);\n}\n\n.ds-input[aria-invalid='true'],\n.ds-textarea[aria-invalid='true'] {\n  border-color: var(--ds-destructive);\n}\n\n.ds-input[aria-invalid='true']:focus-visible,\n.ds-textarea[aria-invalid='true']:focus-visible {\n  box-shadow: 0 0 0 var(--ds-ring-width) color-mix(in srgb, var(--ds-destructive) 24%, transparent);\n}\n\n.ds-input:disabled,\n.ds-textarea:disabled {\n  opacity: 0.55;\n  cursor: not-allowed;\n}\n";
+	//#endregion
+	//#region packages/userscript-ui/src/components/input.ts
+	/**
+	* `data-ds-invalid` mirrors the control's own invalid state so a Field can add
+	* a validation error without owning — or clearing — the control's state.
+	*/
+	function createInput(ui, options = {}) {
+		assertAlive(ui, "input");
+		ui.useStyles(input_default);
+		const scope = createScope(ui);
+		const input = document.createElement("input");
+		input.className = "ds-input";
+		input.type = options.type ?? "text";
+		if (options.value != null) input.value = options.value;
+		if (options.placeholder) input.placeholder = options.placeholder;
+		if (options.name) input.name = options.name;
+		if (options.id) input.id = options.id;
+		if (options.disabled) input.disabled = true;
+		if (options.readonly) input.readOnly = true;
+		if (options.required) input.required = true;
+		if (options.autocomplete) input.autocomplete = options.autocomplete;
+		if (options.inputMode) input.inputMode = options.inputMode;
+		if (options.min != null) input.min = String(options.min);
+		if (options.max != null) input.max = String(options.max);
+		if (options.step != null) input.step = String(options.step);
+		if (options.ariaLabel) input.setAttribute("aria-label", options.ariaLabel);
+		const setInvalid = (invalid) => applyInvalid(input, invalid);
+		if (options.invalid) setInvalid(true);
+		if (options.onInput) input.addEventListener("input", (event) => options.onInput?.(input.value, event), { signal: scope.signal });
+		if (options.onChange) input.addEventListener("change", (event) => options.onChange?.(input.value, event), { signal: scope.signal });
+		return {
+			el: input,
+			input,
+			setValue(value) {
+				input.value = value;
+			},
+			getValue() {
+				return input.value;
+			},
+			setInvalid,
+			destroy() {
+				scope.destroy();
+				input.remove();
+			}
+		};
+	}
+	//#endregion
+	//#region packages/userscript-ui/src/components/select.css?inline
+	var select_default = ".ds-select-wrap {\n  position: relative;\n  width: 100%;\n  min-width: 0;\n}\n\n.ds-select {\n  width: 100%;\n  height: var(--ds-control-h);\n  padding: 0 var(--ds-space-8) 0 var(--ds-space-2-5);\n  border: var(--ds-border-width) solid var(--ds-input);\n  border-radius: var(--ds-radius-md);\n  background: transparent;\n  color: var(--ds-foreground);\n  font-family: inherit;\n  font-size: var(--ds-text-sm);\n  line-height: normal;\n  appearance: none;\n  cursor: pointer;\n  transition:\n    border-color var(--ds-duration-fast) var(--ds-ease),\n    box-shadow var(--ds-duration-fast) var(--ds-ease);\n}\n\n.ds-select:hover:not(:disabled) {\n  border-color: color-mix(in srgb, var(--ds-input) 65%, var(--ds-foreground));\n}\n\n.ds-select:focus-visible {\n  border-color: var(--ds-ring);\n  outline: none;\n  box-shadow: 0 0 0 var(--ds-ring-width) color-mix(in srgb, var(--ds-ring) 24%, transparent);\n}\n\n.ds-select[aria-invalid='true'] {\n  border-color: var(--ds-destructive);\n}\n\n.ds-select[aria-invalid='true']:focus-visible {\n  box-shadow: 0 0 0 var(--ds-ring-width) color-mix(in srgb, var(--ds-destructive) 24%, transparent);\n}\n\n.ds-select:disabled {\n  opacity: 0.55;\n  cursor: not-allowed;\n}\n\n.ds-select option {\n  background: var(--ds-card);\n  color: var(--ds-card-foreground);\n}\n\n.ds-select-chevron {\n  position: absolute;\n  inset-block-start: 50%;\n  inset-inline-end: var(--ds-space-2);\n  width: var(--ds-icon-sm);\n  height: var(--ds-icon-sm);\n  color: var(--ds-muted-foreground);\n  pointer-events: none;\n  transform: translateY(-50%);\n}\n\n.ds-select:focus-visible + .ds-select-chevron {\n  color: var(--ds-foreground);\n}\n";
+	//#endregion
+	//#region packages/userscript-ui/src/components/select.ts
+	function createSelect(ui, options) {
+		assertAlive(ui, "select");
+		ui.useStyles(select_default);
+		const scope = createScope(ui);
+		const wrap = document.createElement("span");
+		wrap.className = "ds-select-wrap";
+		const select = document.createElement("select");
+		select.className = "ds-select";
+		if (options.name) select.name = options.name;
+		if (options.id) select.id = options.id;
+		if (options.disabled) select.disabled = true;
+		if (options.required) select.required = true;
+		if (options.ariaLabel) select.setAttribute("aria-label", options.ariaLabel);
+		const chevron = chevronDownIcon();
+		chevron.classList.add("ds-select-chevron");
+		const renderOptions = (next) => {
+			select.replaceChildren();
+			if (options.placeholder) {
+				const placeholder = document.createElement("option");
+				placeholder.value = "";
+				placeholder.textContent = options.placeholder;
+				placeholder.disabled = true;
+				select.appendChild(placeholder);
+			}
+			for (const item of next) {
+				const option = document.createElement("option");
+				option.value = item.value;
+				option.textContent = item.label;
+				if (item.disabled) option.disabled = true;
+				select.appendChild(option);
+			}
+		};
+		renderOptions(options.options);
+		const selectFirstEnabled = (items) => {
+			const first = items.find((item) => !item.disabled);
+			if (first) select.value = first.value;
+			else select.selectedIndex = -1;
+		};
+		const requested = options.value;
+		if (requested != null && options.options.some((item) => item.value === requested && !item.disabled)) select.value = requested;
+		else if (options.placeholder) select.value = "";
+		else selectFirstEnabled(options.options);
+		wrap.append(select, chevron);
+		const setInvalid = (invalid) => applyInvalid(select, invalid);
+		if (options.invalid) setInvalid(true);
+		if (options.onChange) select.addEventListener("change", (event) => options.onChange?.(select.value, event), { signal: scope.signal });
+		return {
+			el: wrap,
+			input: select,
+			setValue(value) {
+				if (value === "" && options.placeholder || [...select.options].some((option) => option.value === value && !option.disabled)) select.value = value;
+			},
+			getValue() {
+				return select.value;
+			},
+			setOptions(next) {
+				const current = select.value;
+				renderOptions(next);
+				if ([...select.options].some((option) => option.value === current && !option.disabled)) select.value = current;
+				else if (options.placeholder) select.value = "";
+				else selectFirstEnabled(next);
+			},
+			setInvalid,
+			destroy() {
+				scope.destroy();
+				wrap.remove();
+			}
+		};
+	}
+	//#endregion
+	//#region packages/userscript-ui/src/components/switch.css?inline
+	var switch_default = ".ds-switch {\n  position: relative;\n  display: inline-flex;\n  width: var(--ds-switch-width);\n  height: var(--ds-switch-height);\n  flex: none;\n  vertical-align: middle;\n}\n\n.ds-switch-input {\n  position: absolute;\n  inset: 0;\n  z-index: 1;\n  width: 100%;\n  height: 100%;\n  margin: 0;\n  opacity: 0;\n  cursor: pointer;\n}\n\n.ds-switch-track {\n  position: absolute;\n  inset: 0;\n  border-radius: var(--ds-radius-full);\n  background: var(--ds-track);\n  transition: background-color var(--ds-duration-fast) var(--ds-ease);\n}\n\n.ds-switch-thumb {\n  position: absolute;\n  inset-block-start: var(--ds-space-0-5);\n  inset-inline-start: var(--ds-space-0-5);\n  width: var(--ds-switch-thumb-size);\n  height: var(--ds-switch-thumb-size);\n  border-radius: var(--ds-radius-full);\n  background: var(--ds-switch-thumb);\n  box-shadow: var(--ds-shadow-sm);\n  transition:\n    transform var(--ds-duration-fast) var(--ds-ease),\n    background-color var(--ds-duration-fast) var(--ds-ease);\n}\n\n.ds-switch-input:checked + .ds-switch-track {\n  background: var(--ds-primary);\n}\n\n.ds-switch-input:checked + .ds-switch-track .ds-switch-thumb {\n  background: var(--ds-primary-foreground);\n  /* Travel is derived so the thumb always lands inside the track. */\n  transform: translateX(\n    calc(var(--ds-switch-width) - var(--ds-switch-thumb-size) - 2 * var(--ds-space-0-5))\n  );\n}\n\n.ds-switch-input:hover:not(:disabled) + .ds-switch-track {\n  background: color-mix(in srgb, var(--ds-track) 82%, var(--ds-foreground));\n}\n\n.ds-switch-input:checked:hover:not(:disabled) + .ds-switch-track {\n  background: color-mix(in srgb, var(--ds-primary) 90%, var(--ds-background));\n}\n\n.ds-switch-input:focus-visible + .ds-switch-track {\n  outline: var(--ds-ring-width) solid var(--ds-ring);\n  outline-offset: var(--ds-ring-offset);\n}\n\n.ds-switch-input:disabled {\n  cursor: not-allowed;\n}\n\n.ds-switch-input:disabled + .ds-switch-track {\n  opacity: 0.5;\n}\n";
+	//#endregion
+	//#region packages/userscript-ui/src/components/switch.ts
+	function createSwitch(ui, options = {}) {
+		assertAlive(ui, "switch");
+		ui.useStyles(switch_default);
+		const scope = createScope(ui);
+		const root = document.createElement("span");
+		root.className = "ds-switch";
+		const input = document.createElement("input");
+		input.type = "checkbox";
+		input.className = "ds-switch-input";
+		input.setAttribute("role", "switch");
+		input.checked = options.checked ?? false;
+		input.setAttribute("aria-checked", String(input.checked));
+		if (options.name) input.name = options.name;
+		if (options.id) input.id = options.id;
+		if (options.disabled) input.disabled = true;
+		if (options.ariaLabel) input.setAttribute("aria-label", options.ariaLabel);
+		const track = document.createElement("span");
+		track.className = "ds-switch-track";
+		track.setAttribute("aria-hidden", "true");
+		const thumb = document.createElement("span");
+		thumb.className = "ds-switch-thumb";
+		track.appendChild(thumb);
+		root.append(input, track);
+		input.addEventListener("change", (event) => {
+			input.setAttribute("aria-checked", String(input.checked));
+			options.onChange?.(input.checked, event);
+		}, { signal: scope.signal });
+		return {
+			el: root,
+			input,
+			setChecked(checked) {
+				input.checked = checked;
+				input.setAttribute("aria-checked", String(checked));
+			},
+			isChecked() {
+				return input.checked;
+			},
+			destroy() {
+				scope.destroy();
+				root.remove();
+			}
+		};
+	}
+	//#endregion
+	//#region scripts/super-drag/src/ui/settings-panel.ts
+	var LABELS = {
+		close: "关闭",
+		settings: "设置",
+		notifications: "通知",
+		dismissNotification: "关闭通知",
+		closeSettings: "关闭设置",
+		scrollHint: "向下滚动查看更多内容",
+		cancel: "取消",
+		confirm: "确定"
+	};
+	function createSettingsPanel(options) {
+		const ui = mountUI({
+			theme: "system",
+			labels: LABELS
+		});
+		const initial = options.getSettings();
+		const panel = createPanel(ui, {
+			title: "超级拖拽设置",
+			description: "拖拽选中文字搜索，拖拽链接或图片在新标签页打开；按住 Shift 这一次前台打开，按 Esc 取消。",
+			open: false,
+			position: "center",
+			closeLabel: "关闭设置"
+		});
+		const kindsSection = createSection(ui, {
+			title: "拖拽类型",
+			description: "关掉某一类后，这类拖拽交还网页的原生行为"
+		});
+		const textSwitch = createSwitch(ui, { checked: initial.dragKinds.text });
+		const linkSwitch = createSwitch(ui, { checked: initial.dragKinds.link });
+		const imageSwitch = createSwitch(ui, { checked: initial.dragKinds.image });
+		kindsSection.body.append(createField(ui, {
+			label: "文字",
+			description: "选中文字后拖动即搜索",
+			control: textSwitch,
+			inline: true
+		}).el, createField(ui, {
+			label: "链接",
+			description: "拖动链接在新标签页打开",
+			control: linkSwitch,
+			inline: true
+		}).el, createField(ui, {
+			label: "图片",
+			description: "拖动图片在新标签页查看",
+			control: imageSwitch,
+			inline: true
+		}).el);
+		const textSection = createSection(ui, { title: "文字拖拽" });
+		const engine = createSelect(ui, {
+			options: engineOptions(initial),
+			value: initial.defaultEngine,
+			onChange: () => refresh()
+		});
+		const engineField = createField(ui, {
+			label: "搜索引擎",
+			description: "拖动选中的文字即用它搜索",
+			control: engine
+		});
+		const customInput = createInput(ui, {
+			type: "url",
+			placeholder: "https://www.google.com/search?q={keyword}",
+			autocomplete: "off",
+			onInput: () => refresh()
+		});
+		const customField = createField(ui, {
+			label: "自定义搜索地址",
+			description: "用 {keyword} 占位，需以 http:// 或 https:// 开头",
+			control: customInput
+		});
+		const urlTextAction = createSelect(ui, {
+			options: [{
+				value: "open",
+				label: "直接打开"
+			}, {
+				value: "search",
+				label: "仍然搜索"
+			}],
+			value: initial.urlTextAction,
+			onChange: () => refresh()
+		});
+		const urlTextActionField = createField(ui, {
+			label: "拖动的文字是网址时",
+			description: "选「直接打开」时不再经过搜索引擎",
+			control: urlTextAction
+		});
+		textSection.body.append(engineField.el, customField.el, urlTextActionField.el);
+		const linkSection = createSection(ui, { title: "链接与图片" });
+		const openMode = createSelect(ui, {
+			options: [{
+				value: "background",
+				label: "后台打开（停留在当前页）"
+			}, {
+				value: "foreground",
+				label: "前台打开（立即切换过去）"
+			}],
+			value: initial.linkOpenMode,
+			onChange: () => refresh()
+		});
+		const openModeField = createField(ui, {
+			label: "新标签页打开方式",
+			description: "链接、图片和搜索结果都按这里的方式打开；按住 Shift 时这一次总是前台打开",
+			control: openMode
+		});
+		const imageAction = createSelect(ui, {
+			options: [{
+				value: "viewer",
+				label: "打开深色查看器"
+			}, {
+				value: "original",
+				label: "直接打开原图"
+			}],
+			value: initial.imageAction,
+			onChange: () => refresh()
+		});
+		const imageActionField = createField(ui, {
+			label: "拖拽图片时",
+			description: "查看器适合专注看图；原图适合保存或交给浏览器自带的图片页",
+			control: imageAction
+		});
+		linkSection.body.append(openModeField.el, imageActionField.el);
+		panel.body.append(kindsSection.el, textSection.el, linkSection.el);
+		/** 表单当前值；不改动已保存的设置。 */
+		const draft = () => ({
+			...options.getSettings(),
+			dragKinds: {
+				text: textSwitch.isChecked(),
+				link: linkSwitch.isChecked(),
+				image: imageSwitch.isChecked()
+			},
+			defaultEngine: engine.getValue(),
+			customEngineUrl: customInput.getValue().trim(),
+			urlTextAction: urlTextAction.getValue() === "search" ? "search" : "open",
+			imageAction: imageAction.getValue() === "original" ? "original" : "viewer",
+			linkOpenMode: openMode.getValue() === "foreground" ? "foreground" : "background"
+		});
+		/** 只刷新派生显示：自定义行的显隐、示例地址、错误提示。 */
+		function refresh() {
+			const current = draft();
+			const isCustom = current.defaultEngine === CUSTOM_ENGINE_ID;
+			customField.el.hidden = !isCustom;
+			engineField.setDescription(`示例：${buildSearchUrl(current, PREVIEW_KEYWORD)}`);
+			if (isCustom && current.customEngineUrl !== "") customField.setError(validateCustomEngineUrl(current.customEngineUrl) ?? void 0);
+			else customField.setError(void 0);
+		}
+		/** 用给定设置回填表单（打开、取消、恢复默认都走这里）。 */
+		function fillForm(next) {
+			textSwitch.setChecked(next.dragKinds.text);
+			linkSwitch.setChecked(next.dragKinds.link);
+			imageSwitch.setChecked(next.dragKinds.image);
+			engine.setOptions(engineOptions(next));
+			engine.setValue(next.defaultEngine);
+			customInput.setValue(next.customEngineUrl);
+			urlTextAction.setValue(next.urlTextAction);
+			imageAction.setValue(next.imageAction);
+			openMode.setValue(next.linkOpenMode);
+			refresh();
+		}
+		const reset = createButton(ui, {
+			label: "恢复默认",
+			variant: "ghost",
+			onClick: () => fillForm(defaultSettings())
+		});
+		const cancel = createButton(ui, {
+			label: "取消",
+			variant: "secondary",
+			onClick: () => {
+				fillForm(options.getSettings());
+				panel.close();
+			}
+		});
+		const save = createButton(ui, {
+			label: "保存",
+			variant: "primary",
+			onClick: () => {
+				const next = draft();
+				if (next.defaultEngine === "custom") {
+					const problem = validateCustomEngineUrl(next.customEngineUrl);
+					if (problem) {
+						customField.setError(problem);
+						customInput.input.focus();
+						return;
+					}
+				}
+				options.save(next);
+				panel.close();
+			}
+		});
+		panel.setFooter([
+			reset.el,
+			cancel.el,
+			save.el
+		]);
+		return {
+			open() {
+				fillForm(options.getSettings());
+				panel.open();
+			},
+			close: () => panel.close(),
+			isOpen: () => panel.isOpen(),
+			destroy: () => ui.destroy()
+		};
+	}
+	//#endregion
+	//#region scripts/super-drag/src/main.ts
+	/**
+	* 入口：挂拖拽监听、注册菜单项。
+	*
+	* 设置面板与 UI 都在第一次打开设置时才创建，所以普通页面只有几条事件监听，
+	* 不注入样式、不生成节点。
+	*/
+	var MENU_LABEL = "设置";
+	function start() {
+		const gm = createGmApi();
+		const store = createSettingsStore(gm);
+		const openers = createOpeners();
+		installDragSensor({
+			getSettings: store.get,
+			openUrl: openers.openUrl,
+			openImage: openers.openImage
+		});
+		let panel = null;
+		const openSettings = () => {
+			try {
+				if (!panel) panel = createSettingsPanel({
+					getSettings: store.get,
+					save: (patch) => void store.update(patch)
+				});
+				panel.open();
+			} catch (error) {
+				console.error("[super-drag] 设置面板打开失败", error);
+			}
+		};
+		if (!gm.registerMenuCommand(MENU_LABEL, openSettings)) console.warn("[super-drag] 菜单命令不可用，设置面板无法打开");
+	}
+	try {
+		start();
+	} catch (error) {
+		console.error("[super-drag] 启动失败", error);
+	}
+	//#endregion
+})();

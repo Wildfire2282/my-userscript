@@ -52,7 +52,6 @@ SLUGS: dict[int, str] = {
     580630: "super-drag",
     582371: "capture-links",
     582576: "selection-copy",
-    584534: "input-autofill",
 }
 
 ENTRY_CANDIDATES = ("src/main.ts", "src/main.js", "src/index.ts", "src/index.js")
@@ -148,7 +147,13 @@ def discover_scripts() -> dict[int, tuple[str, str]]:
     for page in range(1, MAX_PAGES + 1):
         url = USER_URL if page == 1 else f"{USER_URL}?page={page}"
         parser = ScriptLinkParser()
-        parser.feed(fetch(url).decode("utf-8", "replace"))
+        try:
+            parser.feed(fetch(url).decode("utf-8", "replace"))
+        except FetchError:
+            # 脚本不足一页时，Greasy Fork 对 page=2 返回 403；视为没有下一页。
+            if page == 1:
+                raise
+            break
         new_ids = [sid for sid in parser.links if sid not in found]
         for sid in new_ids:
             found[sid] = parser.links[sid]

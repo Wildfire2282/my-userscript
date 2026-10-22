@@ -58,7 +58,8 @@ CI 不跑 `check:browser`（runner 没有浏览器）。改交互的版本发布
 
 ## Greasy Fork 侧
 
-每个脚本配置一次：脚本页 → 管理 → 脚本同步 → 填同步 URL、同步类型选「自动」→ 保存。
+每个脚本配置一次：脚本页 → 管理 → 脚本同步 → 填同步 URL、同步类型选「自动」，
+点「更新设置并立即同步」（不是「更新」）。这个按钮会立刻拉取一次，同时保存同步设置。
 
 | 脚本 | 同步 URL |
 | --- | --- |
@@ -68,8 +69,10 @@ CI 不跑 `check:browser`（runner 没有浏览器）。改交互的版本发布
 | 输入框自动填充 | `https://raw.githubusercontent.com/Wildfire2282/my-userscript/release/input-autofill.user.js` |
 | YouTube 转写文稿复制 | `https://raw.githubusercontent.com/Wildfire2282/my-userscript/release/youtube-transcript-copy.user.js` |
 
-首次保存时 Greasy Fork 会立即拉取一次。发布物版本必须高于线上版本；相同版本会显示为已是最新，
-不会产生更新记录。
+发布物版本必须高于线上版本；相同版本会显示为已是最新，不会产生更新记录。
+
+**新增脚本必须走这个按钮。** GitHub 的 push 事件只把「已存在文件的修改」算作 changed files，
+新建文件的提交不会被 Greasy Fork 的 webhook 处理；第一次同步后，后续更新才由 webhook 自动完成。
 
 ## 日常发布
 

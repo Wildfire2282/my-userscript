@@ -63,6 +63,7 @@ jobs:
       - name: 推送到 release 分支
         env:
           RELEASE_DIR: ${{ runner.temp }}/release
+          SOURCE_MESSAGE: ${{ github.event.head_commit.message }}
         run: |
           set -euo pipefail
           cd "$RELEASE_DIR"
@@ -73,5 +74,5 @@ jobs:
             echo "没有需要发布的变更。"
             exit 0
           fi
-          git commit -m "chore(release): 发布构建产物"
+          git commit -m "${SOURCE_MESSAGE:-chore(release): 发布构建产物}"
           git push origin HEAD:release

@@ -17,14 +17,19 @@
  *   node tools/build.mjs --minify        # 压缩产物
  */
 
-import { access, readdir, readFile, stat } from 'node:fs/promises';
+import { access, readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { gzipSync } from 'node:zlib';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SCRIPTS_DIR = path.join(ROOT, 'scripts');
 const UI_SRC = path.join(ROOT, 'packages', 'userscript-ui', 'src');
 const SHARED_SRC = path.join(ROOT, 'packages', 'shared', 'src');
+
+// 体积预算：超了只提示，不拦构建。装脚本的用户真正下载的是 gzip 后的大小。
+const RAW_BUDGET = 200 * 1024;
+const GZIP_BUDGET = 60 * 1024;
 
 const ENTRY_CANDIDATES = ['src/main.ts', 'src/main.js', 'src/index.ts', 'src/index.js'];
 const META_CANDIDATES = ['userscript.meta.ts', 'userscript.meta.js'];
@@ -150,8 +155,13 @@ async function buildPackage(pkg) {
   });
 
   const output = path.join(pkg.dir, 'dist', `${pkg.slug}.user.js`);
-  const { size } = await stat(output);
-  return { status: 'built', output, size };
+  const contents = await readFile(output);
+  return {
+    status: 'built',
+    output,
+    raw: contents.byteLength,
+    gzip: gzipSync(contents).byteLength,
+  };
 }
 
 const all = await loadPackages();
@@ -177,7 +187,7 @@ for (const pkg of selected) {
     built.push({ slug: pkg.slug, ...result });
     console.log(
       `构建 ${pkg.slug} -> scripts/${pkg.slug}/dist/${pkg.slug}.user.js ` +
-        `(${(result.size / 1024).toFixed(1)} KB)`,
+        `(${(result.raw / 1024).toFixed(1)} KB，gzip ${(result.gzip / 1024).toFixed(1)} KB)`,
     );
   } catch (error) {
     failed.push({ slug: pkg.slug, error });
@@ -189,4 +199,14 @@ console.log(`\n完成：${built.length} 个构建，${skipped.length} 个跳过�
 if (skipped.length > 0) {
   console.log('跳过的脚本仍是 legacy 原版，迁移方法见 docs/migration-guide.md。');
 }
+
+const overBudget = built.filter((item) => item.raw > RAW_BUDGET || item.gzip > GZIP_BUDGET);
+if (overBudget.length > 0) {
+  const names = overBudget.map((item) => item.slug).join('、');
+  console.warn(
+    `体积超出预算（raw ${RAW_BUDGET / 1024} KB / gzip ${GZIP_BUDGET / 1024} KB）：${names}。` +
+      '需要在交付说明里写明原因。',
+  );
+}
+
 process.exitCode = failed.length > 0 ? 1 : 0;

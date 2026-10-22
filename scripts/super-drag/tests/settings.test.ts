@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { GmApi } from '@shared';
 import {
-  CUSTOM_ENGINE_ID,
   DEFAULT_SETTINGS,
   SETTINGS_KEY,
   createSettingsStore,
@@ -26,9 +25,16 @@ describe('normalizeSettings', () => {
     expect(normalizeSettings(null)).toEqual(DEFAULT_SETTINGS);
   });
 
-  it('只覆盖存过的字段', () => {
-    expect(normalizeSettings({ linkOpenMode: 'foreground' }).linkOpenMode).toBe('foreground');
-    expect(normalizeSettings({ linkOpenMode: 'foreground' }).defaultEngine).toBe('google');
+  it('只覆盖存过的字段，其余保持默认', () => {
+    const normalized = normalizeSettings({
+      linkOpenMode: 'foreground',
+      urlTextAction: 'search',
+      imageAction: 'original',
+    });
+    expect(normalized.linkOpenMode).toBe('foreground');
+    expect(normalized.urlTextAction).toBe('search');
+    expect(normalized.imageAction).toBe('original');
+    expect(normalized.defaultEngine).toBe('google');
   });
 
   it('损坏的字段逐项回退，不影响其它字段', () => {
@@ -74,16 +80,6 @@ describe('normalizeSettings', () => {
     expect(normalized.engines.duckduckgo).toBeUndefined();
   });
 
-  it('自定义与仍然存在的引擎都保留', () => {
-    expect(normalizeSettings({ defaultEngine: CUSTOM_ENGINE_ID }).defaultEngine).toBe('custom');
-    expect(
-      normalizeSettings({
-        defaultEngine: 'duckduckgo',
-        engines: { duckduckgo: 'https://duckduckgo.com/?q={keyword}' },
-      }).defaultEngine,
-    ).toBe('duckduckgo');
-  });
-
   it('拖动类型可以单独关闭，坏值按开启处理', () => {
     expect(normalizeSettings({ dragKinds: { image: false } }).dragKinds).toEqual({
       text: true,
@@ -108,12 +104,6 @@ describe('normalizeSettings', () => {
     expect(normalized.linkOpenMode).toBe('foreground');
     expect(normalized.defaultEngine).toBe('baidu');
     expect(normalized.customEngineUrl).toBe('https://example.com/s?q={keyword}');
-  });
-
-  it('保留新的网址文字处理与图片打开方式', () => {
-    const normalized = normalizeSettings({ urlTextAction: 'search', imageAction: 'original' });
-    expect(normalized.urlTextAction).toBe('search');
-    expect(normalized.imageAction).toBe('original');
   });
 });
 

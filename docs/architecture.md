@@ -29,10 +29,9 @@
 | `scripts/<slug>/tests/browser-scenarios.mjs` | 真实浏览器场景，由 `tools/browser-check.mjs` 驱动 |
 | `scripts/<slug>/tests/fixtures/` | 场景用的本地夹具页 |
 | `scripts/<slug>/legacy/` | 线上原版快照；未迁移脚本的发布来源，已迁移脚本的对照物 |
-| `tools/build.mjs` | 遍历包、注入版本与 banner、调用 Vite，输出单文件 |
+| `tools/build.mjs` | 遍历包、注入版本与 banner、调用 Vite，输出单文件并报告 raw / gzip 体积 |
 | `tools/check-meta.mjs` | 产物元数据校验：首行、版本、权限、与 legacy 对照 |
-| `tools/check-size.mjs` | 产物 raw / gzip / brotli 体积与预算 |
-| `tools/browser-check.mjs` | 无依赖 CDP 驱动：注入产物与 GM 打桩，执行场景脚本 |
+| `tools/browser-check.mjs` | 无依赖 CDP 驱动：每个场景新开页面、注入 GM 打桩与产物 |
 | `tools/release.mjs` | 汇总发布物、校验版本与元数据变化 |
 | `tools/sync.py` | 从 Greasy Fork 把线上版本同步回 `legacy/`、元数据、`scripts.json` 与 README 表格 |
 | `scripts.json` | 机器可读清单，由 `npm run sync` 刷新 |
@@ -98,10 +97,18 @@ npm run build:min           # 压缩产物，仅用于排查体积
 
 ## 6. 验证
 
+测试分两层，同一件事只在一层断言：
+
+- **纯逻辑**（`npm test`）：能脱离页面判断的函数、设置归一化、地址拼接、DOM 小片段；
+- **真实浏览器**（`npm run test:browser`）：用户能看见的交互，一条行为一个场景。
+
 ```powershell
-npm run check          # lint + format:check + typecheck + test + build + check:meta + check:size
-npm run check:browser  # 真实 Chrome/Edge 场景，默认 super-drag
+npm test                # 单元测试（Vitest，毫秒级）
+npm run test:browser    # 真实 Chrome/Edge 场景（需要先构建）
+npm run check           # 交付前全量：静态检查 + 单测 + 构建 + 元数据 + 浏览器场景
 ```
+
+`check` 的最后一步就是浏览器场景，所以本地一条命令与 CI 的 `npm run check` 都会覆盖真实交互，不存在「记得在本地点一遍」的手工环节。
 
 | 检查 | 失败意味着 |
 | --- | --- |
@@ -109,16 +116,19 @@ npm run check:browser  # 真实 Chrome/Edge 场景，默认 super-drag
 | `format:check` | 代码风格与 Prettier 配置不一致 |
 | `typecheck` | 类型错误，或别名 / `types` 配置缺项 |
 | `test` | 纯逻辑回归（Vitest，毫秒级） |
-| `build` | 构建失败或产物缺失 |
+| `build` | 构建失败、产物缺失，或体积超出预算（raw ≤ 200 KB / gzip ≤ 60 KB，只提示不拦） |
 | `check:meta` | 版本漂移、元数据不在首行、权限与 legacy 不一致、GM 调用缺授权 |
-| `check:size` | 超出体积预算（默认只警告；需要严格把关时手动加 `--strict`） |
-| `check:browser` | 真实交互回归（拖拽、面板、存储、键盘） |
-
-体积预算：单脚本 ≤ 200 KB raw / 60 KB gzip，超限默认只警告；需要严格把关时手动加 `--strict`。
+| `test:browser` | 真实交互回归（拖拽、面板、存储、键盘） |
 
 `check:meta` 只扫描元数据块之后的代码来判断 `GM_*` 是否都有对应 `@grant`；迁移确实要改元数据时，加 `--allow-meta-change`，并在提交信息里写明理由。
 
-`check:browser` 用系统 Chrome/Edge 与 Node 内置 WebSocket 驱动 CDP，不下载 Playwright 浏览器；场景脚本导出 `run(ctx)`，返回 `{ scenario, expected, actual, pass }[]`。CI 不跑这一项，改交互的版本必须在本地跑过。
+`test:browser` 用系统 Chrome/Edge 与 Node 内置 WebSocket 驱动 CDP，不下载 Playwright 浏览器：Windows、macOS、Linux（CI 的 ubuntu-latest 自带 Chrome）都能自动找到，`CHROME_PATH` 可覆盖。场景写在 `scripts/<slug>/tests/browser-scenarios.mjs`：
+
+- `fixture` 指向 `tests/fixtures/` 下的页面；需要真实布局、坐标或选区时必须用真页面；
+- `helpers` 是可选的页面侧助手，工具本身不认识任何脚本专属的 DOM；
+- `scenarios` 每项为 `{ name, run(ctx) }`，`run(ctx)` 返回 `{ expected, actual }`；
+- 每个场景都在新页面里跑：重新加载夹具、重新注入 GM 打桩与产物。场景自己写前置条件，不依赖执行顺序，也不需要「收尾复位」；
+- 页面里的未捕获异常直接判该场景失败，控制台错误单独列出。
 
 没有实际执行的检查不得写成「已通过」；无法验证时明确写「未验证」及原因。
 
@@ -130,7 +140,8 @@ npm run check:browser  # 真实 Chrome/Edge 场景，默认 super-drag
 | 版本 | `package.json` 唯一来源，构建时注入 | 元数据与包版本两处手写必然漂移 |
 | 共享内核 | 只收纳 `gm` 与 `storage` | 重复事实来自多个 legacy 脚本；其余抽象尚无稳定复用 |
 | UI 复用 | 子模块源码直引，按需 tree-shake | 不发布运行时包，不引入全局样式与远程资源 |
-| 浏览器验证 | 自建 CDP 驱动，不用 Playwright | 环境已有 Chrome/Edge，避免下载浏览器与额外依赖 |
+| 测试分层 | 纯逻辑走 Vitest，用户可见交互走真实浏览器；同一事实只在一层断言 | 两层都断言同一规则会让维护成本翻倍，失败时也看不出该改哪一层 |
+| 浏览器验证 | 自建 CDP 驱动，不用 Playwright；每个场景独立重载页面 | 环境已有 Chrome/Edge，避免下载浏览器与额外依赖；场景互不污染，可单独删除或调试 |
 | 发布 | 确认发布后 push `main`，CI 推送 `release` 分支，webhook 通知 Greasy Fork | 构建与上线自动完成；发布时机、登录与元数据变化仍由人确认 |
 | 存储 | 旧键不改名，新键用 `<slug>:<area>.<key>` | 改名会丢用户设置 |
 | 主题 | `light` / `dark` / `system` 显式传入 | 不跟随宿主页面，避免被站点主题带偏 |

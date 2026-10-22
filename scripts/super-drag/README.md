@@ -49,9 +49,9 @@ src/
 
 ```powershell
 npm run build super-drag     # 产物 scripts/super-drag/dist/super-drag.user.js
-npm run test                 # 全部单测
-npm run check                # 静态检查 + 类型 + 单测 + 构建 + 元数据 + 体积
-npm run check:browser        # 真实 Chrome/Edge 场景
+npm test                     # 单元测试
+npm run test:browser         # 真实 Chrome/Edge 场景（先构建）
+npm run check                # 全部检查，含上面的浏览器场景
 ```
 
 ## 设置面板

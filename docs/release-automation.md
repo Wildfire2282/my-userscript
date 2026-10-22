@@ -6,7 +6,7 @@
 
 ```text
 push main
-  → GitHub Actions：npm ci、npm run check（含构建）
+  → GitHub Actions：npm ci、npm run check（含构建与浏览器场景）
   → tools/release.mjs 汇总发布物到 release 分支
   → GitHub push webhook
   → api.greasyfork.org
@@ -41,13 +41,13 @@ push main
 
 脚本从仓库删除后，下一次发布会清掉 `release` 分支里的旧文件；Greasy Fork 上的脚本不会自动删除，需要到脚本管理页手动停用或删除。
 
-CI 不跑 `check:browser`（该检查使用本地安装的 Chrome/Edge）。改交互的版本发布前必须在本地跑一次 `npm run check:browser <slug>`。
+`npm run check` 的最后一步是浏览器场景，CI 会真跑（ubuntu-latest 自带 Chrome）；本地与 CI 都会拦住真实交互的回归，不需要另开手工检查。
 
 ## 3. 日常发布
 
 1. 改源码。未迁移脚本只按 `AGENTS.md` 9.1 的紧急修复规则改 `legacy/`。
 2. 提版本：已迁移脚本改 `scripts/<slug>/package.json` 的 `version`；未迁移脚本改 `legacy/*.user.js` 元数据里的 `@version`，并把 `package.json` 同步到同一值。在 `CHANGELOG.md` 写一条人话。
-3. 本地跑 `npm run check`；涉及交互再跑 `npm run check:browser <slug>`。
+3. 本地跑 `npm run check`（含浏览器场景）。
 4. 向维护者说明本次用户可见的变化，确认发布后提交并 push `main`。
 5. Actions 通过后 `release` 分支出现新文件；webhook 触发后 Greasy Fork 通常一分钟内更新。
 6. 发布生效后跑 `npm run sync`，刷新 `scripts.json` 与根 `README.md` 的脚本表。

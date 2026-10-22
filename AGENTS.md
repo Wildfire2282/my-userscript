@@ -78,9 +78,9 @@
 
 | 检查 | 要求 |
 | --- | --- |
-| 构建 | `npm run build <slug>` 成功；交付前跑 `npm run check` |
-| 单元测试 | 受影响模块的测试全部通过（有则必跑） |
-| 浏览器场景 | 装上新产物，按验收场景操作一遍，确认行为符合预期 |
+| 构建 | `npm run build <slug>` 成功；交付前跑 `npm run check`（最后一步会跑浏览器场景） |
+| 单元测试 | 受影响模块的测试全部通过（有则必跑）；只测行为，不测实现细节 |
+| 浏览器场景 | `tests/browser-scenarios.mjs` 中覆盖本次改动行为的场景全过；新增行为同步补场景 |
 | 元数据 | 与 `legacy/` 对比，`@name`、`@match`、`@include`、`@grant` 无非预期变化 |
 | 回退 | 确认上一版产物仍在，可随时退回 |
 
@@ -241,12 +241,14 @@
 - **未迁移脚本的紧急修复**：可以改 `legacy/` 原版并单独提交，但必须在脚本 `README.md` 记一条
   “待迁移时合并”；不得在 `legacy/` 上叠加新功能。
 - **每个脚本自带两类验证**：`tests/*.test.ts`（Vitest，纯逻辑与 DOM 片段）和
-  `tests/browser-scenarios.mjs`（真实浏览器，驱动构建产物）。交付前两者都要跑。
+  `tests/browser-scenarios.mjs`（真实浏览器，驱动构建产物）。`npm run check` 会依次跑完两者，
+  不需要另开一项手工检查。
 
 ```powershell
 npm run build <slug>      # 构建单个脚本
-npm run check             # 静态检查 + 类型 + 单测 + 构建 + 元数据 + 体积
-npm run check:browser     # 真实浏览器场景（Chrome / Edge）
+npm test                  # 单元测试
+npm run test:browser      # 真实浏览器场景（Chrome / Edge，需先构建）
+npm run check             # 交付前全量：静态检查 + 单测 + 构建 + 元数据 + 浏览器场景
 ```
 
 
@@ -275,8 +277,8 @@ npm run check:browser     # 真实浏览器场景（Chrome / Edge）
 
 ## 附录 A：交付前检查
 
-- [ ] `npm run build <slug>` 通过；交付前另跑 `npm run check`
-- [ ] 浏览器里按验收场景走过一遍，有截图或场景表
+- [ ] `npm run build <slug>` 通过；交付前另跑 `npm run check`（含浏览器场景）
+- [ ] 浏览器场景检查全过，证据按第 4.2 节记录
 - [ ] `@name`、`@match`、`@include`、`@grant` 与上一版一致，或已获确认
 - [ ] 回退路径可用（上一版产物仍在）
 - [ ] `README.md` / `CHANGELOG.md` 已按人话更新

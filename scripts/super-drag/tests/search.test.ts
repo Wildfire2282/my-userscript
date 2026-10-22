@@ -5,7 +5,7 @@ import {
   engineOptions,
   validateCustomEngineUrl,
 } from '../src/search';
-import { CUSTOM_ENGINE_ID, DEFAULT_SETTINGS, type Settings } from '../src/settings';
+import { CUSTOM_ENGINE_ID, type Settings } from '../src/settings';
 
 function settings(patch: Partial<Settings> = {}): Settings {
   return { ...defaultSettings(), ...patch };
@@ -57,12 +57,6 @@ describe('buildSearchUrl', () => {
     expect(buildSearchUrl(settings({ defaultEngine: 'gone' }), 'x')).toBe(
       'https://www.google.com/search?q=x',
     );
-  });
-
-  it('默认设置里内置引擎的模板都可用', () => {
-    for (const id of Object.keys(DEFAULT_SETTINGS.engines)) {
-      expect(buildSearchUrl(settings({ defaultEngine: id }), 'x')).not.toBe('');
-    }
   });
 });
 

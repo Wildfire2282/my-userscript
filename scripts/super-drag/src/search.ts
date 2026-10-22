@@ -61,5 +61,6 @@ export function defaultSettings(): Settings {
   return {
     ...DEFAULT_SETTINGS,
     engines: { ...DEFAULT_SETTINGS.engines },
+    dragKinds: { ...DEFAULT_SETTINGS.dragKinds },
   };
 }

@@ -294,10 +294,49 @@ try {
         window.__page.press(button);
         return true;
       },
+      field: (label) =>
+        [...(panel()?.querySelectorAll('[data-ds-field]') ?? [])].find(
+          (node) => node.querySelector('.ds-field-label')?.textContent.trim() === label,
+        ) ?? null,
+      setSelect: (label, value) => {
+        const select = window.__page.field(label)?.querySelector('select');
+        if (!select) return false;
+        select.value = value;
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+        return select.value === value;
+      },
+      setInput: (label, value) => {
+        const input = window.__page.field(label)?.querySelector('input');
+        if (!input) return false;
+        input.value = value;
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        return true;
+      },
+      setSwitch: (label, checked) => {
+        const input = window.__page.field(label)?.querySelector('input[type="checkbox"]');
+        if (!input) return false;
+        if (input.checked !== checked) window.__page.press(input);
+        return input.checked === checked;
+      },
       fieldError: () =>
         [...(panel()?.querySelectorAll('.ds-field-error') ?? [])]
           .map((node) => node.textContent.trim())
           .find(Boolean) ?? '',
+      panelRect: () => {
+        const node = panel();
+        if (!node) return null;
+        const rect = node.getBoundingClientRect();
+        return {
+          left: rect.left,
+          top: rect.top,
+          right: rect.right,
+          bottom: rect.bottom,
+          width: rect.width,
+          height: rect.height,
+          viewportWidth: window.innerWidth,
+          viewportHeight: window.innerHeight,
+        };
+      },
     };
   });
 

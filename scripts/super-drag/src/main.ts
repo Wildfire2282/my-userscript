@@ -11,7 +11,7 @@ import { createSettingsPanel, type SettingsPanelHandle } from './ui/settings-pan
  * 不注入样式、不生成节点。
  */
 
-const MENU_LABEL = '超级拖拽：设置';
+const MENU_LABEL = '设置';
 
 function start(): void {
   const gm = createGmApi();

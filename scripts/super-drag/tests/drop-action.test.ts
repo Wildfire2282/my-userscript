@@ -6,7 +6,9 @@ import {
   type DragCandidate,
 } from '../src/features/drop-action';
 import { defaultSettings } from '../src/search';
-import type { Settings } from '../src/settings';
+import type { DragKinds, Settings } from '../src/settings';
+
+const ALL_KINDS: DragKinds = { text: true, link: true, image: true };
 
 function candidate(patch: Partial<DragCandidate> = {}): DragCandidate {
   return { link: '', image: '', selection: '', selectionHit: false, ...patch };
@@ -19,12 +21,15 @@ function settings(patch: Partial<Settings> = {}): Settings {
 describe('decideDrag', () => {
   it('按在选区里优先当文字，即使压在链接上', () => {
     expect(
-      decideDrag(candidate({ selection: '选中的字', selectionHit: true, link: 'https://a.test/' })),
+      decideDrag(
+        candidate({ selection: '选中的字', selectionHit: true, link: 'https://a.test/' }),
+        ALL_KINDS,
+      ),
     ).toEqual({ kind: 'text', data: '选中的字' });
   });
 
   it('没有选区时识别链接', () => {
-    expect(decideDrag(candidate({ link: 'https://a.test/' }))).toEqual({
+    expect(decideDrag(candidate({ link: 'https://a.test/' }), ALL_KINDS)).toEqual({
       kind: 'link',
       data: 'https://a.test/',
     });
@@ -32,42 +37,81 @@ describe('decideDrag', () => {
 
   it('链接优先于图片', () => {
     expect(
-      decideDrag(candidate({ link: 'https://a.test/', image: 'https://a.test/i.png' })),
+      decideDrag(candidate({ link: 'https://a.test/', image: 'https://a.test/i.png' }), ALL_KINDS),
     ).toEqual({ kind: 'link', data: 'https://a.test/' });
   });
 
   it('只有图片时识别图片', () => {
-    expect(decideDrag(candidate({ image: 'https://a.test/i.png' }))).toEqual({
+    expect(decideDrag(candidate({ image: 'https://a.test/i.png' }), ALL_KINDS)).toEqual({
       kind: 'image',
       data: 'https://a.test/i.png',
     });
   });
 
   it('拖拽元素上带着零散选区时按搜索处理', () => {
-    expect(decideDrag(candidate({ selection: '零散选中' }))).toEqual({
+    expect(decideDrag(candidate({ selection: '零散选中' }), ALL_KINDS)).toEqual({
       kind: 'text',
       data: '零散选中',
     });
   });
 
   it('什么都没有就不接管', () => {
-    expect(decideDrag(candidate())).toBeNull();
+    expect(decideDrag(candidate(), ALL_KINDS)).toBeNull();
+  });
+
+  it('关掉文字后，按在选区里不再接管（交还网页原生文字拖拽）', () => {
+    const kinds: DragKinds = { ...ALL_KINDS, text: false };
+    expect(
+      decideDrag(
+        candidate({ selection: '选中的字', selectionHit: true, link: 'https://a.test/' }),
+        kinds,
+      ),
+    ).toBeNull();
+    expect(decideDrag(candidate({ selection: '零散选中' }), kinds)).toBeNull();
+  });
+
+  it('关掉链接后，链接不再接管，图片和文字照常', () => {
+    const kinds: DragKinds = { ...ALL_KINDS, link: false };
+    expect(
+      decideDrag(candidate({ link: 'https://a.test/', image: 'https://a.test/i.png' }), kinds),
+    ).toEqual({ kind: 'image', data: 'https://a.test/i.png' });
+    expect(decideDrag(candidate({ link: 'https://a.test/' }), kinds)).toBeNull();
+  });
+
+  it('关掉图片后，图片不再接管，链接照常', () => {
+    const kinds: DragKinds = { ...ALL_KINDS, image: false };
+    expect(
+      decideDrag(candidate({ link: 'https://a.test/', image: 'https://a.test/i.png' }), kinds),
+    ).toEqual({ kind: 'link', data: 'https://a.test/' });
+    expect(decideDrag(candidate({ image: 'https://a.test/i.png' }), kinds)).toBeNull();
+  });
+
+  it('三类全关时什么都不接管', () => {
+    expect(
+      decideDrag(
+        candidate({
+          link: 'https://a.test/',
+          image: 'https://a.test/i.png',
+          selection: '选中的字',
+          selectionHit: true,
+        }),
+        { text: false, link: false, image: false },
+      ),
+    ).toBeNull();
   });
 });
 
 describe('shouldOpenInForeground', () => {
   it('按住 Shift 一律前台', () => {
-    expect(shouldOpenInForeground('text', true, 'background')).toBe(true);
-    expect(shouldOpenInForeground('image', true, 'background')).toBe(true);
+    expect(shouldOpenInForeground(true, 'background')).toBe(true);
   });
 
-  it('链接按设置前台，其它类型不受设置影响', () => {
-    expect(shouldOpenInForeground('link', false, 'foreground')).toBe(true);
-    expect(shouldOpenInForeground('text', false, 'foreground')).toBe(false);
+  it('设置前台时不用按 Shift 也前台', () => {
+    expect(shouldOpenInForeground(false, 'foreground')).toBe(true);
   });
 
   it('默认后台打开', () => {
-    expect(shouldOpenInForeground('link', false, 'background')).toBe(false);
+    expect(shouldOpenInForeground(false, 'background')).toBe(false);
   });
 });
 
@@ -92,6 +136,15 @@ describe('resolveDropAction', () => {
     expect(resolveDropAction('text', 'https://a.test/x', config)).toEqual({
       kind: 'url',
       url: 'https://a.test/x',
+    });
+  });
+
+  it('选择“仍然搜索”后，网址文本也走搜索引擎', () => {
+    expect(
+      resolveDropAction('text', 'https://a.test/x', settings({ urlTextAction: 'search' })),
+    ).toEqual({
+      kind: 'search',
+      url: 'https://www.google.com/search?q=https%3A%2F%2Fa.test%2Fx',
     });
   });
 

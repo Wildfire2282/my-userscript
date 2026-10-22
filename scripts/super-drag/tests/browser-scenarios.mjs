@@ -29,6 +29,9 @@ export async function run(ctx) {
       };
     }, dropSelector ?? null);
 
+  /** 当前保存的设置。 */
+  const storedSettings = () => ctx.evaluate(() => window.__gm.store.settings ?? {});
+
   // 1. 选中文字拖动 → 搜索
   const textDrag = await dragSelectedText();
   const searchedText = await ctx.evaluate(() => window.__page.lastOpened());
@@ -130,32 +133,50 @@ export async function run(ctx) {
     shadowDrag?.url ?? '',
   );
 
-  // 11. 菜单项能打开设置面板
+  // 11. 菜单项能打开居中的设置面板
   const menuState = await ctx.evaluate(() => {
     const available = typeof window.__gm.menu === 'function';
     window.__gm.menu?.();
     const panel = window.__page.panel();
+    const expected = [
+      '文字',
+      '链接',
+      '图片',
+      '搜索引擎',
+      '自定义搜索地址',
+      '拖动的文字是网址时',
+      '新标签页打开方式',
+      '拖拽图片时',
+    ];
+    const labels = [...(panel?.querySelectorAll('.ds-field-label') ?? [])].map((node) =>
+      node.textContent.trim(),
+    );
+    const rect = window.__page.panelRect();
+    const centered =
+      rect != null &&
+      Math.abs((rect.left + rect.right) / 2 - rect.viewportWidth / 2) <= 1 &&
+      Math.abs((rect.top + rect.bottom) / 2 - rect.viewportHeight / 2) <= 1;
     return {
       available,
       label: window.__gm.menuLabel,
       visible: panel ? !panel.hidden : false,
+      labels,
+      complete: expected.every((label) => labels.includes(label)),
+      centered,
     };
   });
   record(
-    '菜单项「超级拖拽：设置」打开设置面板',
-    '超级拖拽：设置 / 面板可见',
-    `${menuState.label} / ${menuState.visible ? '面板可见' : '面板不可见'}`,
+    '菜单项「设置」打开居中的设置面板',
+    '设置 / 面板可见 / 8 项齐全 / 居中',
+    `${menuState.label} / ${menuState.visible ? '面板可见' : '面板不可见'} / ${
+      menuState.labels.length
+    } 项${menuState.complete ? '齐全' : '不齐'} / ${menuState.centered ? '居中' : '未居中'}`,
   );
 
   // 12. 自定义地址缺少 {keyword} → 保存被拦下面板不关
   const guard = await ctx.evaluate(() => {
-    const panel = window.__page.panel();
-    const [engineSelect] = panel.querySelectorAll('select');
-    engineSelect.value = 'custom';
-    engineSelect.dispatchEvent(new Event('change', { bubbles: true }));
-    const input = panel.querySelector('input[type="url"]');
-    input.value = 'https://example.com/no-placeholder';
-    input.dispatchEvent(new Event('input', { bubbles: true }));
+    window.__page.setSelect('搜索引擎', 'custom');
+    window.__page.setInput('自定义搜索地址', 'https://example.com/no-placeholder');
     window.__page.clickButton('保存');
     return {
       stillOpen: !window.__page.panel().hidden,
@@ -173,10 +194,7 @@ export async function run(ctx) {
 
   // 13. 填好自定义地址 → 保存写入
   const saved = await ctx.evaluate(() => {
-    const panel = window.__page.panel();
-    const input = panel.querySelector('input[type="url"]');
-    input.value = 'https://example.com/s?q={keyword}';
-    input.dispatchEvent(new Event('input', { bubbles: true }));
+    window.__page.setInput('自定义搜索地址', 'https://example.com/s?q={keyword}');
     window.__page.clickButton('保存');
     return {
       open: !window.__page.panel().hidden,
@@ -208,18 +226,22 @@ export async function run(ctx) {
     const stored = window.__gm.store.settings ?? {};
     return {
       engine: stored.defaultEngine,
-      enabled: stored.enabled,
       custom: stored.customEngineUrl === '' ? '空' : stored.customEngineUrl,
       mode: stored.linkOpenMode,
+      urlText: stored.urlTextAction,
+      image: stored.imageAction,
+      kinds: stored.dragKinds,
       closed: window.__page.panel().hidden,
     };
   });
   record(
-    '恢复默认并保存 → 回到 Google / 启用 / 后台 / 自定义地址清空',
-    'google / true / 空 / background / 面板已关闭',
-    `${restored.engine} / ${String(restored.enabled)} / ${restored.custom} / ${restored.mode} / ${
-      restored.closed ? '面板已关闭' : '面板仍打开'
-    }`,
+    '恢复默认并保存 → 回到内置默认值',
+    'google / 空 / background / open / viewer / 全开 / 面板已关闭',
+    `${restored.engine} / ${restored.custom} / ${restored.mode} / ${restored.urlText} / ${
+      restored.image
+    } / ${
+      restored.kinds?.text && restored.kinds?.link && restored.kinds?.image ? '全开' : '有未开启'
+    } / ${restored.closed ? '面板已关闭' : '面板仍打开'}`,
   );
 
   // 16. 拖进富文本编辑器 → 交给页面原生插入，不打开页面
@@ -367,33 +389,151 @@ export async function run(ctx) {
     `${String(cancelled.claimed)} / ${String(cancelled.opened)} / ${String(cancelled.clicks)}`,
   );
 
-  // 23. 关掉开关后完全不动网站内容
-  const disabled = await ctx.evaluate(() => {
+  // 23. 关掉某一类拖拽后，只停这一类
+  const textOff = await ctx.evaluate(() => {
     window.__gm.menu?.();
-    const panel = window.__page.panel();
-    const checkbox = panel.querySelector('input[type="checkbox"]');
-    if (checkbox.checked) window.__page.press(checkbox);
+    window.__page.setSwitch('文字', false);
     window.__page.clickButton('保存');
-    const openedBefore = window.__page.openedCount();
+
     const paragraph = document.querySelector('#text');
     window.__page.clearSelection();
     const point = window.__page.select(paragraph);
+    const openedBefore = window.__page.openedCount();
     const claimed = window.__page.drag(paragraph, paragraph, { point });
+    const textOpened = window.__page.openedCount() - openedBefore;
+
+    window.__page.clearSelection();
+    const link = document.querySelector('#link');
+    const linkBefore = window.__page.openedCount();
+    window.__page.drag(link, link);
     return {
       claimed,
-      opened: window.__page.openedCount() - openedBefore,
-      enabled: window.__gm.store.settings?.enabled,
+      textOpened,
+      linkOpened: window.__page.openedCount() - linkBefore,
     };
   });
   record(
-    '关闭「启用」后拖拽无响应',
-    '不接管 / 不打开新页面 / enabled=false',
-    `${disabled.claimed === '' ? '不接管' : '仍接管'} / ${
-      disabled.opened === 0 ? '不打开新页面' : `新增 ${String(disabled.opened)} 个页面`
-    } / enabled=${String(disabled.enabled)}`,
+    '关掉「文字」→ 拖文字不接管，拖链接照常',
+    '不接管 / 0 / 1',
+    `${textOff.claimed === '' ? '不接管' : '仍接管'} / ${String(textOff.textOpened)} / ${String(
+      textOff.linkOpened,
+    )}`,
   );
 
-  // 24. Escape 关闭面板
+  const imageOff = await ctx.evaluate(() => {
+    window.__gm.menu?.();
+    window.__page.setSwitch('文字', true);
+    window.__page.setSwitch('图片', false);
+    window.__page.clickButton('保存');
+
+    window.__page.clearSelection();
+    const image = document.querySelector('#image');
+    const before = window.__page.openedCount();
+    const claimed = window.__page.drag(image, image);
+    return { claimed, opened: window.__page.openedCount() - before };
+  });
+  record(
+    '关掉「图片」→ 拖图片不接管',
+    '不接管 / 0',
+    `${imageOff.claimed === '' ? '不接管' : '仍接管'} / ${String(imageOff.opened)}`,
+  );
+
+  const linkOff = await ctx.evaluate(() => {
+    window.__gm.menu?.();
+    window.__page.setSwitch('图片', true);
+    window.__page.setSwitch('链接', false);
+    window.__page.clickButton('保存');
+
+    window.__page.clearSelection();
+    const link = document.querySelector('#link');
+    const before = window.__page.openedCount();
+    const claimed = window.__page.drag(link, link);
+    const linkOpened = window.__page.openedCount() - before;
+
+    const paragraph = document.querySelector('#text');
+    const point = window.__page.select(paragraph);
+    const textClaimed = window.__page.drag(paragraph, paragraph, { point });
+    return { claimed, linkOpened, textClaimed };
+  });
+  record(
+    '关掉「链接」→ 拖链接不接管，拖文字照常',
+    '不接管 / 0 / 有拖拽数据',
+    `${linkOff.claimed === '' ? '不接管' : '仍接管'} / ${String(linkOff.linkOpened)} / ${
+      linkOff.textClaimed !== '' ? '有拖拽数据' : '无拖拽数据'
+    }`,
+  );
+
+  await ctx.evaluate(() => {
+    window.__gm.menu?.();
+    window.__page.setSwitch('链接', true);
+    window.__page.clickButton('保存');
+  });
+
+  // 24. 网址文字设置成“仍然搜索” → 拖网址进搜索引擎
+  const urlTextSearch = await ctx.evaluate(() => {
+    window.__gm.menu?.();
+    window.__page.setSelect('拖动的文字是网址时', 'search');
+    window.__page.clickButton('保存');
+
+    const paragraph = document.createElement('p');
+    paragraph.textContent = 'https://example.com/very/long?x=1';
+    document.body.appendChild(paragraph);
+    const point = window.__page.select(paragraph);
+    const claimed = window.__page.drag(paragraph, paragraph, { point });
+    return { claimed, opened: window.__page.lastOpened()?.url ?? '' };
+  });
+  record(
+    '网址文字选「仍然搜索」→ 进搜索引擎，不直接打开',
+    `https://www.google.com/search?q=${encodeURIComponent('https://example.com/very/long?x=1')}`,
+    urlTextSearch.opened,
+  );
+
+  // 25. 图片设置成“直接打开原图” → 不再是查看器页面
+  const originalImage = await ctx.evaluate(() => {
+    window.__gm.menu?.();
+    window.__page.setSelect('拖拽图片时', 'original');
+    window.__page.clickButton('保存');
+
+    window.__page.clearSelection();
+    const image = document.querySelector('#image');
+    window.__page.drag(image, image);
+    return window.__page.lastOpened()?.url ?? '';
+  });
+  record(
+    '图片选「直接打开原图」→ 打开图片地址本身',
+    'https://example.com/image.png',
+    originalImage,
+  );
+
+  // 26. 打开方式选前台 → 拖链接切换过去
+  const foreground = await ctx.evaluate(() => {
+    window.__gm.menu?.();
+    window.__page.setSelect('新标签页打开方式', 'foreground');
+    window.__page.clickButton('保存');
+
+    window.__page.clearSelection();
+    const link = document.querySelector('#link');
+    window.__page.drag(link, link);
+    return window.__page.lastOpened()?.options?.active;
+  });
+  record('打开方式选前台 → 拖链接切到新标签', 'true', String(foreground === true));
+
+  // 27. 收尾：恢复默认，避免影响后续场景
+  await ctx.evaluate(() => {
+    window.__gm.menu?.();
+    window.__page.clickButton('恢复默认');
+    window.__page.clickButton('保存');
+  });
+  const finalStored = await storedSettings();
+  record(
+    '收尾恢复默认 → 所有设置回到默认',
+    'google / true / background / open / viewer',
+    `${finalStored.defaultEngine} / ${String(
+      finalStored.dragKinds?.text && finalStored.dragKinds?.link && finalStored.dragKinds?.image,
+    )} / ${finalStored.linkOpenMode} / ${finalStored.urlTextAction} / ${finalStored.imageAction}`,
+  );
+
+  // 28. Escape 关闭面板
   const escaped = await ctx.evaluate(() => {
     window.__gm.menu?.();
     const panel = window.__page.panel();

@@ -1,5 +1,5 @@
 import { buildSearchUrl } from '../search';
-import type { LinkOpenMode, Settings } from '../settings';
+import type { DragKinds, LinkOpenMode, Settings } from '../settings';
 import { asDirectUrl } from './url';
 
 /**
@@ -31,25 +31,25 @@ export interface DragPayload {
  * 规则与线上原版一致：选区优先（按在选区里拖连接也是搜索），其次链接，再次图片，
  * 最后才是“可拖拽元素上带着一段选区”的兜底。
  *
+ * 按在选区里但文字拖拽被关掉时直接不接管：用户此刻想拖的是文字，交还给网页原生拖拽，
+ * 而不是突然打开压在下面的链接。
+ *
+ * @param kinds 三类拖拽各自的开关
  * @returns 要接管的内容；`null` 表示交给浏览器原生拖拽
  */
-export function decideDrag(candidate: DragCandidate): DragPayload | null {
+export function decideDrag(candidate: DragCandidate, kinds: DragKinds): DragPayload | null {
   if (candidate.selection !== '' && candidate.selectionHit) {
-    return { kind: 'text', data: candidate.selection };
+    return kinds.text ? { kind: 'text', data: candidate.selection } : null;
   }
-  if (candidate.link !== '') return { kind: 'link', data: candidate.link };
-  if (candidate.image !== '') return { kind: 'image', data: candidate.image };
-  if (candidate.selection !== '') return { kind: 'text', data: candidate.selection };
+  if (kinds.link && candidate.link !== '') return { kind: 'link', data: candidate.link };
+  if (kinds.image && candidate.image !== '') return { kind: 'image', data: candidate.image };
+  if (kinds.text && candidate.selection !== '') return { kind: 'text', data: candidate.selection };
   return null;
 }
 
-/** 本次打开是否切到前台：按住 Shift，或链接按设置前台打开。 */
-export function shouldOpenInForeground(
-  kind: DragKind,
-  shiftKey: boolean,
-  linkOpenMode: LinkOpenMode,
-): boolean {
-  return shiftKey || (kind === 'link' && linkOpenMode === 'foreground');
+/** 本次打开是否切到前台：按住 Shift，或设置里选了前台打开。 */
+export function shouldOpenInForeground(shiftKey: boolean, linkOpenMode: LinkOpenMode): boolean {
+  return shiftKey || linkOpenMode === 'foreground';
 }
 
 export type DropActionKind = 'url' | 'image' | 'search';
@@ -62,7 +62,7 @@ export interface DropAction {
 /**
  * 把拖拽内容转成“打开什么”。
  *
- * 文本：本身是网址就直接打开，否则拼搜索地址；链接：打开链接；
+ * 文本：网址且设置为直接打开时打开它，否则拼搜索地址；链接：打开链接；
  * 图片：交给图片打开流程（可能是查看器页面）。
  */
 export function resolveDropAction(
@@ -73,7 +73,9 @@ export function resolveDropAction(
   if (data === '') return null;
   if (kind === 'link') return { kind: 'url', url: data };
   if (kind === 'image') return { kind: 'image', url: data };
-  const direct = asDirectUrl(data);
-  if (direct !== '') return { kind: 'url', url: direct };
+  if (settings.urlTextAction === 'open') {
+    const direct = asDirectUrl(data);
+    if (direct !== '') return { kind: 'url', url: direct };
+  }
   return { kind: 'search', url: buildSearchUrl(settings, data) };
 }

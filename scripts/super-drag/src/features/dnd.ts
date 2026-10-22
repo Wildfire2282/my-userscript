@@ -80,13 +80,15 @@ export function installDragSensor(deps: DragSensorDeps): DragSensor {
   };
 
   const handleDragStart = (event: DragEvent) => {
-    if (phase !== 'idle' || deps.getSettings().enabled === false) return;
+    if (phase !== 'idle') return;
     // 多选、系统级手势留给浏览器；Shift 不拦，它表示“这一次前台打开”。
     if (event.ctrlKey || event.metaKey || event.altKey) return;
     // 输入框保留原生“移动文字”拖拽。
     if (isInputElement(event)) return;
     const transfer = event.dataTransfer;
     if (!transfer) return;
+
+    const settings = deps.getSettings();
 
     // isCollapsed 在 Shadow DOM 的人手选区里恒为 true。
     const selected = getSelectionText();
@@ -96,12 +98,15 @@ export function installDragSensor(deps: DragSensorDeps): DragSensor {
     const selectionHit =
       selected !== '' && isPointInSelection(event.clientX, event.clientY, event.composedPath());
     const hit = selectionHit ? { link: '', image: '' } : hitTestAt(event);
-    const payload = decideDrag({
-      link: hit.link,
-      image: hit.image,
-      selection: selected,
-      selectionHit,
-    });
+    const payload = decideDrag(
+      {
+        link: hit.link,
+        image: hit.image,
+        selection: selected,
+        selectionHit,
+      },
+      settings.dragKinds,
+    );
 
     if (!payload || !claim(transfer, payload.data)) return;
 
@@ -139,11 +144,15 @@ export function installDragSensor(deps: DragSensorDeps): DragSensor {
     swallowClickUntil = performance.now() + CLICK_SWALLOW_MS;
 
     const settings = deps.getSettings();
-    const foreground = shouldOpenInForeground(kind, event.shiftKey === true, settings.linkOpenMode);
+    const foreground = shouldOpenInForeground(event.shiftKey === true, settings.linkOpenMode);
     const action = resolveDropAction(kind, data, settings);
     try {
-      if (action?.kind === 'image') deps.openImage(action.url, foreground);
-      else if (action) deps.openUrl(action.url, foreground);
+      if (action?.kind === 'image') {
+        if (settings.imageAction === 'original') deps.openUrl(action.url, foreground);
+        else deps.openImage(action.url, foreground);
+      } else if (action) {
+        deps.openUrl(action.url, foreground);
+      }
     } finally {
       // 打开失败也必须复位，否则这一页后续拖拽全部失效。
       reset();

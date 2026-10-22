@@ -27,22 +27,26 @@ describe('normalizeSettings', () => {
   });
 
   it('只覆盖存过的字段', () => {
-    expect(normalizeSettings({ enabled: false }).enabled).toBe(false);
-    expect(normalizeSettings({ enabled: false }).defaultEngine).toBe('google');
+    expect(normalizeSettings({ linkOpenMode: 'foreground' }).linkOpenMode).toBe('foreground');
+    expect(normalizeSettings({ linkOpenMode: 'foreground' }).defaultEngine).toBe('google');
   });
 
   it('损坏的字段逐项回退，不影响其它字段', () => {
     const normalized = normalizeSettings({
-      enabled: 'yes',
       linkOpenMode: 'sideways',
       defaultEngine: 42,
       customEngineUrl: 7,
+      urlTextAction: 'sometimes',
+      imageAction: 'thumbnail',
+      dragKinds: 'all',
       engines: { google: '', baidu: 3 },
     });
-    expect(normalized.enabled).toBe(true);
     expect(normalized.linkOpenMode).toBe('background');
     expect(normalized.defaultEngine).toBe('google');
     expect(normalized.customEngineUrl).toBe('');
+    expect(normalized.urlTextAction).toBe('open');
+    expect(normalized.imageAction).toBe('viewer');
+    expect(normalized.dragKinds).toEqual({ text: true, link: true, image: true });
     // 空串和数字被丢弃，只留下默认值里仍然有效的引擎。
     expect(normalized.engines.google).toBeUndefined();
     expect(normalized.engines.baidu).toBeUndefined();
@@ -79,14 +83,46 @@ describe('normalizeSettings', () => {
       }).defaultEngine,
     ).toBe('duckduckgo');
   });
+
+  it('拖动类型可以单独关闭，坏值按开启处理', () => {
+    expect(normalizeSettings({ dragKinds: { image: false } }).dragKinds).toEqual({
+      text: true,
+      link: true,
+      image: false,
+    });
+    expect(normalizeSettings({ dragKinds: { text: 'off', link: 0 } }).dragKinds).toEqual({
+      text: true,
+      link: true,
+      image: true,
+    });
+  });
+
+  it('旧版总开关不再读取，其它旧设置照常保留', () => {
+    const normalized = normalizeSettings({
+      enabled: false,
+      linkOpenMode: 'foreground',
+      defaultEngine: 'baidu',
+      customEngineUrl: 'https://example.com/s?q={keyword}',
+    });
+    expect(normalized).not.toHaveProperty('enabled');
+    expect(normalized.linkOpenMode).toBe('foreground');
+    expect(normalized.defaultEngine).toBe('baidu');
+    expect(normalized.customEngineUrl).toBe('https://example.com/s?q={keyword}');
+  });
+
+  it('保留新的网址文字处理与图片打开方式', () => {
+    const normalized = normalizeSettings({ urlTextAction: 'search', imageAction: 'original' });
+    expect(normalized.urlTextAction).toBe('search');
+    expect(normalized.imageAction).toBe('original');
+  });
 });
 
 describe('createSettingsStore', () => {
   it('首次读取走 GM，之后走内存缓存', () => {
-    const gm = fakeGm({ enabled: false });
+    const gm = fakeGm({ linkOpenMode: 'foreground' });
     const store = createSettingsStore(gm);
-    expect(store.get().enabled).toBe(false);
-    expect(store.get().enabled).toBe(false);
+    expect(store.get().linkOpenMode).toBe('foreground');
+    expect(store.get().linkOpenMode).toBe('foreground');
     expect(gm.getValue).toHaveBeenCalledTimes(1);
     expect(gm.getValue).toHaveBeenCalledWith(SETTINGS_KEY, null);
   });
@@ -94,12 +130,12 @@ describe('createSettingsStore', () => {
   it('更新时写回完整设置并立即生效', () => {
     const gm = fakeGm();
     const store = createSettingsStore(gm);
-    const next = store.update({ defaultEngine: 'baidu', enabled: false });
+    const next = store.update({ defaultEngine: 'baidu', imageAction: 'original' });
     expect(next.defaultEngine).toBe('baidu');
-    expect(store.get().enabled).toBe(false);
+    expect(store.get().imageAction).toBe('original');
     expect(gm.setValue).toHaveBeenCalledWith(
       'settings',
-      expect.objectContaining({ defaultEngine: 'baidu' }),
+      expect.objectContaining({ defaultEngine: 'baidu', imageAction: 'original' }),
     );
     expect(gm.written).toHaveLength(1);
   });

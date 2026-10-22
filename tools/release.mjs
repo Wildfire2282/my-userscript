@@ -51,8 +51,8 @@ function parseVersion(text) {
 /** 解析 ==UserScript== 里的字段，保留出现顺序与重复项。 */
 function parseMeta(text) {
   const fields = new Map();
-  for (const line of text.split('\n')) {
-    const match = /^\/\/\s*(@[\w:]+)\s*(.*)$/.exec(line);
+  for (const line of text.split(/\r?\n/)) {
+    const match = /^\/\/\s*(@[\w:-]+)\s*(.*)$/.exec(line);
     if (!match) continue;
     const key = match[1];
     const value = match[2].trim();
@@ -60,6 +60,47 @@ function parseMeta(text) {
     fields.get(key).push(value);
   }
   return fields;
+}
+
+/** 把元数据字段序列化成与顺序、缩进无关的签名。 */
+function metaSignature(fields) {
+  return [...fields.keys()]
+    .sort()
+    .map(
+      (key) =>
+        `${key}=${fields
+          .get(key)
+          .map((value) => value.trim())
+          .sort()
+          .join('|')}`,
+    )
+    .join('\n');
+}
+
+/** 拆分元数据块与代码正文；用于比较语义内容。 */
+function splitArtifact(text) {
+  const endMarker = '// ==/UserScript==';
+  const end = text.indexOf(endMarker);
+  if (end < 0) return null;
+  return {
+    fields: parseMeta(text.slice(0, end)),
+    body: text.slice(end + endMarker.length),
+  };
+}
+
+/**
+ * 判断两份发布物是否只是元数据格式不同。
+ *
+ * Greasy Fork 会把手写的 `@downloadURL` / `@updateURL` 对齐空格改成单个空格，
+ * 反向同步后本地快照与 release 分支就会“字节不同、语义相同”。这类差异不应要求升版本。
+ */
+function sameArtifact(left, right) {
+  if (left === right) return true;
+  const normalize = (text) => text.replace(/\r\n?/g, '\n');
+  const a = splitArtifact(normalize(left));
+  const b = splitArtifact(normalize(right));
+  if (!a || !b) return false;
+  return metaSignature(a.fields) === metaSignature(b.fields) && a.body === b.body;
 }
 
 /** 会影响安装权限或匹配范围的字段；变化时必须人工确认。 */
@@ -152,7 +193,7 @@ for (const pkg of packages) {
   const target = path.join(OUT_DIR, `${pkg.slug}.user.js`);
   if (await exists(target)) {
     const current = await readFile(target, 'utf8');
-    if (current === content) {
+    if (sameArtifact(current, content)) {
       unchanged.push(`${pkg.slug}@${version}`);
       continue;
     }

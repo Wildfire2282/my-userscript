@@ -87,7 +87,7 @@ const ORDER_INDEX = new Map(CANONICAL_ORDER.map((key, index) => [key, index]));
 
 function parseMeta(text) {
   const fields = new Map();
-  for (const line of text.split('\n')) {
+  for (const line of text.split(/\r?\n/)) {
     const match = /^\/\/\s*(@[\w:-]+)\s*(.*)$/.exec(line);
     if (!match) continue;
     const key = match[1];

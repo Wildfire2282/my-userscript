@@ -11,6 +11,11 @@ on:
       - 'package-lock.json'
       - '.github/workflows/release.yml'
   workflow_dispatch:
+    inputs:
+      allow_meta_change:
+        description: '允许修改 @name / @match / @grant 后发布（需先人工确认）'
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -24,12 +29,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: 检出源码与子模块
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           submodules: recursive
 
       - name: 准备 Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
@@ -58,6 +63,7 @@ jobs:
       - name: 汇总发布物
         env:
           RELEASE_DIR: ${{ runner.temp }}/release
+          ALLOW_META_CHANGE: ${{ inputs.allow_meta_change == true && '1' || '0' }}
         run: node tools/release.mjs "$RELEASE_DIR"
 
       - name: 推送到 release 分支

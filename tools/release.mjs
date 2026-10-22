@@ -46,6 +46,32 @@ function parseVersion(text) {
   return match?.[1] ?? null;
 }
 
+/** 解析 ==UserScript== 里的字段，保留出现顺序与重复项。 */
+function parseMeta(text) {
+  const fields = new Map();
+  for (const line of text.split('\n')) {
+    const match = /^\/\/\s*(@[\w:]+)\s*(.*)$/.exec(line);
+    if (!match) continue;
+    const key = match[1];
+    const value = match[2].trim();
+    if (!fields.has(key)) fields.set(key, []);
+    fields.get(key).push(value);
+  }
+  return fields;
+}
+
+/** 会影响安装权限或匹配范围的字段；变化时必须人工确认。 */
+const STABLE_FIELDS = ['@name', '@match', '@include', '@grant'];
+
+/** 把稳定字段序列化成可比较的字符串。 */
+function stableFields(text) {
+  const fields = parseMeta(text);
+  return STABLE_FIELDS.map((key) => {
+    const values = [...(fields.get(key) ?? [])].sort();
+    return `${key}=${values.join('|')}`;
+  }).join('\n');
+}
+
 /**
  * 比较两个版本号。
  * 仓库里的版本都是 x.y.z，按数字逐段比较；遇到非数字段时退回自然排序。
@@ -130,6 +156,15 @@ for (const pkg of await loadPackages()) {
       problems.push(`${pkg.slug}：发布目录里的旧文件缺少 @version`);
       continue;
     }
+
+    // 名称、匹配站点、权限变化会影响安装提示，必须由人确认后手动触发。
+    if (stableFields(current) !== stableFields(content) && process.env.ALLOW_META_CHANGE !== '1') {
+      problems.push(
+        `${pkg.slug}：@name / @match / @include / @grant 有变化，确认后手动运行并设置 ALLOW_META_CHANGE=1`,
+      );
+      continue;
+    }
+
     const order = compareVersions(version, currentVersion);
     if (order < 0) {
       problems.push(

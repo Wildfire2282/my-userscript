@@ -38,6 +38,11 @@ push main
 | 版本更高 | 覆盖发布物 |
 | 版本相同、内容不同 | CI 失败，要求先提升版本 |
 | 版本更低 | CI 失败，拒绝回退 |
+| `@name` / `@match` / `@include` / `@grant` 变化 | CI 失败，要求人工确认后手动发布 |
+
+元数据变化会改变安装时的权限提示，不能静默上线。确认要改时，在 Actions 里对「发布用户脚本」
+点 Run workflow，勾选 `allow_meta_change` 再运行。迁移后的脚本还会被 `check:meta` 再拦一次，
+按 `docs/migration-guide.md` 的权限变更流程处理。
 
 CI 不跑 `check:browser`（runner 没有浏览器）。改交互的版本发布前在本地跑一次
 `npm run check:browser <slug>`。

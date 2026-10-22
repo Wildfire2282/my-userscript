@@ -2,7 +2,8 @@
 /**
  * 产物体积检查。
  *
- * 预算来自 docs/refactoring-plan.md 第 9 节：单脚本 ≤ 80 KB raw / 25 KB gzip。
+ * 预算来自 docs/refactoring-plan.md 第 9 节：单脚本 ≤ 200 KB raw / 60 KB gzip。
+ * 2026-10-22 按维护者要求从 80 KB / 25 KB 放宽，给面向用户的设置项留出空间。
  * 默认只警告（观察项）；加 --strict 时超预算即失败，用于发布前把关。
  *
  * 用法：
@@ -18,8 +19,8 @@ import { brotliCompressSync, gzipSync } from 'node:zlib';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SCRIPTS_DIR = path.join(ROOT, 'scripts');
 
-const RAW_BUDGET = 80 * 1024;
-const GZIP_BUDGET = 25 * 1024;
+const RAW_BUDGET = 200 * 1024;
+const GZIP_BUDGET = 60 * 1024;
 const strict = process.argv.includes('--strict');
 
 function kb(bytes) {

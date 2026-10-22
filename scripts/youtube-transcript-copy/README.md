@@ -5,13 +5,13 @@
 | 项目 | 值 |
 | --- | --- |
 | Greasy Fork | [579560](https://greasyfork.org/zh-CN/scripts/579560) |
-| 当前版本 | 1.1.2 |
-| 状态 | 未迁移：仍使用 `legacy/` 下的原版实现 |
+| 当前版本 | 1.1.3 |
+| 迁移状态 | 未迁移：线上发布使用 `legacy/` 原版 |
 | 原版文件 | `legacy/579560-youtube-transcript-copy.user.js` |
-| 匹配站点 | `https://www.youtube.com/*` |
-| 授予权限 | `GM_setClipboard`, `GM_registerMenuCommand`, `GM_addStyle`, `GM_setValue`, `GM_getValue`, `GM_deleteValue` |
+| 匹配站点 | `https://www.youtube.com/*`（`document-start`） |
+| 授予权限 | `GM_setClipboard`、`GM_registerMenuCommand`、`GM_addStyle`、`GM_setValue`、`GM_getValue`、`GM_deleteValue` |
+| 设置键 | `pos`（按钮位置）、`strategy`（提取策略记忆） |
 
-## 待办
+## 迁移状态
 
-- [ ] 按 [迁移指南](../../docs/migration-guide.md) 把 UI 换成 `@ui`（userscript-ui），逻辑拆到 `src/`。
-- [ ] 迁移完成后删除 `legacy/`，并从 [GreasyFork](https://greasyfork.org/zh-CN/scripts/579560) 发布新版本。
+未迁移。线上继续使用 `legacy/` 原版；迁移后改由 `src/` 构建，并按 [`docs/migration-guide.md`](../../docs/migration-guide.md) 验收，通过后再删除 `legacy/`。

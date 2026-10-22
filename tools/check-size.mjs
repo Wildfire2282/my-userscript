@@ -2,9 +2,8 @@
 /**
  * 产物体积检查。
  *
- * 预算来自 docs/refactoring-plan.md 第 9 节：单脚本 ≤ 200 KB raw / 60 KB gzip。
- * 2026-10-22 按维护者要求从 80 KB / 25 KB 放宽，给面向用户的设置项留出空间。
- * 默认只警告（观察项）；加 --strict 时超预算即失败，用于发布前把关。
+ * 预算见 docs/architecture.md：单脚本 ≤ 200 KB raw / 60 KB gzip。
+ * 默认只警告（观察项）；需要严格把关时手动加 --strict，超预算即失败。
  *
  * 用法：
  *   node tools/check-size.mjs

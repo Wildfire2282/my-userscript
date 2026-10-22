@@ -43,6 +43,8 @@ jobs:
         run: npm ci
 
       - name: 检查与构建
+        env:
+          ALLOW_META_CHANGE: ${{ inputs.allow_meta_change == true && '1' || '0' }}
         run: npm run check
 
       - name: 准备 release 分支

@@ -5,13 +5,13 @@
 | 项目 | 值 |
 | --- | --- |
 | Greasy Fork | [582371](https://greasyfork.org/zh-CN/scripts/582371) |
-| 当前版本 | 1.0.0 |
-| 状态 | 未迁移：仍使用 `legacy/` 下的原版实现 |
+| 当前版本 | 1.0.1 |
+| 迁移状态 | 未迁移：线上发布使用 `legacy/` 原版 |
 | 原版文件 | `legacy/582371-capture-links.user.js` |
-| 匹配站点 | `https://*/*`, `http://*/*` |
-| 授予权限 | `GM_addStyle`, `GM_registerMenuCommand`, `GM_setClipboard`, `GM_setValue`, `GM_getValue` |
+| 匹配站点 | `https://*/*`、`http://*/*`（`@noframes`，`document-end`） |
+| 授予权限 | `GM_addStyle`、`GM_registerMenuCommand`、`GM_setClipboard`、`GM_setValue`、`GM_getValue` |
+| 设置键 | `settings`（旧键，未改名）：`showFloatButton`、`copyFormat` |
 
-## 待办
+## 迁移状态
 
-- [ ] 按 [迁移指南](../../docs/migration-guide.md) 把 UI 换成 `@ui`（userscript-ui），逻辑拆到 `src/`。
-- [ ] 迁移完成后删除 `legacy/`，并从 [GreasyFork](https://greasyfork.org/zh-CN/scripts/582371) 发布新版本。
+未迁移。线上继续使用 `legacy/` 原版；迁移后改由 `src/` 构建，并按 [`docs/migration-guide.md`](../../docs/migration-guide.md) 验收，通过后再删除 `legacy/`。

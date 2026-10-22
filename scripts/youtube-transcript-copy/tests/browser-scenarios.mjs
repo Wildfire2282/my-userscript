@@ -207,7 +207,7 @@ export const scenarios = [
     },
   },
   {
-    name: '菜单「重置按钮位置」→ 回到默认位置并删除记忆',
+    name: '菜单「重置按钮位置」→ 回到右上角并删除记忆',
     async run(ctx) {
       const point = await ctx.evaluate(() => window.__page.center());
       await ctx.input.drag(point, { x: point.x - 120, y: point.y + 80 });
@@ -216,12 +216,11 @@ export const scenarios = [
         window.__page.menu('重置按钮位置');
         return {
           position: window.__page.position(),
-          expected: window.__page.expectedRightTop(),
           stored: window.__gm.store.pos ?? null,
         };
       });
       return {
-        expected: `${state.expected.right} / ${state.expected.top} / 已删除`,
+        expected: '30px / 30px / 已删除',
         actual: `${state.position.right} / ${state.position.top} / ${
           state.stored === null ? '已删除' : '仍在'
         }`,

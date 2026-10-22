@@ -34,7 +34,7 @@ export interface TranscriptButtonApp {
   /** 确保按钮已创建、位置在视口内，并按最近一次可见性状态显示。 */
   sync: () => void;
   setVisible: (visible: boolean) => void;
-  /** 回到默认位置；没有播放器时用旧版的 30px 右上角。 */
+  /** 回到页面右上角 30px，并删除位置记忆。 */
   resetPosition: () => void;
   isMounted: () => boolean;
   destroy: () => void;
@@ -96,7 +96,8 @@ export function createTranscriptButtonApp(
       button?.setVisible(next);
     },
     resetPosition() {
-      button?.setPosition(options.getDefaultPosition() ?? { right: 30, top: 30 });
+      // 与线上旧版一致：回到视口右上角 30px，而不是播放器相对位置。
+      button?.setPosition({ right: 30, top: 30 });
     },
     isMounted: () => button !== null,
     destroy() {

@@ -21,7 +21,7 @@
 | 路径 | 职责 |
 | --- | --- |
 | `packages/userscript-ui/` | UI 设计体系，git submodule，只读；升级走独立提交 |
-| `packages/shared/` | 跨脚本共用代码：GM 适配（`gm.ts`）与设置读写（`storage.ts`） |
+| `packages/shared/` | 跨脚本共用代码：GM 适配（`gm.ts`）、设置读写（`storage.ts`）与剪贴板写入（`clipboard.ts`） |
 | `scripts/<slug>/` | 一个脚本一个 npm workspace 包 |
 | `scripts/<slug>/userscript.meta.ts` | 静态元数据（名称、匹配、权限），不含 `@version` |
 | `scripts/<slug>/src/` | 模块化源码，入口 `src/main.ts` |
@@ -55,7 +55,7 @@ scripts/<slug>
 | `vitest.config.ts` 的 `resolve.alias` | 单测 |
 
 - 包之间不互相 import；共享代码只从上表两个来源进入。
-- `packages/shared` 只收纳在多个 legacy 脚本中重复出现、且已在新结构中使用的逻辑，目前是 `gm` 与 `storage`。UI、站点规则、日志、i18n 一律不进。
+- `packages/shared` 只收纳在多个 legacy 脚本中重复出现、且已在新结构中使用的逻辑，目前是 `gm`、`storage` 与 `clipboard`。UI、站点规则、日志、i18n 一律不进。
 
 ## 4. 单脚本形态
 
@@ -138,7 +138,7 @@ npm run check           # 交付前全量：静态检查 + 单测 + 构建 + 元
 | --- | --- | --- |
 | 构建 | 自研 `tools/build.mjs` + Vite IIFE，不引入 `vite-plugin-monkey` | 单文件、banner、CSS 内联已满足需求，插件带来的权限收集与配置成本没有收益 |
 | 版本 | `package.json` 唯一来源，构建时注入 | 元数据与包版本两处手写必然漂移 |
-| 共享内核 | 只收纳 `gm` 与 `storage` | 重复事实来自多个 legacy 脚本；其余抽象尚无稳定复用 |
+| 共享内核 | 只收纳 `gm`、`storage` 与 `clipboard` | 重复事实来自多个 legacy 脚本；其余抽象尚无稳定复用 |
 | UI 复用 | 子模块源码直引，按需 tree-shake | 不发布运行时包，不引入全局样式与远程资源 |
 | 测试分层 | 纯逻辑走 Vitest，用户可见交互走真实浏览器；同一事实只在一层断言 | 两层都断言同一规则会让维护成本翻倍，失败时也看不出该改哪一层 |
 | 浏览器验证 | 自建 CDP 驱动，不用 Playwright；每个场景独立重载页面 | 环境已有 Chrome/Edge，避免下载浏览器与额外依赖；场景互不污染，可单独删除或调试 |

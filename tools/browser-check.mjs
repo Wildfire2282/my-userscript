@@ -21,9 +21,10 @@
  * 设置、拖拽状态或 DOM。场景只写自己关心的前置条件，不需要「收尾复位」，任何一个
  * 场景也能单独删除或单独调试。
  *
- * GM 打桩形状：window.__gm = { store, opened, menu, menuLabel }，其中
- * store 是 GM_getValue / GM_setValue 的存储，opened 记录 GM_openInTab 的地址与选项，
- * menu / menuLabel 记录 GM_registerMenuCommand 注册的回调与菜单名。
+ * GM 打桩形状：window.__gm = { store, opened, menus, menu, menuLabel, clipboard }，其中
+ * store 是 GM_getValue / GM_setValue / GM_deleteValue 的存储，opened 记录 GM_openInTab
+ * 的地址与选项，menus 记录全部 GM_registerMenuCommand 回调与菜单名（menu / menuLabel
+ * 指向最后一次注册），clipboard 记录 GM_setClipboard 写入的文字。
  *
  * 用法：
  *   node tools/browser-check.mjs                      # 跑所有带场景的脚本
@@ -170,15 +171,23 @@ function clip(text) {
 
 /** 每页注入的 GM 打桩；场景只需要读 window.__gm。 */
 const GM_STUB = `(() => {
-  window.__gm = { store: {}, opened: [], menu: null, menuLabel: '' };
+  window.__gm = { store: {}, opened: [], menus: [], menu: null, menuLabel: '', clipboard: [] };
   window.GM_getValue = (key, fallback) =>
     Object.hasOwn(window.__gm.store, key) ? window.__gm.store[key] : fallback;
   window.GM_setValue = (key, value) => {
     window.__gm.store[key] = value;
   };
+  window.GM_deleteValue = (key) => {
+    delete window.__gm.store[key];
+  };
   window.GM_registerMenuCommand = (label, run) => {
+    window.__gm.menus.push({ label, run });
     window.__gm.menuLabel = label;
     window.__gm.menu = run;
+  };
+  window.GM_setClipboard = (text, type) => {
+    if (window.__gm.clipboardThrows) throw new Error('clipboard denied by stub');
+    window.__gm.clipboard.push({ text, type });
   };
   window.GM_openInTab = (url, options) => {
     window.__gm.opened.push({ url, options });

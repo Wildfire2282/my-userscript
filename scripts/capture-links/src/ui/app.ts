@@ -1,0 +1,111 @@
+import {
+  createLauncher,
+  createToast,
+  mountUI,
+  type LauncherHandle,
+  type ToastController,
+  type UI,
+} from '@ui';
+import type { Settings } from '../settings';
+import { linkIcon } from './icons';
+import { createLinkPanel, type LinkPanelHandle } from './link-panel';
+import { createSettingsPanel, type SettingsPanelHandle } from './settings-panel';
+
+/**
+ * 脚本的界面外壳。
+ *
+ * UI 只在真正需要时创建：默认显示悬浮按钮，所以启动时会建一个；用户关掉悬浮按钮后
+ * 只有打开菜单才创建。面板在第一次创建后复用，不重复 `mountUI()`。
+ */
+
+export type NotifyVariant = 'success' | 'warning' | 'error';
+
+const LABELS = {
+  close: '关闭',
+  settings: '设置',
+  notifications: '通知',
+  dismissNotification: '关闭通知',
+  closeSettings: '关闭设置',
+  scrollHint: '向下滚动查看更多内容',
+  cancel: '取消',
+  confirm: '确定',
+};
+
+export interface AppOptions {
+  getSettings: () => Settings;
+  updateSettings: (patch: Partial<Settings>) => void;
+  copy: (text: string) => Promise<boolean>;
+}
+
+export interface AppHandle {
+  /** 按当前设置显示或移除悬浮按钮。 */
+  syncLauncher: () => void;
+  openLinks: () => void;
+  openSettings: () => void;
+  destroy: () => void;
+}
+
+interface Session {
+  ui: UI;
+  toast: ToastController;
+  linkPanel: LinkPanelHandle;
+  settingsPanel: SettingsPanelHandle;
+  launcher: LauncherHandle | null;
+}
+
+export function createApp(options: AppOptions): AppHandle {
+  let session: Session | null = null;
+
+  const notify = (message: string, variant: NotifyVariant): void => {
+    // 面板里的操作都发生在 UI 创建之后；这里只是防御，不让提示缺失变成异常。
+    session?.toast[variant](message);
+  };
+
+  const syncLauncher = (): void => {
+    if (!options.getSettings().showFloatButton) {
+      session?.launcher?.destroy();
+      if (session) session.launcher = null;
+      return;
+    }
+    const current = ensure();
+    if (current.launcher) return;
+    current.launcher = createLauncher(current.ui, {
+      label: '打开链接面板',
+      closeLabel: '关闭链接面板',
+      panel: current.linkPanel.panel,
+      icon: linkIcon(),
+    });
+    // 链接面板居中显示；Launcher 默认会把面板摆到自己的角落。
+    current.linkPanel.panel.setPosition('center');
+  };
+
+  const ensure = (): Session => {
+    if (session) return session;
+    const ui = mountUI({ theme: 'system', labels: LABELS });
+    const toast = createToast(ui);
+    const linkPanel = createLinkPanel({
+      ui,
+      getCopyFormat: () => options.getSettings().copyFormat,
+      copy: options.copy,
+      notify,
+    });
+    const settingsPanel = createSettingsPanel({
+      ui,
+      getSettings: options.getSettings,
+      updateSettings: options.updateSettings,
+      onFloatButtonChange: syncLauncher,
+    });
+    session = { ui, toast, linkPanel, settingsPanel, launcher: null };
+    return session;
+  };
+
+  return {
+    syncLauncher,
+    openLinks: () => ensure().linkPanel.open(),
+    openSettings: () => ensure().settingsPanel.open(),
+    destroy() {
+      session?.ui.destroy();
+      session = null;
+    },
+  };
+}

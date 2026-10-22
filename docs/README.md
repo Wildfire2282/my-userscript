@@ -27,7 +27,7 @@
 | 脚本 | 版本 | 状态 |
 | --- | --- | --- |
 | 超级拖拽（`super-drag`） | 2.4.1 | 已迁移：由 `src/` 构建，界面使用 `@ui` |
-| 捕获链接（`capture-links`） | 1.0.1 | 未迁移：线上使用 `legacy/` 原版 |
+| 捕获链接（`capture-links`） | 1.1.0 | 已迁移：由 `src/` 构建，界面使用 `@ui` |
 | 选中复制（`selection-copy`） | 1.1.5 | 未迁移：线上使用 `legacy/` 原版 |
 | YouTube 转写文稿复制（`youtube-transcript-copy`） | 1.1.3 | 未迁移：线上使用 `legacy/` 原版 |
 

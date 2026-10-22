@@ -1,0 +1,105 @@
+/**
+ * 面板列表的样式。
+ *
+ * 列表行是可能上千条的数据行，用原生 checkbox + DOM 节点逐行拼，而不是为每一行
+ * 创建一套 `@ui` 组件：组件带来的无障碍包装在数据行里没有增量，反而会让每次筛选
+ * 都重建大量句柄。颜色与间距全部取自 `--ds-*` Token，不写死取值。
+ */
+
+.cl-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--ds-space-2);
+}
+
+.cl-search {
+  flex: 1 1 220px;
+  min-width: 0;
+}
+
+.cl-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-1-5);
+  color: var(--ds-muted-foreground);
+  font-size: var(--ds-text-xs);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.cl-stats {
+  margin-inline-start: auto;
+  color: var(--ds-muted-foreground);
+  font-size: var(--ds-text-xs);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.cl-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.cl-row {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-3);
+  min-width: 0;
+  padding: var(--ds-space-2) var(--ds-space-1);
+  border-radius: var(--ds-radius-md);
+  cursor: pointer;
+}
+
+.cl-row:hover {
+  background: var(--ds-muted);
+}
+
+.cl-check {
+  flex: none;
+  width: var(--ds-checkbox-size);
+  height: var(--ds-checkbox-size);
+  margin: 0;
+  accent-color: var(--ds-primary);
+  cursor: pointer;
+}
+
+.cl-index {
+  flex: none;
+  width: 28px;
+  color: var(--ds-muted-foreground);
+  font-size: var(--ds-text-xs);
+  font-variant-numeric: tabular-nums;
+  text-align: end;
+}
+
+.cl-info {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-0-5);
+  min-width: 0;
+}
+
+.cl-title {
+  overflow: hidden;
+  color: var(--ds-foreground);
+  font-size: var(--ds-text-sm);
+  font-weight: var(--ds-weight-medium);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cl-url {
+  overflow: hidden;
+  color: var(--ds-muted-foreground);
+  font-size: var(--ds-text-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cl-empty {
+  padding: var(--ds-space-6);
+  color: var(--ds-muted-foreground);
+  font-size: var(--ds-text-sm);
+  text-align: center;
+}

@@ -2,7 +2,6 @@
 // @name         捕获链接
 // @name:en      Link Capture
 // @namespace    https://github.com/Wildfire2282
-// @version      1.0.1
 // @description  捕获页面中的全部链接，支持关键词筛选与批量复制
 // @description:en Collect, filter, and copy all links on a page
 // @author       Wildfire2282 (https://github.com/Wildfire2282)

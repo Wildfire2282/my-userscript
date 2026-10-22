@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>capture-links fixture</title>
+    <style>
+      body {
+        margin: 0;
+        padding: 24px;
+        max-width: 720px;
+        font:
+          16px/1.6 system-ui,
+          sans-serif;
+      }
+      a {
+        display: block;
+        margin: 6px 0;
+      }
+      table {
+        border-collapse: collapse;
+      }
+      td {
+        padding: 4px 8px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>链接夹具</h1>
+    <a id="alpha" href="https://example.com/alpha" title="Alpha 页面标题">Alpha</a>
+    <a id="beta" href="https://example.com/beta">Beta 链接</a>
+    <a id="duplicate" href="https://example.com/alpha">Alpha 重复</a>
+    <a id="magnet" href="magnet:?xt=urn:btih:abc123&amp;dn=%E7%A4%BA%E4%BE%8B">磁力链接</a>
+    <a id="torrent" href="https://example.com/file.torrent">种子文件</a>
+    <a id="relative" href="/gamma?x=1">相对链接</a>
+    <a id="empty" href="">空地址</a>
+    <table>
+      <tr title="表格行标题">
+        <td><a id="row-link" href="https://example.com/row">行内链接</a></td>
+      </tr>
+    </table>
+    <ul>
+      <li title="列表项标题"><a id="list-link" href="https://example.com/list">列表链接</a></li>
+    </ul>
+    <script>
+      // 页面自己的点击计数：脚本不应该拦截页面上的普通点击。
+      window.__clicks = 0;
+      document.addEventListener('click', () => {
+        window.__clicks += 1;
+      });
+    </script>
+  </body>
+</html>

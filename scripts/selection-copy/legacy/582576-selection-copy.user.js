@@ -13,8 +13,8 @@
 // @match        *://*/*
 // @grant        GM_setClipboard
 // @run-at       document-end
-// @downloadURL  https://update.greasyfork.org/scripts/582576/%E9%80%89%E4%B8%AD%E5%A4%8D%E5%88%B6.user.js
-// @updateURL    https://update.greasyfork.org/scripts/582576/%E9%80%89%E4%B8%AD%E5%A4%8D%E5%88%B6.meta.js
+// @downloadURL https://update.greasyfork.org/scripts/582576/%E9%80%89%E4%B8%AD%E5%A4%8D%E5%88%B6.user.js
+// @updateURL https://update.greasyfork.org/scripts/582576/%E9%80%89%E4%B8%AD%E5%A4%8D%E5%88%B6.meta.js
 // ==/UserScript==
 
 "use strict";

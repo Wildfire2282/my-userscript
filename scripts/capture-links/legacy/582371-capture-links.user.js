@@ -19,8 +19,8 @@
 // @grant        GM_getValue
 // @run-at       document-end
 // @noframes
-// @downloadURL  https://update.greasyfork.org/scripts/582371/%E6%8D%95%E8%8E%B7%E9%93%BE%E6%8E%A5.user.js
-// @updateURL    https://update.greasyfork.org/scripts/582371/%E6%8D%95%E8%8E%B7%E9%93%BE%E6%8E%A5.meta.js
+// @downloadURL https://update.greasyfork.org/scripts/582371/%E6%8D%95%E8%8E%B7%E9%93%BE%E6%8E%A5.user.js
+// @updateURL https://update.greasyfork.org/scripts/582371/%E6%8D%95%E8%8E%B7%E9%93%BE%E6%8E%A5.meta.js
 // ==/UserScript==
 
 "use strict";

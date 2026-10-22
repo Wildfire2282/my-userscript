@@ -12,7 +12,7 @@ Wildfire2282 的用户脚本合集。装好之后，对应的网站会多出一�
 | 脚本 | 作用 | 安装 |
 | --- | --- | --- |
 | YouTube 转写文稿复制 | 视频播放页面出现可拖拽悬浮按钮，可一键复制转写文稿（transcript），支持英语等多语言界面 | [点此安装](https://update.greasyfork.org/scripts/579560/YouTube%20%E8%BD%AC%E5%86%99%E6%96%87%E7%A8%BF%E5%A4%8D%E5%88%B6.user.js) |
-| 超级拖拽 | 拖拽文本搜索，拖拽链接在新标签页打开，拖拽图片查看。 | [点此安装](https://update.greasyfork.org/scripts/580630/%E8%B6%85%E7%BA%A7%E6%8B%96%E6%8B%BD.user.js) |
+| 超级拖拽 | 拖拽文本搜索，拖拽链接在新标签页打开，拖拽图片查看 | [点此安装](https://update.greasyfork.org/scripts/580630/%E8%B6%85%E7%BA%A7%E6%8B%96%E6%8B%BD.user.js) |
 | 捕获链接 | 捕获页面中的全部链接，支持关键词筛选与批量复制 | [点此安装](https://update.greasyfork.org/scripts/582371/%E6%8D%95%E8%8E%B7%E9%93%BE%E6%8E%A5.user.js) |
 | 选中复制 | 选中文本后自动纯文本复制到剪贴板，去除首尾空白 | [点此安装](https://update.greasyfork.org/scripts/582576/%E9%80%89%E4%B8%AD%E5%A4%8D%E5%88%B6.user.js) |
 <!-- scripts:end -->

@@ -4,7 +4,7 @@
 
 ## 1. 目标与边界
 
-一个仓库维护 4 个用户脚本，共用一套 Shadow DOM UI（`@ui`）和一份 GM / 设置适配（`@shared`）。已迁移脚本由 `scripts/<slug>/src/` 的 TypeScript 源码构建；未迁移脚本直接发布 `legacy/` 原版。两者的线上交付物都是单个 `.user.js`。
+一个仓库维护 4 个用户脚本，共用一套 Shadow DOM UI（`@ui`）和一份 GM / 设置 / 剪贴板适配（`@shared`）。4 个脚本都已迁移，由 `scripts/<slug>/src/` 的 TypeScript 源码构建；`legacy/` 只保留线上原版作为元数据与行为对照。线上交付物都是单个 `.user.js`。
 
 硬约束：
 
@@ -28,7 +28,7 @@
 | `scripts/<slug>/tests/*.test.ts` | Vitest 单测：纯逻辑与 DOM 片段 |
 | `scripts/<slug>/tests/browser-scenarios.mjs` | 真实浏览器场景，由 `tools/browser-check.mjs` 驱动 |
 | `scripts/<slug>/tests/fixtures/` | 场景用的本地夹具页 |
-| `scripts/<slug>/legacy/` | 线上原版快照；未迁移脚本的发布来源，已迁移脚本的对照物 |
+| `scripts/<slug>/legacy/` | 线上原版快照，只做元数据与行为对照；线上验收后删除 |
 | `tools/build.mjs` | 遍历包、注入版本与 banner、调用 Vite，输出单文件并报告 raw / gzip 体积 |
 | `tools/check-meta.mjs` | 产物元数据校验：首行、版本、权限、与 legacy 对照 |
 | `tools/browser-check.mjs` | 无依赖 CDP 驱动：每个场景新开页面、注入 GM 打桩与产物 |
@@ -88,7 +88,7 @@ npm run build:min           # 压缩产物，仅用于排查体积
 `tools/build.mjs` 的流程：
 
 1. 扫描 `scripts/*/package.json`；
-2. 没有 `src/main.ts`（或 `.js` / `index.ts` / `index.js`）的包直接跳过，未迁移脚本不会阻塞构建；
+2. 没有 `src/main.ts`（或 `.js` / `index.ts` / `index.js`）的包直接跳过，这样新增脚本在迁移前不会阻塞构建；
 3. 读 `userscript.meta.ts`（兼容 `.js`），把包版本注入成 `@version`；
 4. 用 Vite lib 模式打成 IIFE，`@ui` / `@shared` 指向各自源码入口；
 5. 把元数据作为 Rollup banner 放在产物最顶部，输出 `scripts/<slug>/dist/<slug>.user.js`。
@@ -144,11 +144,14 @@ npm run check           # 交付前全量：静态检查 + 单测 + 构建 + 元
 | 浏览器验证 | 自建 CDP 驱动，不用 Playwright；每个场景独立重载页面 | 环境已有 Chrome/Edge，避免下载浏览器与额外依赖；场景互不污染，可单独删除或调试 |
 | 发布 | 确认发布后 push `main`，CI 推送 `release` 分支，webhook 通知 Greasy Fork | 构建与上线自动完成；发布时机、登录与元数据变化仍由人确认 |
 | 存储 | 旧键不改名，新键用 `<slug>:<area>.<key>` | 改名会丢用户设置 |
+| 自绘 UI 的例外 | 没有对应组件的交互（复制勾号、可拖动悬浮按钮）仍在 `@ui` 的 Shadow Root 内、用 `--ds-*` Token 自绘；链接列表的数据行用原生 checkbox | `@ui` 没有这些形态，套现成组件会改掉用户熟悉的手势，或让上千行列表的每次筛选都重建组件句柄；样式仍受 Token 约束 |
+| 剪贴板 | `@shared` 的 `createClipboard` 在每次写入时解析可用通道 | 页面或管理器可能替换写入能力，固定引用会让降级顺序与实际能力不一致 |
 | 主题 | `light` / `dark` / `system` 显式传入 | 不跟随宿主页面，避免被站点主题带偏 |
 
 ## 8. 发布与迁移
 
 - 发布链路、元数据变更与回滚见 [`release-automation.md`](release-automation.md)。
 - 元数据字段、语言标记与校验规则见 [`metadata.md`](metadata.md)。
-- 未迁移脚本直接发布 `legacy/` 原版；迁移后 `dist/` 产物优先。迁移步骤与验收见 [`migration-guide.md`](migration-guide.md)。
+- 四个脚本都已迁移，发布 `dist/` 产物；`legacy/` 只用于元数据对照，线上验收通过后删除。
+- 迁移步骤与验收见 [`migration-guide.md`](migration-guide.md)，同样适用于以后新增的脚本。
 - 校验、命名、注释、文档与安全规则以根目录 [`AGENTS.md`](../AGENTS.md) 为准；UI 硬约束以 [`packages/userscript-ui/AGENTS.md`](../packages/userscript-ui/AGENTS.md) 为准。

@@ -21,13 +21,13 @@ push main
 | --- | --- |
 | `.github/workflows/release.yml` | CI：检查、构建、推 `release` 分支 |
 | `tools/release.mjs` | 汇总发布物，校验版本与元数据变化 |
-| `scripts/*/package.json` | 已迁移脚本的唯一版本来源 |
-| `scripts/*/legacy/*.user.js` | 未迁移脚本的发布来源 |
+| `scripts/*/package.json` | 唯一版本来源；构建时注入 `@version` |
+| `scripts/*/legacy/*.user.js` | 历史快照，只用于元数据对照；不再作为发布来源 |
 
 发布物选择：
 
-- 有 `src/main.ts`：发布 `scripts/<slug>/dist/<slug>.user.js`；
-- 没有入口：发布 `scripts/<slug>/legacy/*.user.js`。
+- 有 `src/main.ts`：发布 `scripts/<slug>/dist/<slug>.user.js`（当前四个脚本都是这样）；
+- 没有入口：发布 `scripts/<slug>/legacy/*.user.js`，只用于新脚本迁移完成前的过渡期。
 
 版本规则：
 
@@ -45,8 +45,8 @@ push main
 
 ## 3. 日常发布
 
-1. 改源码。未迁移脚本只按 `AGENTS.md` 9.1 的紧急修复规则改 `legacy/`。
-2. 提版本：已迁移脚本改 `scripts/<slug>/package.json` 的 `version`；未迁移脚本改 `legacy/*.user.js` 元数据里的 `@version`，并把 `package.json` 同步到同一值。在 `CHANGELOG.md` 写一条人话。
+1. 改 `scripts/<slug>/src/` 里的源码；`dist/` 与 `legacy/` 都不直接改。
+2. 提版本：改 `scripts/<slug>/package.json` 的 `version`，构建时注入；在 `CHANGELOG.md` 写一条人话。
 3. 本地跑 `npm run check`（含浏览器场景）。
 4. 向维护者说明本次用户可见的变化，确认发布后提交并 push `main`。
 5. Actions 通过后 `release` 分支出现新文件；webhook 触发后 Greasy Fork 通常一分钟内更新。

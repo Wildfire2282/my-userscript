@@ -124,3 +124,5 @@
 需要变更 `@name`、`@namespace`、`@match`、`@include`、`@grant` 时，先由维护者确认，再按 [`release-automation.md`](release-automation.md) 的元数据变更流程发布。
 
 元数据也是文件内容：修改后必须提升版本，否则 `tools/release.mjs` 会以「同版本内容不同」拒绝发布。未迁移脚本的元数据改动必须先发布再跑 `npm run sync`，否则同步会用线上版本覆盖 `legacy/`。
+
+Greasy Fork 会把 `@downloadURL` / `@updateURL` 的对齐空格规范成单个空格。同步后的这类格式差异由 `tools/release.mjs` 按字段值与代码正文比较，不需要再次升版本。

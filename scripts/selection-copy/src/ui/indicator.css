@@ -1,0 +1,26 @@
+/*
+ * 勾号圆点：14px 与 10px 字号必须与 config.ts 的 INDICATOR.sizePx / 定位计算保持一致，
+ * 所以这里直接引用同一组 Token，不在脚本里另写一套尺寸。
+ */
+.sel-copy-dot {
+  position: fixed;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--ds-icon-sm);
+  height: var(--ds-icon-sm);
+  border-radius: var(--ds-radius-full);
+  background: var(--ds-success);
+  color: var(--ds-primary-foreground);
+  font-size: 10px;
+  font-weight: var(--ds-weight-semibold);
+  line-height: 1;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 300ms var(--ds-ease);
+}
+
+.sel-copy-dot[data-visible='true'] {
+  opacity: 0.5;
+}

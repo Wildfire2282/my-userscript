@@ -8,8 +8,8 @@
 | --- | --- | --- |
 | `super-drag` | 已迁移，作为参考样本 | — |
 | `capture-links` | 已迁移 | — |
-| `selection-copy` | 未迁移 | 1 |
-| `youtube-transcript-copy` | 未迁移 | 2 |
+| `selection-copy` | 已迁移 | — |
+| `youtube-transcript-copy` | 未迁移 | 1 |
 
 一次只迁移一个脚本，单独提交；`main` 始终保持可构建、可安装。迁移前先读目标包的 `README.md`、`legacy/` 元数据与 `package.json`，记录 `@name` / `@match` / `@include` / `@grant`、设置键和核心行为；迁移后逐项对照。
 

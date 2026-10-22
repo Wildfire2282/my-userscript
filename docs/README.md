@@ -28,7 +28,7 @@
 | --- | --- | --- |
 | 超级拖拽（`super-drag`） | 2.4.1 | 已迁移：由 `src/` 构建，界面使用 `@ui` |
 | 捕获链接（`capture-links`） | 1.1.0 | 已迁移：由 `src/` 构建，界面使用 `@ui` |
-| 选中复制（`selection-copy`） | 1.1.5 | 未迁移：线上使用 `legacy/` 原版 |
+| 选中复制（`selection-copy`） | 1.2.0 | 已迁移：由 `src/` 构建，界面使用 `@ui` |
 | YouTube 转写文稿复制（`youtube-transcript-copy`） | 1.1.3 | 未迁移：线上使用 `legacy/` 原版 |
 
 状态变化时同步更新本表与目标脚本的 `README.md`。

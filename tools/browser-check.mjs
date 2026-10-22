@@ -21,6 +21,10 @@
  * 设置、拖拽状态或 DOM。场景只写自己关心的前置条件，不需要「收尾复位」，任何一个
  * 场景也能单独删除或单独调试。
  *
+ * ctx 提供 `evaluate` / `log` / `wait`，以及 `input`：用 CDP 派发真实（isTrusted）的
+ * 鼠标与键盘事件，`drag` / `click` / `doubleClick` / `press`。脚本里要求 `event.isTrusted`
+ * 的行为只能这样验证，页面内合成事件不算数。
+ *
  * GM 打桩形状：window.__gm = { store, opened, menus, menu, menuLabel, clipboard }，其中
  * store 是 GM_getValue / GM_setValue / GM_deleteValue 的存储，opened 记录 GM_openInTab
  * 的地址与选项，menus 记录全部 GM_registerMenuCommand 回调与菜单名（menu / menuLabel
@@ -273,6 +277,8 @@ try {
 
   await cdp.send('Runtime.enable');
   await cdp.send('Page.enable');
+  // 无头窗口默认可能拿不到焦点，键盘与选区相关场景需要浏览器按“窗口已激活”处理。
+  await cdp.send('Emulation.setFocusEmulationEnabled', { enabled: true }).catch(() => undefined);
 
   async function evaluateRaw(expression) {
     const { result, exceptionDetails } = await cdp.send('Runtime.evaluate', {
@@ -289,12 +295,118 @@ try {
     return result.value;
   }
 
+  /**
+   * 真实输入。CDP 派发的事件带 `isTrusted`，与用户亲手操作等价；页面里
+   * `dispatchEvent` 出来的是不可信事件，依赖 `isTrusted` 的脚本会直接忽略。
+   */
+  const INPUT_MODIFIERS = { alt: 1, ctrl: 2, meta: 4, shift: 8 };
+  const VIRTUAL_KEY_CODES = {
+    ArrowLeft: 37,
+    ArrowUp: 38,
+    ArrowRight: 39,
+    ArrowDown: 40,
+    Home: 36,
+    End: 35,
+    PageUp: 33,
+    PageDown: 34,
+    Backspace: 8,
+    Enter: 13,
+  };
+  const modifierValue = (names = []) =>
+    names.reduce((sum, name) => sum | (INPUT_MODIFIERS[name] ?? 0), 0);
+
+  const input = {
+    async mouseMove(point, buttons = 0) {
+      await cdp.send('Input.dispatchMouseEvent', {
+        type: 'mouseMoved',
+        x: point.x,
+        y: point.y,
+        button: buttons === 0 ? 'none' : 'left',
+        buttons,
+      });
+    },
+    async mouseDown(point, modifiers = [], clickCount = 1) {
+      await cdp.send('Input.dispatchMouseEvent', {
+        type: 'mousePressed',
+        x: point.x,
+        y: point.y,
+        button: 'left',
+        buttons: 1,
+        clickCount,
+        modifiers: modifierValue(modifiers),
+      });
+    },
+    async mouseUp(point, modifiers = [], clickCount = 1) {
+      await cdp.send('Input.dispatchMouseEvent', {
+        type: 'mouseReleased',
+        x: point.x,
+        y: point.y,
+        button: 'left',
+        buttons: 0,
+        clickCount,
+        modifiers: modifierValue(modifiers),
+      });
+    },
+    async click(point, { clickCount = 1, modifiers = [] } = {}) {
+      await input.mouseMove(point);
+      await input.mouseDown(point, modifiers, clickCount);
+      await input.mouseUp(point, modifiers, clickCount);
+    },
+    async doubleClick(point) {
+      await input.click(point);
+      await input.click(point, { clickCount: 2 });
+    },
+    /** 按下并拖动到目标点后松开；中间分步移动，浏览器才会实时更新选区。 */
+    async drag(from, to, { steps = 10 } = {}) {
+      await input.mouseMove(from);
+      await input.mouseDown(from);
+      for (let step = 1; step <= steps; step += 1) {
+        await input.mouseMove(
+          {
+            x: from.x + ((to.x - from.x) * step) / steps,
+            y: from.y + ((to.y - from.y) * step) / steps,
+          },
+          1,
+        );
+      }
+      await input.mouseUp(to);
+    },
+    async keyDown(key, { code = key, keyCode = VIRTUAL_KEY_CODES[key] ?? 0, modifiers = [] } = {}) {
+      await cdp.send('Input.dispatchKeyEvent', {
+        type: 'rawKeyDown',
+        key,
+        code,
+        windowsVirtualKeyCode: keyCode,
+        nativeVirtualKeyCode: keyCode,
+        modifiers: modifierValue(modifiers),
+      });
+    },
+    async keyUp(key, { code = key, keyCode = VIRTUAL_KEY_CODES[key] ?? 0, modifiers = [] } = {}) {
+      await cdp.send('Input.dispatchKeyEvent', {
+        type: 'keyUp',
+        key,
+        code,
+        windowsVirtualKeyCode: keyCode,
+        nativeVirtualKeyCode: keyCode,
+        modifiers: modifierValue(modifiers),
+      });
+    },
+    async press(key, options = {}) {
+      await input.keyDown(key, options);
+      await input.keyUp(key, options);
+    },
+  };
+
   /** 页面里可用的入口：只暴露与脚本无关的原语，页面助手由场景模块自己注入。 */
   function createContext(slug) {
     return {
       slug,
+      input,
       log(message) {
         console.log(`  ${message}`);
+      },
+      wait(ms) {
+        return sleep(ms);
       },
       async evaluate(fn, ...fnArgs) {
         if (typeof fn === 'string') return evaluateRaw(fn);

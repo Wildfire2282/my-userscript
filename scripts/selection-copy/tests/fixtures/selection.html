@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>selection-copy fixture</title>
+    <style>
+      body {
+        margin: 0;
+        padding: 32px;
+        width: 640px;
+        font:
+          18px/1.8 system-ui,
+          sans-serif;
+      }
+      /* 单行夹具：鼠标坐标能稳定落在同一行的文字上，拖动时才会真的选中字符。 */
+      #text,
+      #other {
+        margin: 0 0 24px;
+        white-space: nowrap;
+      }
+      #field {
+        width: 360px;
+        font-size: 16px;
+      }
+      #editor {
+        width: 520px;
+        padding: 8px;
+        border: 1px dashed #94a3b8;
+      }
+      #editor-text {
+        margin: 0;
+        white-space: nowrap;
+      }
+    </style>
+  </head>
+  <body>
+    <p id="text">选中复制夹具：拖动这段文字应当自动复制，并去掉首尾空白。</p>
+    <p><input id="field" type="text" value="输入框里的文字不该被自动复制" /></p>
+    <div id="editor" contenteditable="true">
+      <p id="editor-text">富文本里的文字不该被自动复制</p>
+    </div>
+    <p id="other">第二段文字，用来验证全选与键盘扩选。</p>
+  </body>
+</html>

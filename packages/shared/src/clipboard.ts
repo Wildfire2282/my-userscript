@@ -32,14 +32,23 @@ function defaultScope(): ClipboardScope {
     navigator?: { clipboard?: { writeText?: (text: string) => Promise<void> } };
     document?: Document;
   };
+  // 用 getter 而不是固定值：浏览器通道可能被页面或测试在脚本启动后替换，
+  // 每次写入都读当前状态，降级顺序才与调用时刻的真实能力一致。
   return {
-    GM_setClipboard:
-      typeof globals.GM_setClipboard === 'function'
+    get GM_setClipboard() {
+      return typeof globals.GM_setClipboard === 'function'
         ? globals.GM_setClipboard.bind(globals)
-        : undefined,
-    GM: globals.GM,
-    clipboard: browser.navigator?.clipboard,
-    document: browser.document,
+        : undefined;
+    },
+    get GM() {
+      return globals.GM;
+    },
+    get clipboard() {
+      return browser.navigator?.clipboard;
+    },
+    get document() {
+      return browser.document;
+    },
   };
 }
 

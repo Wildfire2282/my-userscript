@@ -8,7 +8,8 @@
  *
  * 场景模块契约（scripts/<slug>/tests/browser-scenarios.mjs）：
  *
- *   export const fixture = 'drag.html';         // scripts/<slug>/tests/fixtures/ 下的页面
+ *   export const fixture = 'drag.html';         // scripts/<slug>/tests/fixtures/ 下的页面，可带查询串
+ *   export const setup = () => { ... };         // 可选：在产物注入前准备页面（播放器响应、fetch 桩）
  *   export const helpers = () => { ... };       // 可选：页面侧助手（挂到 window 上）
  *   export const scenarios = [
  *     {
@@ -416,7 +417,7 @@ try {
     };
   }
 
-  async function openFreshPage(fixtureUrl, bundle, helpersCall) {
+  async function openFreshPage(fixtureUrl, bundle, setupCall, helpersCall) {
     // 每场景重新加载：新文档、新监听、空存储，场景之间互不影响。
     pageErrors.length = 0;
     consoleErrors.length = 0;
@@ -436,6 +437,8 @@ try {
       { interval: 20, what: '夹具页解析' },
     );
     await evaluateRaw(GM_STUB);
+    // setup 在产物之前执行：模拟脚本运行前就已存在的页面状态（播放器响应、网络响应）。
+    if (setupCall) await evaluateRaw(setupCall);
     await evaluateRaw(bundle);
     if (helpersCall) await evaluateRaw(helpersCall);
   }
@@ -454,12 +457,16 @@ try {
       typeof scenarioModule.helpers === 'function'
         ? `(${scenarioModule.helpers.toString()})()`
         : '';
+    const setupCall =
+      typeof scenarioModule.setup === 'function' ? `(${scenarioModule.setup.toString()})()` : '';
 
-    const fixtureFile = fixturePath(slug, fixture);
+    // fixture 可以带查询串（例如 `watch.html?v=abc`）：脚本靠地址判断视频时要用到。
+    const [fixtureName, query = ''] = fixture.split('?');
+    const fixtureFile = fixturePath(slug, fixtureName ?? '');
     if (!existsSync(fixtureFile)) {
       throw new Error(`${slug} 的夹具页不存在：${fixture}`);
     }
-    const fixtureUrl = pathToFileURL(fixtureFile).href;
+    const fixtureUrl = `${pathToFileURL(fixtureFile).href}${query === '' ? '' : `?${query}`}`;
     const distFile = path.join(SCRIPTS_DIR, slug, 'dist', `${slug}.user.js`);
     if (!existsSync(distFile)) {
       throw new Error(`缺少产物 ${path.relative(ROOT, distFile)}，先运行 npm run build ${slug}。`);
@@ -475,7 +482,7 @@ try {
       let expected = '';
       let actual = '';
       try {
-        await openFreshPage(fixtureUrl, bundle, helpersCall);
+        await openFreshPage(fixtureUrl, bundle, setupCall, helpersCall);
         const result = await scenario.run(ctx);
         if (result == null || typeof result !== 'object' || !('expected' in result)) {
           throw new Error('场景必须返回 { expected, actual }');

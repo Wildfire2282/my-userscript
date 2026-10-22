@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>YouTube fixture</title>
+    <style>
+      body {
+        margin: 0;
+        background: #0f0f0f;
+        color: #f1f1f1;
+        font:
+          16px/1.6 system-ui,
+          sans-serif;
+      }
+      #movie_player {
+        position: relative;
+        width: 640px;
+        height: 360px;
+        margin: 40px;
+        background: #000;
+      }
+      video {
+        display: block;
+        width: 100%;
+        height: 100%;
+      }
+      #description {
+        margin: 0 40px;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="movie_player"><video class="html5-main-video"></video></div>
+    <div id="description">
+      <ytd-text-inline-expander>
+        <button id="expand" type="button">...more</button>
+        <button id="transcript-trigger" type="button" aria-label="Show transcript">
+          Show transcript
+        </button>
+      </ytd-text-inline-expander>
+    </div>
+  </body>
+</html>

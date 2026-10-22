@@ -23,6 +23,7 @@ Wildfire2282 的用户脚本合集。装好之后，对应的网站会多出一�
 1. 浏览器里先装一个脚本管理器：[Tampermonkey](https://www.tampermonkey.net/) 或 [Violentmonkey](https://violentmonkey.github.io/)。
 2. 点表格里的「点此安装」，浏览器会弹出安装页，确认即可。
 3. 以后有更新时，管理器会自动检查；也可以在管理器里手动点「检查更新」。
+4. 脚本更新会自动发布到 Greasy Fork，通常几分钟内就能在管理器里看到新版本。
 
 ## 想要新功能或改哪里
 

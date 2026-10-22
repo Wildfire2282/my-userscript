@@ -104,6 +104,12 @@ npm run check:browser  # 真实 Chrome/Edge 场景（默认 super-drag）
 
 ## 版本与发布
 
+脚本改动 push 到 `main` 后，`.github/workflows/release.yml` 会自动跑检查、构建并把产物推到
+`release` 分支；GitHub webhook 通知 Greasy Fork 拉取更新。配置、同步 URL 与排障见
+`docs/release-automation.md`。
+
+手动流程仍然保留，用于首次导入或排查自动发布：
+
 1. 只改 `scripts/<slug>/package.json` 的 `version`、写 `CHANGELOG.md` 一条人话；
 2. `npm run check && npm run check:browser <slug>`；
 3. 把 `dist/<slug>.user.js` 交给维护者，在 Greasy Fork 页面确认版本与权限提示后提交；

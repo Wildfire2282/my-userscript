@@ -250,7 +250,10 @@ npm run check:browser     # 真实浏览器场景（Chrome / Edge）
 
 - 一个提交一个目的；重构与行为变化分开；生成文件与源改动同提交。
 - 版本号只在 `package.json` 提升，构建时注入；禁止手改产物与 `legacy/`。
-- 发布由人确认：你准备好产物、变更说明与回退方案，请人在 Greasy Fork 页面点确认。
+- 常规更新自动发布：push `main` 后由 CI 构建并推 `release` 分支，webhook 通知 Greasy Fork 更新
+  （见 `docs/release-automation.md`）。
+- 以下仍由人确认：首次导入、`@name` / `@match` / `@grant` 变更、下线脚本。你准备好产物、
+  变更说明与回退方案，请人在 Greasy Fork 页面点确认。
 - 回退用 Release 中上一版产物，以更高版本号重新发布，**不降版本号**。
 - 每次发布后更新人话版 `CHANGELOG.md` 与包 `README.md` 的版本记录。
 

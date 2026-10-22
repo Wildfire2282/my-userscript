@@ -1,0 +1,77 @@
+name: 发布用户脚本
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/**'
+      - 'packages/**'
+      - 'tools/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/release.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-userscripts
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出源码与子模块
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: 准备 Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: 安装依赖
+        run: npm ci
+
+      - name: 检查与构建
+        run: npm run check
+
+      - name: 准备 release 分支
+        env:
+          RELEASE_DIR: ${{ runner.temp }}/release
+        run: |
+          set -euo pipefail
+          if git ls-remote --exit-code --heads origin release >/dev/null 2>&1; then
+            git fetch --depth=1 origin +refs/heads/release:refs/remotes/origin/release
+            git worktree add --detach "$RELEASE_DIR" origin/release
+            git -C "$RELEASE_DIR" checkout -B release origin/release
+          else
+            git worktree add --detach "$RELEASE_DIR" HEAD
+            git -C "$RELEASE_DIR" checkout --orphan release
+            git -C "$RELEASE_DIR" rm -rf .
+          fi
+
+      - name: 汇总发布物
+        env:
+          RELEASE_DIR: ${{ runner.temp }}/release
+        run: node tools/release.mjs "$RELEASE_DIR"
+
+      - name: 推送到 release 分支
+        env:
+          RELEASE_DIR: ${{ runner.temp }}/release
+        run: |
+          set -euo pipefail
+          cd "$RELEASE_DIR"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "没有需要发布的变更。"
+            exit 0
+          fi
+          git commit -m "chore(release): 发布构建产物"
+          git push origin HEAD:release

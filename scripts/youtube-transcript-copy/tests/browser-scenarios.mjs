@@ -57,14 +57,15 @@ export function setup() {
 export function helpers() {
   const root = () => document.querySelector('userscript-ui-root')?.shadowRoot ?? null;
   const wrap = () => root()?.querySelector('.yt-transcript-wrap') ?? null;
-  const button = () => root()?.querySelector('.yt-transcript-button') ?? null;
+  const button = () => wrap()?.querySelector('button') ?? null;
 
   window.__page = {
     wrap,
     button,
     lastClipboard: () => window.__gm.clipboard.at(-1)?.text ?? '',
     clipboardWrites: () => window.__gm.clipboard.length,
-    state: () => button()?.dataset.state ?? '',
+    state: () => wrap()?.dataset.state ?? '',
+    buttonClass: () => button()?.className ?? '',
     label: () => button()?.textContent.trim() ?? '',
     visible: () => (wrap() ? !wrap().hidden : false),
     position: () => ({ right: wrap()?.style.right ?? '', top: wrap()?.style.top ?? '' }),
@@ -148,7 +149,7 @@ export const scenarios = [
     },
   },
   {
-    name: '暂停后隐藏，继续播放后重新出现',
+    name: '暂停、播完后按钮仍然显示',
     async run(ctx) {
       await ctx.evaluate(() => {
         const video = document.querySelector('video');
@@ -159,16 +160,28 @@ export const scenarios = [
       const paused = await ctx.evaluate(() => window.__page.visible());
       await ctx.evaluate(() => {
         const video = document.querySelector('video');
-        Object.defineProperty(video, 'paused', { value: false, configurable: true });
-        video.dispatchEvent(new Event('play'));
+        Object.defineProperty(video, 'ended', { value: true, configurable: true });
+        video.dispatchEvent(new Event('ended'));
       });
       await ctx.wait(80);
-      const playing = await ctx.evaluate(() => window.__page.visible());
+      const ended = await ctx.evaluate(() => window.__page.visible());
       return {
-        expected: '暂停后隐藏 / 继续播放后显示',
-        actual: `${paused ? '暂停后仍显示' : '暂停后隐藏'} / ${
-          playing ? '继续播放后显示' : '继续播放后仍隐藏'
-        }`,
+        expected: '暂停后显示 / 播完后显示',
+        actual: `${paused ? '暂停后显示' : '暂停后隐藏'} / ${ended ? '播完后显示' : '播完后隐藏'}`,
+      };
+    },
+  },
+  {
+    name: '按钮用的是统一界面组件，不是自绘样式',
+    async run(ctx) {
+      const info = await ctx.evaluate(() => ({
+        className: window.__page.buttonClass(),
+        ariaLabel: window.__page.button()?.getAttribute('aria-label') ?? '',
+        label: window.__page.label(),
+      }));
+      return {
+        expected: '含 ds-button / 复制当前转写文稿 / T',
+        actual: `${info.className.includes('ds-button') ? '含 ds-button' : info.className} / ${info.ariaLabel} / ${info.label}`,
       };
     },
   },

@@ -1,23 +1,24 @@
-import type { UI } from '@ui';
+import { createButton, type UI } from '@ui';
 import { clampPosition, type ButtonPosition } from '../features/position';
 import buttonCss from './transcript-button.css?inline';
 
 /**
  * 可拖动悬浮按钮。
  *
- * 只负责显示与手势：位置换算交给 `clampPosition`，复制与状态时长由调用方决定。
- * 状态与线上旧版一致：T（就绪）→ 跳动的点（抓取中）→ ✓ / ✕（1.5 秒后回到 T）。
+ * 外观（尺寸、颜色、悬停、焦点环、加载态）全部来自 `@ui` 的按钮组件；
+ * 本文件只补两件框架不提供的事：自由拖动定位（框架的 Launcher 只支持四角），
+ * 以及 T / 加载中 / ✓ / ✕ 的复制结果状态。
  */
 
 export type ButtonState = 'normal' | 'loading' | 'success' | 'error';
 
 const DRAG_THRESHOLD_PX = 3;
 const RESET_DELAY_MS = 1500;
-const DOT_INTERVAL_MS = 300;
 const CLICK_SUPPRESS_MS = 50;
+// 加载态用组件的转圈动画，标签留空，避免文字和转圈挤在一起。
 const LABELS: Record<ButtonState, string> = {
   normal: 'T',
-  loading: '.',
+  loading: '',
   success: '\u2713',
   error: '\u2715',
 };
@@ -39,39 +40,41 @@ export interface TranscriptButtonHandle {
 }
 
 export function createTranscriptButton(options: TranscriptButtonOptions): TranscriptButtonHandle {
-  options.ui.useStyles(buttonCss);
+  const { ui } = options;
+  if (ui.destroyed) throw new Error('Cannot create a transcript button after ui.destroy().');
+  ui.useStyles(buttonCss);
 
   const wrap = document.createElement('div');
   wrap.className = 'yt-transcript-wrap';
   wrap.dataset.dragging = 'false';
+  wrap.dataset.state = 'normal';
 
-  const button = document.createElement('button');
-  button.type = 'button';
-  button.className = 'yt-transcript-button';
-  button.dataset.state = 'normal';
-  button.setAttribute('aria-label', options.label);
-  button.title = options.label;
-
-  const label = document.createElement('span');
-  label.className = 'yt-transcript-label';
-  label.textContent = LABELS.normal;
-  button.appendChild(label);
-  wrap.appendChild(button);
-  // 必须挂进 @ui 的 Shadow Root：`position: fixed` 才能相对视口，也能用上 Token。
-  options.ui.layers.base.appendChild(wrap);
+  const stateLabel = document.createElement('span');
+  stateLabel.textContent = LABELS.normal;
 
   let state: ButtonState = 'normal';
   let position: ButtonPosition = { right: 30, top: 30 };
-  let dotsTimer: number | undefined;
-  let resetTimer: number | undefined;
   let suppressClick = false;
+  let resetTimer: number | undefined;
+  // 拖动中的 pointermove / pointerup 挂在 document 上，必须能随 UI 销毁一起收掉。
+  let dragScope: AbortController | null = null;
 
-  const clearTimers = (): void => {
-    if (dotsTimer !== undefined) window.clearInterval(dotsTimer);
-    if (resetTimer !== undefined) window.clearTimeout(resetTimer);
-    dotsTimer = undefined;
-    resetTimer = undefined;
-  };
+  const button = createButton(ui, {
+    label: stateLabel,
+    variant: 'destructive',
+    size: 'lg',
+    iconOnly: true,
+    ariaLabel: options.label,
+    title: options.label,
+    onClick: (event) => {
+      event.stopPropagation();
+      // 拖动结束后浏览器仍会补一次 click；用短暂抑制避免“拖一下就复制”。
+      if (suppressClick || state === 'loading') return;
+      options.onClick();
+    },
+  });
+  wrap.appendChild(button.el);
+  ui.mount(wrap);
 
   const applyPosition = (): void => {
     wrap.style.right = `${position.right}px`;
@@ -80,41 +83,33 @@ export function createTranscriptButton(options: TranscriptButtonOptions): Transc
 
   const applyState = (next: ButtonState): void => {
     state = next;
-    button.dataset.state = next;
-    button.disabled = next === 'loading';
-    clearTimers();
-
-    if (next === 'loading') {
-      let count = 1;
-      label.textContent = LABELS.loading;
-      dotsTimer = window.setInterval(() => {
-        count = (count % 3) + 1;
-        label.textContent = '.'.repeat(count);
-      }, DOT_INTERVAL_MS);
-      return;
+    wrap.dataset.state = next;
+    stateLabel.textContent = LABELS[next];
+    button.setLoading(next === 'loading');
+    if (resetTimer !== undefined) {
+      window.clearTimeout(resetTimer);
+      resetTimer = undefined;
     }
-
-    label.textContent = LABELS[next];
     if (next === 'success' || next === 'error') {
       resetTimer = window.setTimeout(() => applyState('normal'), RESET_DELAY_MS);
     }
   };
 
-  button.addEventListener('click', (event) => {
-    event.stopPropagation();
-    // 拖动结束后浏览器仍会补一次 click；用短暂抑制避免“拖一下就复制”。
-    if (suppressClick || state === 'loading') return;
-    options.onClick();
-  });
-
   wrap.addEventListener('pointerdown', (event) => {
-    if (event.button !== 0) return;
+    event.stopPropagation();
+    if (event.button !== 0 || state === 'loading') return;
+
     const rect = wrap.getBoundingClientRect();
     const startRight = window.innerWidth - rect.right;
     const startTop = rect.top;
     const startX = event.clientX;
     const startY = event.clientY;
     let moved = false;
+
+    dragScope?.abort();
+    const scope = new AbortController();
+    dragScope = scope;
+    const { signal } = scope;
 
     const onMove = (moveEvent: PointerEvent): void => {
       const dx = moveEvent.clientX - startX;
@@ -128,22 +123,31 @@ export function createTranscriptButton(options: TranscriptButtonOptions): Transc
     };
 
     const onUp = (): void => {
-      document.removeEventListener('pointermove', onMove);
-      document.removeEventListener('pointerup', onUp);
+      scope.abort();
+      dragScope = null;
       wrap.dataset.dragging = 'false';
       options.onMoveEnd(position);
-      if (moved) {
-        suppressClick = true;
-        window.setTimeout(() => {
-          suppressClick = false;
-        }, CLICK_SUPPRESS_MS);
-      }
+      if (!moved) return;
+      suppressClick = true;
+      window.setTimeout(() => {
+        suppressClick = false;
+      }, CLICK_SUPPRESS_MS);
     };
 
     wrap.dataset.dragging = 'true';
-    document.addEventListener('pointermove', onMove);
-    document.addEventListener('pointerup', onUp);
+    document.addEventListener('pointermove', onMove, { signal });
+    document.addEventListener('pointerup', onUp, { signal });
   });
+
+  const cleanup = (): void => {
+    if (resetTimer !== undefined) window.clearTimeout(resetTimer);
+    resetTimer = undefined;
+    dragScope?.abort();
+    dragScope = null;
+  };
+
+  // UI 被销毁时也必须收掉拖动监听（`destroy()` 可能没被调用）。
+  ui.onDestroy(cleanup);
 
   applyPosition();
 
@@ -162,7 +166,9 @@ export function createTranscriptButton(options: TranscriptButtonOptions): Transc
     },
     getPosition: () => position,
     destroy() {
-      clearTimers();
+      cleanup();
+      // 组件有自己的 scope，先销毁再删节点，监听与按钮上的点击回调一起释放。
+      button.destroy();
       wrap.remove();
     },
   };

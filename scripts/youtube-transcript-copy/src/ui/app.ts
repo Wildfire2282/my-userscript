@@ -11,17 +11,6 @@ import { createTranscriptButton, type TranscriptButtonHandle } from './button';
 
 export type CopyOutcome = 'success' | 'empty' | 'error';
 
-const LABELS = {
-  close: '关闭',
-  settings: '设置',
-  notifications: '通知',
-  dismissNotification: '关闭通知',
-  closeSettings: '关闭设置',
-  scrollHint: '向下滚动查看更多内容',
-  cancel: '取消',
-  confirm: '确定',
-};
-
 export interface TranscriptButtonAppOptions {
   getSavedPosition: () => ButtonPosition | null;
   savePosition: (position: ButtonPosition) => void;
@@ -87,7 +76,7 @@ export function createTranscriptButtonApp(
     const position = options.getSavedPosition() ?? options.getDefaultPosition();
     if (!position) return null;
 
-    const mounted = mountUI({ theme: 'system', labels: LABELS });
+    const mounted = mountUI({ theme: 'system' });
     const created = createTranscriptButton({
       ui: mounted,
       label: '复制当前转写文稿',
@@ -136,9 +125,10 @@ export function createTranscriptButtonApp(
         window.clearTimeout(settleTimer);
         settleTimer = undefined;
       }
+      button?.destroy();
       ui?.destroy();
-      ui = null;
       button = null;
+      ui = null;
     },
   };
 }

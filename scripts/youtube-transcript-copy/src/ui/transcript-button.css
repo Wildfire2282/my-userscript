@@ -1,6 +1,5 @@
 /*
- * 悬浮按钮：尺寸、圆角、颜色全部取自 --ds-* Token。
- * 旧版是一个 40px 的红色圆形按钮，就绪时半透明、悬停时变亮，这里保持一致。
+ * 只负责定位与拖动光标：尺寸、颜色、悬停、焦点环、加载态都由 @ui 的按钮组件提供。
  */
 .yt-transcript-wrap {
   position: fixed;
@@ -11,58 +10,4 @@
 
 .yt-transcript-wrap[data-dragging='true'] {
   cursor: grabbing;
-}
-
-.yt-transcript-button {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: var(--ds-launcher-size);
-  height: var(--ds-launcher-size);
-  padding: 0;
-  border: 0;
-  border-radius: var(--ds-radius-full);
-  color: var(--ds-primary-foreground);
-  font-family: var(--ds-font-sans);
-  font-size: var(--ds-text-lg);
-  font-weight: var(--ds-weight-semibold);
-  line-height: 1;
-  cursor: pointer;
-  opacity: 0.5;
-  transition:
-    opacity var(--ds-duration-slow) var(--ds-ease),
-    background-color var(--ds-duration-slow) var(--ds-ease),
-    filter var(--ds-duration-slow) var(--ds-ease);
-}
-
-.yt-transcript-button[data-state='normal'],
-.yt-transcript-button[data-state='loading'],
-.yt-transcript-button[data-state='error'] {
-  background: var(--ds-destructive);
-}
-
-.yt-transcript-button[data-state='success'] {
-  background: var(--ds-success);
-}
-
-.yt-transcript-button[data-state='loading'],
-.yt-transcript-button[data-state='error'],
-.yt-transcript-button[data-state='success'] {
-  opacity: 0.7;
-}
-
-.yt-transcript-wrap:hover .yt-transcript-button {
-  opacity: 1;
-  filter: brightness(1.08);
-}
-
-.yt-transcript-button:focus-visible {
-  outline: var(--ds-ring-width) solid var(--ds-ring);
-  outline-offset: var(--ds-ring-offset);
-}
-
-.yt-transcript-label {
-  display: block;
-  min-width: 1ch;
-  text-align: center;
 }

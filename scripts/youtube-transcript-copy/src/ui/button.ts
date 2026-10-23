@@ -126,8 +126,9 @@ export function createTranscriptButton(options: TranscriptButtonOptions): Transc
       scope.abort();
       dragScope = null;
       wrap.dataset.dragging = 'false';
-      options.onMoveEnd(position);
+      // 没移动就是一次普通单击：不改位置，否则会停用“跟着播放器走”。
       if (!moved) return;
+      options.onMoveEnd(position);
       suppressClick = true;
       window.setTimeout(() => {
         suppressClick = false;

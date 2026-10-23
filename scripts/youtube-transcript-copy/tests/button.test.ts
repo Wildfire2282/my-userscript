@@ -66,6 +66,19 @@ describe('createTranscriptButton', () => {
     expect(onClick).toHaveBeenCalledTimes(1);
   });
 
+  it('单击不移动 → 不保存位置，照常复制', () => {
+    const onClick = vi.fn();
+    const onMoveEnd = vi.fn();
+    const { button, handle } = setup({ onClick, onMoveEnd });
+
+    handle.el.dispatchEvent(pointer('pointerdown', 500, 100));
+    document.dispatchEvent(pointer('pointerup', 500, 100));
+    button.click();
+
+    expect(onMoveEnd).not.toHaveBeenCalled();
+    expect(onClick).toHaveBeenCalledTimes(1);
+  });
+
   it('拖动后保存新位置，且不触发复制', () => {
     const onClick = vi.fn();
     const onMoveEnd = vi.fn();

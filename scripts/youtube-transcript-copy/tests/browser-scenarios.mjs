@@ -147,6 +147,26 @@ export const scenarios = [
     },
   },
   {
+    name: '点按钮复制一次后，播放器布局变化时按钮仍跟新的右上角',
+    async run(ctx) {
+      await ctx.evaluate(() => window.__page.capturePanel());
+      await ctx.wait(80);
+      const point = await ctx.evaluate(() => window.__page.center());
+      await ctx.input.click(point);
+      await ctx.wait(150);
+      const state = await ctx.evaluate(async () => {
+        document.querySelector('#movie_player').style.marginLeft = '200px';
+        window.dispatchEvent(new Event('resize'));
+        await new Promise((resolve) => setTimeout(resolve, 80));
+        return { position: window.__page.position(), expected: window.__page.expectedRightTop() };
+      });
+      return {
+        expected: `${state.expected.right} / ${state.expected.top}`,
+        actual: `${state.position.right} / ${state.position.top}`,
+      };
+    },
+  },
+  {
     name: '拖动过按钮后再改布局 → 保持用户放的位置',
     async run(ctx) {
       const point = await ctx.evaluate(() => window.__page.center());

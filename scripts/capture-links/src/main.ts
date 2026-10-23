@@ -9,8 +9,8 @@ import { createApp } from './ui/app';
  * 只有菜单入口，普通页面零节点零样式。
  */
 
-const MENU_LINKS = '面板';
-const MENU_SETTINGS = '设置';
+const MENU_LINKS = '操作面板';
+const MENU_SETTINGS = '功能设置';
 
 function start(): void {
   const gm = createGmApi();

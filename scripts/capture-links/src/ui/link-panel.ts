@@ -41,7 +41,7 @@ export function createLinkPanel(options: LinkPanelOptions): LinkPanelHandle {
   ui.useStyles(listCss);
 
   const panel = createPanel(ui, {
-    title: '捕获链接',
+    title: '操作面板',
     open: false,
     position: 'center',
     closeLabel: '关闭链接面板',

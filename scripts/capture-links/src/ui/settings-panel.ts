@@ -36,7 +36,7 @@ export function createSettingsPanel(options: SettingsPanelOptions): SettingsPane
   const { ui } = options;
 
   const panel = createPanel(ui, {
-    title: '捕获链接设置',
+    title: '功能设置',
     open: false,
     position: 'center',
     closeLabel: '关闭设置',

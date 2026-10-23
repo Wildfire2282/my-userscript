@@ -16,8 +16,8 @@ export function helpers() {
     [...(root()?.querySelectorAll('[data-ds-panel]') ?? [])].find(
       (node) => node.querySelector('.ds-panel-title')?.textContent.trim() === title,
     ) ?? null;
-  const linkPanel = () => panelByTitle('捕获链接');
-  const settingsPanel = () => panelByTitle('捕获链接设置');
+  const linkPanel = () => panelByTitle('操作面板');
+  const settingsPanel = () => panelByTitle('功能设置');
 
   const rows = () => [...(linkPanel()?.querySelectorAll('.cl-row') ?? [])];
   const rowText = (selector) =>
@@ -124,10 +124,17 @@ const TITLES = [
 
 export const scenarios = [
   {
-    name: '菜单「面板」→ 列出本页全部链接，空地址与重复项被忽略',
+    name: '油猴菜单只有「操作面板」和「功能设置」两项',
+    async run(ctx) {
+      const items = await ctx.evaluate(() => window.__gm.menus.map((menu) => menu.label));
+      return { expected: '操作面板 / 功能设置', actual: items.join(' / ') };
+    },
+  },
+  {
+    name: '菜单「操作面板」→ 列出本页全部链接，空地址与重复项被忽略',
     async run(ctx) {
       const state = await ctx.evaluate(() => {
-        window.__page.openMenu('面板');
+        window.__page.openMenu('操作面板');
         const panel = window.__page.linkPanel();
         return {
           title: panel?.querySelector('.ds-panel-title')?.textContent.trim() ?? '',
@@ -137,7 +144,7 @@ export const scenarios = [
         };
       });
       return {
-        expected: `捕获链接 / 面板可见 / ${TITLES.join('、')} / 共 7 / 筛选 7 / 选中 0`,
+        expected: `操作面板 / 面板可见 / ${TITLES.join('、')} / 共 7 / 筛选 7 / 选中 0`,
         actual: `${state.title} / ${state.visible ? '面板可见' : '面板不可见'} / ${state.titles.join('、')} / ${state.stats}`,
       };
     },
@@ -168,7 +175,7 @@ export const scenarios = [
     name: '关键词筛选 → 同时匹配标题与地址，清空后恢复',
     async run(ctx) {
       const state = await ctx.evaluate(() => {
-        window.__page.openMenu('面板');
+        window.__page.openMenu('操作面板');
         window.__page.setSearch('example.com');
         const byUrl = window.__page.rows().length;
         window.__page.setSearch('beta');
@@ -187,7 +194,7 @@ export const scenarios = [
     name: '仅磁链 → 只剩磁力链接，没有匹配时显示空状态',
     async run(ctx) {
       const state = await ctx.evaluate(() => {
-        window.__page.openMenu('面板');
+        window.__page.openMenu('操作面板');
         window.__page.setMagnet(true);
         const magnetRows = window.__page.rows().length;
         const firstUrl = window.__page.urls()[0] ?? '';
@@ -206,7 +213,7 @@ export const scenarios = [
     name: '全选 / 全不选 / 反选 → 统计跟着变',
     async run(ctx) {
       const state = await ctx.evaluate(() => {
-        window.__page.openMenu('面板');
+        window.__page.openMenu('操作面板');
         const panel = window.__page.linkPanel();
         window.__page.clickButton(panel, '全选');
         const all = window.__page.selectedCount();
@@ -232,7 +239,7 @@ export const scenarios = [
           link.textContent = `批量链接 ${index}`;
           document.body.appendChild(link);
         }
-        window.__page.openMenu('面板');
+        window.__page.openMenu('操作面板');
         const panel = window.__page.linkPanel();
         window.__page.clickButton(panel, '全选');
         const selected = window.__page.selectedCount();
@@ -254,7 +261,7 @@ export const scenarios = [
     name: '复制选中（纯链接）→ 每行一个地址并提示条数',
     async run(ctx) {
       const state = await ctx.evaluate(async () => {
-        window.__page.openMenu('面板');
+        window.__page.openMenu('操作面板');
         const panel = window.__page.linkPanel();
         window.__page.clickButton(panel, '全选');
         window.__page.clickButton(panel, '复制选中');
@@ -277,7 +284,7 @@ export const scenarios = [
     name: '没选中就复制 → 提示未选中，剪贴板不变',
     async run(ctx) {
       const state = await ctx.evaluate(() => {
-        window.__page.openMenu('面板');
+        window.__page.openMenu('操作面板');
         window.__page.clickButton(window.__page.linkPanel(), '复制选中');
         return {
           toast: window.__page.toastText(),
@@ -294,11 +301,11 @@ export const scenarios = [
     name: '设置里改成 Markdown → 复制出 [标题](地址)',
     async run(ctx) {
       const state = await ctx.evaluate(() => {
-        window.__page.openMenu('设置');
+        window.__page.openMenu('功能设置');
         const settings = window.__page.settingsPanel();
         const changed = window.__page.setSelect(settings, '复制格式', 'markdown');
         window.__page.closePanel(settings);
-        window.__page.openMenu('面板');
+        window.__page.openMenu('操作面板');
         const panel = window.__page.linkPanel();
         window.__page.clickButton(panel, '全选');
         window.__page.clickButton(panel, '复制选中');
@@ -320,7 +327,7 @@ export const scenarios = [
     name: '设置里关掉悬浮按钮 → 按钮消失并记住；打开后重新出现',
     async run(ctx) {
       const state = await ctx.evaluate(() => {
-        window.__page.openMenu('设置');
+        window.__page.openMenu('功能设置');
         const panel = window.__page.settingsPanel();
         window.__page.setSwitch(panel, '显示浮动按钮', false);
         const hidden = window.__page.launcher() === null;
@@ -341,11 +348,11 @@ export const scenarios = [
     name: '关闭按钮收起面板；再次打开会重新扫描并清空筛选',
     async run(ctx) {
       const state = await ctx.evaluate(() => {
-        window.__page.openMenu('面板');
+        window.__page.openMenu('操作面板');
         const panel = window.__page.linkPanel();
         window.__page.setSearch('beta');
         const closed = window.__page.closePanel(panel);
-        window.__page.openMenu('面板');
+        window.__page.openMenu('操作面板');
         return {
           closed,
           rows: window.__page.rows().length,
@@ -368,7 +375,7 @@ export const scenarios = [
         window.__gm.clipboardThrows = true;
         Object.defineProperty(navigator, 'clipboard', { value: undefined, configurable: true });
         document.execCommand = () => false;
-        window.__page.openMenu('面板');
+        window.__page.openMenu('操作面板');
         const panel = window.__page.linkPanel();
         window.__page.checkRow(0, true);
         window.__page.clickButton(panel, '复制选中');

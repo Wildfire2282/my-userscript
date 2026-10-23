@@ -48,6 +48,22 @@ describe('scanLinks', () => {
     expect(scanLinks(document, BASE)[0]?.title).toBe('行标题');
   });
 
+  it('影子节点里的链接也能扫到', () => {
+    addLink('/light', '明处链接');
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const shadow = host.attachShadow({ mode: 'open' });
+    const link = document.createElement('a');
+    link.setAttribute('href', '/shadow-link');
+    link.textContent = '影子链接';
+    shadow.appendChild(link);
+    const items = scanLinks(document, BASE);
+    expect(items.map((item) => item.url)).toEqual([
+      'https://example.com/light',
+      'https://example.com/shadow-link',
+    ]);
+  });
+
   it('没有链接时返回空数组', () => {
     expect(scanLinks(document, BASE)).toEqual([]);
   });

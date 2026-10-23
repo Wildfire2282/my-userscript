@@ -18,11 +18,19 @@ export interface EngineOption {
   label: string;
 }
 
+/** 未知引擎 ID 的显示名：把 `my-engine` 转成 `My Engine`，而不是直接甩出原始 ID。 */
+function humanizeEngineId(id: string): string {
+  return id
+    .split(/[-_]/)
+    .map((part) => (part === '' ? part : part.charAt(0).toUpperCase() + part.slice(1)))
+    .join(' ');
+}
+
 /** 下拉选项：存储里的引擎 + 自定义。顺序沿用存储顺序，保证旧用户看到的顺序不变。 */
 export function engineOptions(settings: Settings): EngineOption[] {
   const options = Object.keys(settings.engines).map((id) => ({
     value: id,
-    label: ENGINE_LABELS[id] ?? id,
+    label: ENGINE_LABELS[id] ?? humanizeEngineId(id),
   }));
   options.push({ value: CUSTOM_ENGINE_ID, label: '自定义' });
   return options;

@@ -24,9 +24,11 @@ describe('engineOptions', () => {
     expect(options[2]?.label).toBe('Google');
   });
 
-  it('存储里新增的引擎用 ID 当显示名', () => {
+  it('存储里新增的引擎显示首字母大写的名字', () => {
     const options = engineOptions(settings({ engines: { duckduckgo: 'https://x/?q={keyword}' } }));
-    expect(options[0]).toEqual({ value: 'duckduckgo', label: 'duckduckgo' });
+    expect(options[0]).toEqual({ value: 'duckduckgo', label: 'Duckduckgo' });
+    const dashed = engineOptions(settings({ engines: { 'my-engine': 'https://x/?q={keyword}' } }));
+    expect(dashed[0]).toEqual({ value: 'my-engine', label: 'My Engine' });
   });
 });
 

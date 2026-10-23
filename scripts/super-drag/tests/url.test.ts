@@ -32,4 +32,12 @@ describe('asDirectUrl', () => {
     const long = `https://example.com/${'a'.repeat(2048)}`;
     expect(asDirectUrl(long)).toBe('');
   });
+
+  it('句尾标点被剥掉，括号结尾的合法地址保留', () => {
+    expect(asDirectUrl('https://example.com。这是说明')).toBe('https://example.com');
+    expect(asDirectUrl('https://example.com/a,')).toBe('https://example.com/a');
+    expect(asDirectUrl('https://en.wikipedia.org/wiki/X_(film)')).toBe(
+      'https://en.wikipedia.org/wiki/X_(film)',
+    );
+  });
 });

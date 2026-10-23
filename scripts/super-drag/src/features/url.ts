@@ -15,6 +15,26 @@ export function looksLikeUrl(text: string): boolean {
   return URL_PATTERN.test(text);
 }
 
+/** 中文标点不可能出现在地址里：第一次出现就截断（`https://a。这是说明` → `https://a`）。 */
+const CJK_PUNCT = /[。、，．・…？！；：『』「」《》（）【】　]/u;
+
+/** 地址结尾不可能是这些符号（句尾的 `。，;!?` 和全角引号括号）；半角 `)]}` 不剥，Wikipedia 的 `..._(film)` 就是右括号结尾。 */
+const TRAILING_PUNCT = /[。.，,;；:：!！?？'"'""…、〉》」』〕）]+$/u;
+
+/**
+ * 从一段无空格的文字里切出地址：从协议头开始，到中文标点结束。
+ *
+ * `见https://example.com/a好` 这种粘在一起的也能切出中间的地址；
+ * 纯 IDN（`https://例子.测试`，半角点）不受影响，只有全角标点会截断。
+ */
+function extractUrlCandidate(keyword: string): string {
+  const start = keyword.search(/(ftp|https?):\/\//i);
+  const fromStart = start >= 0 ? keyword.slice(start) : keyword;
+  const cut = fromStart.search(CJK_PUNCT);
+  const candidate = cut >= 0 ? fromStart.slice(0, cut) : fromStart;
+  return candidate.replace(TRAILING_PUNCT, '');
+}
+
 /**
  * 把拖拽的文本转成“直接打开”的地址。
  *
@@ -23,5 +43,7 @@ export function looksLikeUrl(text: string): boolean {
 export function asDirectUrl(text: string | null | undefined): string {
   const keyword = typeof text === 'string' ? text.trim() : '';
   if (keyword === '' || keyword.length > DIRECT_URL_MAX_LEN || /\s/.test(keyword)) return '';
-  return looksLikeUrl(keyword) ? keyword : '';
+  const stripped = extractUrlCandidate(keyword);
+  if (stripped === '') return '';
+  return looksLikeUrl(stripped) ? stripped : '';
 }

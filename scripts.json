@@ -1,6 +1,6 @@
 {
   "source": "https://greasyfork.org/zh-CN/users/852134-wildfire2282",
-  "generatedAt": "2026-10-22T19:31:43Z",
+  "generatedAt": "2026-10-23T03:46:39Z",
   "scriptCount": 4,
   "scripts": [
     {
@@ -9,7 +9,7 @@
       "slug": "youtube-transcript-copy",
       "package": "scripts/youtube-transcript-copy",
       "file": "scripts/youtube-transcript-copy/legacy/579560-youtube-transcript-copy.user.js",
-      "version": "1.1.3",
+      "version": "1.2.0",
       "description": "视频播放页面出现可拖拽悬浮按钮，可一键复制转写文稿（transcript），支持英语等多语言界面",
       "author": "Wildfire2282 (https://github.com/Wildfire2282)",
       "namespace": "https://github.com/Wildfire2282",
@@ -19,8 +19,8 @@
       ],
       "downloadUrl": "https://update.greasyfork.org/scripts/579560/YouTube%20%E8%BD%AC%E5%86%99%E6%96%87%E7%A8%BF%E5%A4%8D%E5%88%B6.user.js",
       "scriptUrl": "https://greasyfork.org/zh-CN/scripts/579560",
-      "sha256": "F0D50BB45A12860911E1A70A89FD5C74CDB837A89C0959594B190C663FB1A9C2",
-      "size": 26607
+      "sha256": "244B3C39827CFC83894D3A7B04A5D381E9B489A1948EE762F91FE29054304C21",
+      "size": 49986
     },
     {
       "id": 580630,
@@ -48,7 +48,7 @@
       "slug": "capture-links",
       "package": "scripts/capture-links",
       "file": "scripts/capture-links/legacy/582371-capture-links.user.js",
-      "version": "1.0.1",
+      "version": "1.1.0",
       "description": "捕获页面中的全部链接，支持关键词筛选与批量复制",
       "author": "Wildfire2282 (https://github.com/Wildfire2282)",
       "namespace": "https://github.com/Wildfire2282",
@@ -59,8 +59,8 @@
       ],
       "downloadUrl": "https://update.greasyfork.org/scripts/582371/%E6%8D%95%E8%8E%B7%E9%93%BE%E6%8E%A5.user.js",
       "scriptUrl": "https://greasyfork.org/zh-CN/scripts/582371",
-      "sha256": "5B006ED9D4CAD2E4E96EE056F03B9FD00E22C4BDA2E53AEF32B260494A156A52",
-      "size": 20477
+      "sha256": "038CCB8C6CE94928046B576333817386FB76F5EA0F81A82CDB82E62A7958A036",
+      "size": 96707
     },
     {
       "id": 582576,
@@ -68,7 +68,7 @@
       "slug": "selection-copy",
       "package": "scripts/selection-copy",
       "file": "scripts/selection-copy/legacy/582576-selection-copy.user.js",
-      "version": "1.1.5",
+      "version": "1.2.0",
       "description": "选中文本后自动纯文本复制到剪贴板，去除首尾空白",
       "author": "Wildfire2282 (https://github.com/Wildfire2282)",
       "namespace": "https://github.com/Wildfire2282",
@@ -78,8 +78,8 @@
       ],
       "downloadUrl": "https://update.greasyfork.org/scripts/582576/%E9%80%89%E4%B8%AD%E5%A4%8D%E5%88%B6.user.js",
       "scriptUrl": "https://greasyfork.org/zh-CN/scripts/582576",
-      "sha256": "68B40FA9DE3FBFFE95520187355C73EEB7F0FCD64A51FE9996897B8045B773AD",
-      "size": 18468
+      "sha256": "D39940CADB23928F1156D878BEB2870FE538348AE5FB9C921B76BAE6B7051552",
+      "size": 28644
     }
   ]
 }

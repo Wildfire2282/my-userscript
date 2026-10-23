@@ -122,6 +122,8 @@ npm run check           # 交付前全量：静态检查 + 单测 + 构建 + 元
 
 `check:meta` 只扫描元数据块之后的代码来判断 `GM_*` 是否都有对应 `@grant`；迁移确实要改元数据时，加 `--allow-meta-change`，并在提交信息里写明理由。
 
+已知未覆盖：`@match` / `@include` 的 pattern 语法（写错的表现是脚本装上了却不生效）。新增或修改匹配地址时由 Agent 核对站点地址与通配符写法，不依赖自动检查。
+
 `test:browser` 用系统 Chrome/Edge 与 Node 内置 WebSocket 驱动 CDP，不下载 Playwright 浏览器：Windows、macOS、Linux（CI 的 ubuntu-latest 自带 Chrome）都能自动找到，`CHROME_PATH` 可覆盖。场景写在 `scripts/<slug>/tests/browser-scenarios.mjs`：
 
 - `fixture` 指向 `tests/fixtures/` 下的页面；需要真实布局、坐标或选区时必须用真页面；
@@ -138,6 +140,7 @@ npm run check           # 交付前全量：静态检查 + 单测 + 构建 + 元
 | --- | --- | --- |
 | 构建 | 自研 `tools/build.mjs` + Vite IIFE，不引入 `vite-plugin-monkey` | 单文件、banner、CSS 内联已满足需求，插件带来的权限收集与配置成本没有收益 |
 | 版本 | `package.json` 唯一来源，构建时注入 | 元数据与包版本两处手写必然漂移 |
+| 元数据 lint | 只用 `tools/check-meta.mjs`，不引入 `eslint-plugin-userscripts` | 该插件只认 `.user.js` 里的元数据块，而本仓元数据在 `.ts`、产物不提交；`use-homepage-and-url` 要求非标准 `@homepage`，`align-attributes` 的自动修复会重排整块并插入 `@homepage`，与 `metadata.md` 的字段清单冲突；`@match` 语法它也不校验，唯一能补的是未使用 `@grant` 的拼写，价值低于多一个 devDependency |
 | 共享内核 | 只收纳 `gm`、`storage` 与 `clipboard` | 重复事实来自多个 legacy 脚本；其余抽象尚无稳定复用 |
 | UI 复用 | 子模块源码直引，按需 tree-shake | 不发布运行时包，不引入全局样式与远程资源 |
 | 测试分层 | 纯逻辑走 Vitest，用户可见交互走真实浏览器；同一事实只在一层断言 | 两层都断言同一规则会让维护成本翻倍，失败时也看不出该改哪一层 |

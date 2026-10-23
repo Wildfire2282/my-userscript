@@ -107,7 +107,7 @@ npm run check                   # 全量：静态检查 + 单测 + 构建 + 元�
 
 1. 先由维护者确认安装提示与匹配范围的变化；
 2. 重新构建后本地跑 `node tools/check-meta.mjs --allow-meta-change` 验证；
-3. 发布时在 Actions 手动运行「发布用户脚本」，勾选 `allow_meta_change`；该开关同时放行 `check:meta` 与 `release.mjs` 的元数据比对；
+3. 发布时由 Agent 运行 `gh workflow run release.yml --ref main -f allow_meta_change=true`；该开关同时放行 `check:meta` 与 `release.mjs` 的元数据比对，push 触发的自动运行失败属于预期的安全拦截；
 4. 在提交信息里写明理由。
 
 浏览器场景的写法：

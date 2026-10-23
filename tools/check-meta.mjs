@@ -345,7 +345,10 @@ async function checkPackage(slug) {
           if (before.join('\n') !== after.join('\n')) {
             const message = `${key} 与 legacy 不一致：${JSON.stringify(before)} → ${JSON.stringify(after)}`;
             if (allowMetaChange) notes.push(`${message}（已放行元数据变化）`);
-            else problems.push(`${message}（确认要改时加 --allow-meta-change）`);
+            else
+              problems.push(
+                `${message}（确认后由 Agent 运行 gh workflow run release.yml -f allow_meta_change=true；本地复验加 --allow-meta-change）`,
+              );
           }
         }
       } else if (legacy) {

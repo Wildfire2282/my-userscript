@@ -60,10 +60,17 @@ push main
 
 1. 维护者确认「多看到什么、少看到什么」；
 2. Agent 在本地跑 `ALLOW_META_CHANGE=1 npm run check`（PowerShell：`$env:ALLOW_META_CHANGE='1'; npm run check`）验证；
-3. 在 Actions 里对「发布用户脚本」点 **Run workflow**，勾选 `allow_meta_change` 后运行；
+3. 由 Agent 触发已确认的发布（维护者不需要操作 GitHub）：
+
+   ```bash
+   gh workflow run release.yml --ref main -f allow_meta_change=true
+   ```
+
 4. 提交信息里写明变更理由与影响。
 
-该开关同时放行 `check:meta` 的 legacy 对照与 `release.mjs` 的元数据比对；未确认时不要勾选。
+这次 push 的自动运行会在元数据对照处停下，属于预期的安全拦截，不是构建失败。手动运行成功后按第 3 节第 6 步 `npm run sync` 更新快照，后续运行即恢复通过。
+
+该开关同时放行 `check:meta` 的 legacy 对照与 `release.mjs` 的元数据比对；未确认时不要触发。
 
 ## 5. Greasy Fork 同步
 

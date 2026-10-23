@@ -6,6 +6,7 @@ describe('looksLikeUrl', () => {
     expect(looksLikeUrl('https://example.com')).toBe(true);
     expect(looksLikeUrl('http://example.com/a?b=1')).toBe(true);
     expect(looksLikeUrl('ftp://example.com/file')).toBe(true);
+    expect(looksLikeUrl('HTTPS://EXAMPLE.COM/Path')).toBe(true);
   });
 
   it('不把普通词句当网址', () => {
@@ -36,6 +37,7 @@ describe('asDirectUrl', () => {
   it('句尾标点被剥掉，括号结尾的合法地址保留', () => {
     expect(asDirectUrl('https://example.com。这是说明')).toBe('https://example.com');
     expect(asDirectUrl('https://example.com/a,')).toBe('https://example.com/a');
+    expect(asDirectUrl('HTTPS://EXAMPLE.COM/Path')).toBe('HTTPS://EXAMPLE.COM/Path');
     expect(asDirectUrl('https://en.wikipedia.org/wiki/X_(film)')).toBe(
       'https://en.wikipedia.org/wiki/X_(film)',
     );

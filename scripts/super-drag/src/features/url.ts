@@ -8,7 +8,7 @@
 export const DIRECT_URL_MAX_LEN = 2048;
 
 const URL_PATTERN =
-  /(ftp|http|https):\/\/(\w+:{0,1}\w*@)?(\S+)(:[0-9]+)?(\/|\/([\w#!:.?+=&%@!-/]))?/;
+  /(ftp|http|https):\/\/(\w+:{0,1}\w*@)?(\S+)(:[0-9]+)?(\/|\/([\w#!:.?+=&%@!-/]))?/i;
 
 /** @param text 任意文本 */
 export function looksLikeUrl(text: string): boolean {

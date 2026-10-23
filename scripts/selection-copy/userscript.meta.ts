@@ -10,6 +10,9 @@
 // @supportURL   https://github.com/Wildfire2282/my-userscript/issues
 // @source       https://github.com/Wildfire2282/my-userscript
 // @match        *://*/*
+// @grant        GM_setValue
+// @grant        GM_getValue
+// @grant        GM_registerMenuCommand
 // @grant        GM_setClipboard
 // @run-at       document-end
 // @downloadURL  https://update.greasyfork.org/scripts/582576/%E9%80%89%E4%B8%AD%E5%A4%8D%E5%88%B6.user.js

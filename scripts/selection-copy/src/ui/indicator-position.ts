@@ -1,10 +1,10 @@
-import { INDICATOR } from '../config';
+import { INDICATOR, type CopyFeedbackVariant } from '../config';
 import type { AnchorBox } from '../features/geometry';
 
 /**
- * 复制成功后的小圆点。
+ * 复制反馈标签的位置。
  *
- * 位置计算是纯函数，方便在 Vitest 里覆盖贴边、选区已滚出视口这些边界；
+ * 位置计算是纯函数，方便在 Vitest 里覆盖贴边、贴顶翻转、选区已滚出视口这些边界；
  * 实际的显示与淡出由 `createIndicator` 负责。
  */
 
@@ -19,39 +19,54 @@ export interface IndicatorPoint {
 }
 
 function clamp(value: number, min: number, max: number): number {
-  // 视口比“标记 + 两侧边距”还窄时 max < min：贴住左上角，不要算出负坐标。
+  // 视口比“标签 + 两侧边距”还窄时 max < min：贴住左上角，不要算出负坐标。
   if (max < min) return min;
   return Math.min(Math.max(value, min), max);
 }
 
 /**
- * 计算圆点左上角坐标。
+ * 计算标签左上角坐标。
  *
- * 选区贴边或已滚出视口时退回视口中央：标记不能跟着跑到视口外。
+ * 默认贴在焦点正上方并水平居中；上方放不下时翻到下一行，避免挡住刚选中的文字。
+ * 选区贴边或已滚出视口时退回视口中央：标签不能跟着跑到视口外。
  *
- * @param rect 选区终点的行盒；没有可用矩形时传 null
+ * @param rect 选区焦点或控件锚点；没有可用位置时传 null
  * @param viewport 视口尺寸
+ * @param variant 成功 / 失败两种标签宽度不同，贴边时要分别计算
  */
-export function indicatorPosition(rect: AnchorBox | null, viewport: Viewport): IndicatorPoint {
-  const size = INDICATOR.sizePx;
+export function indicatorPosition(
+  rect: AnchorBox | null,
+  viewport: Viewport,
+  variant: CopyFeedbackVariant = 'success',
+): IndicatorPoint {
+  const width = INDICATOR.widthPx[variant];
+  const height = INDICATOR.heightPx;
+  const margin = INDICATOR.marginPx;
+  const maxLeft = viewport.width - width - margin;
+  const maxTop = viewport.height - height - margin;
+
+  const centered = (): IndicatorPoint => ({
+    left: clamp((viewport.width - width) / 2, margin, maxLeft),
+    top: clamp((viewport.height - height) / 2, margin, maxTop),
+  });
+
+  if (rect === null) return centered();
+
   const anchored =
-    rect !== null &&
     (rect.width > 0 || rect.height > 0) &&
     rect.bottom > 0 &&
     rect.top < viewport.height &&
-    rect.right > 0 &&
-    rect.left < viewport.width;
+    rect.left < viewport.width &&
+    // 插入点宽度为 0，x=0 时 right 也是 0，不能当成“已滚出左边”。
+    rect.right >= 0;
 
-  return {
-    left: clamp(
-      anchored ? rect.right - size / 2 : viewport.width / 2 - size / 2,
-      INDICATOR.marginPx,
-      viewport.width - size - INDICATOR.marginPx,
-    ),
-    top: clamp(
-      anchored ? rect.top - size - INDICATOR.gapPx : viewport.height / 2 - size / 2,
-      INDICATOR.marginPx,
-      viewport.height - size - INDICATOR.marginPx,
-    ),
-  };
+  if (!anchored) return centered();
+
+  const left = clamp(rect.right - width / 2, margin, maxLeft);
+  const above = rect.top - height - INDICATOR.gapPx;
+  if (above >= margin) return { left, top: clamp(above, margin, maxTop) };
+
+  const below = rect.bottom + INDICATOR.gapPx;
+  if (below + height <= viewport.height - margin) return { left, top: below };
+  return { left, top: clamp(above, margin, maxTop) };
 }

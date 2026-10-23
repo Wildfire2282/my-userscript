@@ -1,26 +1,54 @@
 /*
- * 勾号圆点：14px 与 10px 字号必须与 config.ts 的 INDICATOR.sizePx / 定位计算保持一致，
- * 所以这里直接引用同一组 Token，不在脚本里另写一套尺寸。
+ * 复制结果标签：高度必须与 config.ts 的 INDICATOR.heightPx（28）和 --ds-control-h-sm 一致，
+ * 宽度由脚本按成功 / 失败两种文案设置，定位函数用同一组数字计算贴边位置。
+ *
+ * 用中性卡片底 + 彩色图标，而不是整块填色：12px 文字在浅色主题的绿色 / 红色底上
+ * 对比度不够，卡片底在浅色与深色主题下都能读清。
  */
-.sel-copy-dot {
+.sel-copy-pill {
   position: fixed;
   z-index: 1;
   display: flex;
   align-items: center;
   justify-content: center;
-  width: var(--ds-icon-sm);
-  height: var(--ds-icon-sm);
+  gap: var(--ds-space-1);
+  height: var(--ds-control-h-sm);
+  padding: 0 var(--ds-space-2);
+  border: var(--ds-border-width) solid var(--ds-border);
   border-radius: var(--ds-radius-full);
-  background: var(--ds-success);
-  color: var(--ds-primary-foreground);
-  font-size: 10px;
-  font-weight: var(--ds-weight-semibold);
+  background: var(--ds-card);
+  color: var(--ds-card-foreground);
+  box-shadow: var(--ds-shadow-md);
+  font-family: var(--ds-font-sans);
+  font-size: var(--ds-text-xs);
+  font-weight: var(--ds-weight-medium);
   line-height: 1;
+  white-space: nowrap;
   pointer-events: none;
   opacity: 0;
-  transition: opacity 300ms var(--ds-ease);
+  transform: translateY(2px) scale(0.94);
+  transition:
+    opacity var(--ds-duration-base) var(--ds-ease),
+    transform var(--ds-duration-base) var(--ds-ease);
 }
 
-.sel-copy-dot[data-visible='true'] {
-  opacity: 0.5;
+.sel-copy-pill[data-visible='true'] {
+  opacity: 1;
+  transform: none;
+}
+
+.sel-copy-pill-icon {
+  color: var(--ds-success);
+  font-weight: var(--ds-weight-semibold);
+}
+
+.sel-copy-pill[data-variant='failure'] .sel-copy-pill-icon {
+  color: var(--ds-destructive);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sel-copy-pill {
+    transform: none;
+    transition: none;
+  }
 }

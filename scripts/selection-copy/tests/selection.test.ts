@@ -6,8 +6,11 @@ import {
   getActiveTextControl,
   isDisabledTarget,
   isInsideEditable,
+  isInsideOwnUi,
   isTextControl,
   readSelectionText,
+  readTextControlText,
+  selectedTextControl,
   snapshotSelection,
 } from '../src/selection';
 
@@ -93,6 +96,38 @@ describe('选区读取', () => {
     selectText('  前后都有空格  ');
     const selection = window.getSelection();
     expect(selection && readSelectionText(selection)).toBe('前后都有空格');
+    expect(selection && readSelectionText(selection, false)).toBe('  前后都有空格  ');
+  });
+
+  it('文本控件按自身的 selectionStart / selectionEnd 读取', () => {
+    const input = document.createElement('input');
+    input.value = '  控件里的文字  ';
+    document.body.appendChild(input);
+    input.setSelectionRange(0, 8);
+    expect(readTextControlText(input)).toBe('控件里的文字');
+    expect(readTextControlText(input, false)).toBe('  控件里的文字');
+  });
+});
+
+describe('手势来源', () => {
+  beforeEach(() => {
+    document.body.replaceChildren();
+    window.getSelection()?.removeAllRanges();
+  });
+
+  it('鼠标手势在正文里时，不把焦点输入框的旧选区当成本次来源', () => {
+    const input = document.createElement('input');
+    input.value = '输入框内容';
+    document.body.appendChild(input);
+    input.focus();
+    input.setSelectionRange(0, 3);
+
+    const paragraph = document.createElement('p');
+    paragraph.textContent = '正文';
+    document.body.appendChild(paragraph);
+
+    expect(selectedTextControl(paragraph)).toBeNull();
+    expect(selectedTextControl(null)).toBe(input);
   });
 });
 
@@ -142,5 +177,34 @@ describe('门控', () => {
     editor.focus();
     expect(getActiveElement()).toBe(editor);
     expect(isDisabledTarget(null, null, null)).toBe(true);
+  });
+
+  it('自己的界面里的文字永远不复制', () => {
+    const host = document.createElement('div');
+    host.setAttribute('data-ds-root', '');
+    const paragraph = document.createElement('p');
+    paragraph.textContent = '设置面板里的说明文字';
+    host.appendChild(paragraph);
+    document.body.appendChild(host);
+
+    const range = document.createRange();
+    range.selectNodeContents(paragraph);
+    window.getSelection()?.addRange(range);
+
+    expect(isInsideOwnUi(paragraph)).toBe(true);
+    expect(isDisabledTarget(window.getSelection(), paragraph, null)).toBe(true);
+  });
+
+  it('打开输入框开关后，输入框选区不再被门控', () => {
+    const input = document.createElement('input');
+    input.value = '输入框内容';
+    document.body.appendChild(input);
+    input.focus();
+    input.setSelectionRange(0, 3);
+
+    expect(isDisabledTarget(null, input, input)).toBe(true);
+    expect(isDisabledTarget(null, input, input, { copyInInputs: true, copyInEditors: false })).toBe(
+      false,
+    );
   });
 });

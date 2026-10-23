@@ -2,7 +2,7 @@
  * selection-copy 的真实浏览器验收场景。
  *
  * 脚本只接受 `isTrusted` 的鼠标 / 键盘事件，所以这里全部用 `ctx.input` 派发真实输入，
- * 页面里合成的 MouseEvent 不算数。场景之间不共享页面与剪贴板：
+ * 页面里合成的 MouseEvent 不算数。场景之间不共享页面、设置与剪贴板：
  * 每个场景都由 `node tools/browser-check.mjs selection-copy` 在新页面里跑。
  */
 
@@ -11,7 +11,9 @@ export const fixture = 'selection.html';
 /** 页面侧助手：只做操作与读取，不做断言；断言写在场景里。 */
 export function helpers() {
   const root = () => document.querySelector('userscript-ui-root')?.shadowRoot ?? null;
-  const dot = () => root()?.querySelector('.sel-copy-dot') ?? null;
+  const pillNode = () => root()?.querySelector('.sel-copy-pill') ?? null;
+  const panelNode = () => root()?.querySelector('.ds-panel') ?? null;
+  const switches = () => [...(root()?.querySelectorAll('.ds-panel input[role="switch"]') ?? [])];
 
   const linePoints = (selector, startDx, endDx) => {
     const rect = document.querySelector(selector).getBoundingClientRect();
@@ -36,16 +38,47 @@ export function helpers() {
     selection: () => window.getSelection()?.toString().trim() ?? '',
     clipboard: () => window.__gm.clipboard.at(-1)?.text ?? '',
     writes: () => window.__gm.clipboard.length,
-    dot: () => {
-      const node = dot();
-      return node ? { visible: node.dataset.visible === 'true', text: node.textContent } : null;
+    pill: () => {
+      const node = pillNode();
+      return node
+        ? {
+            visible: node.dataset.visible === 'true',
+            variant: node.dataset.variant ?? '',
+            text: node.textContent?.trim() ?? '',
+          }
+        : null;
+    },
+    panel: () => {
+      const node = panelNode();
+      return node
+        ? {
+            open: node.dataset.open === 'true',
+            title: node.querySelector('.ds-panel-title')?.textContent?.trim() ?? '',
+          }
+        : null;
+    },
+    switchCount: () => switches().length,
+    switchChecked: (index) => switches()[index]?.checked ?? null,
+    toggleSwitch: (index) => {
+      const input = switches()[index];
+      if (!input) return false;
+      input.click();
+      return true;
+    },
+    closePanel: () => {
+      panelNode()?.querySelector('.ds-panel-close')?.click();
+    },
+    blockClipboard: () => {
+      Object.defineProperty(navigator, 'clipboard', { value: undefined, configurable: true });
+      document.execCommand = () => false;
+      window.__gm.clipboardThrows = true;
     },
   };
 }
 
 export const scenarios = [
   {
-    name: '拖动选中一段文字 → 自动复制并显示勾号',
+    name: '拖动选中一段文字 → 自动复制并显示「已复制」标签',
     async run(ctx) {
       const points = await ctx.evaluate(() => window.__page.linePoints('#text', 2, 200));
       await ctx.input.drag(points.start, points.end);
@@ -53,26 +86,26 @@ export const scenarios = [
       const state = await ctx.evaluate(() => ({
         selected: window.__page.selection(),
         clipboard: window.__page.clipboard(),
-        dot: window.__page.dot(),
+        pill: window.__page.pill(),
       }));
       const same = state.selected !== '' && state.clipboard === state.selected;
       return {
-        expected: '选中非空 / 剪贴板与选中的文字一致 / 勾号显示',
+        expected: '选中非空 / 剪贴板与选中的文字一致 / 标签显示「已复制」',
         actual: `${state.selected === '' ? '选中为空' : '选中非空'} / ${
           same ? '剪贴板与选中的文字一致' : `剪贴板是「${state.clipboard}」`
-        } / ${state.dot?.visible ? '勾号显示' : '勾号缺失'}`,
+        } / ${state.pill?.visible && state.pill.variant === 'success' && state.pill.text.includes('已复制') ? '标签显示「已复制」' : `标签是${JSON.stringify(state.pill)}`}`,
       };
     },
   },
   {
-    name: '勾号约一秒后淡出消失',
+    name: '复制标签约一秒后淡出消失',
     async run(ctx) {
       const points = await ctx.evaluate(() => window.__page.linePoints('#text', 2, 120));
       await ctx.input.drag(points.start, points.end);
       await ctx.wait(100);
-      const shown = await ctx.evaluate(() => window.__page.dot() !== null);
-      await ctx.wait(1400);
-      const gone = await ctx.evaluate(() => window.__page.dot() === null);
+      const shown = await ctx.evaluate(() => window.__page.pill() !== null);
+      await ctx.wait(1600);
+      const gone = await ctx.evaluate(() => window.__page.pill() === null);
       return {
         expected: '先显示 / 后消失',
         actual: `${shown ? '先显示' : '没有显示'} / ${gone ? '后消失' : '仍留在页面上'}`,
@@ -90,23 +123,17 @@ export const scenarios = [
     },
   },
   {
-    name: '在输入框里拖动选中 → 不复制',
+    name: '在输入框里拖动选中 → 默认不复制',
     async run(ctx) {
       const points = await ctx.evaluate(() => window.__page.linePoints('#field', 6, 140));
       await ctx.input.drag(points.start, points.end);
       await ctx.wait(80);
-      const state = await ctx.evaluate(() => ({
-        selected: window.__page.selection(),
-        writes: window.__page.writes(),
-      }));
-      return {
-        expected: '0',
-        actual: String(state.writes),
-      };
+      const writes = await ctx.evaluate(() => window.__page.writes());
+      return { expected: '0', actual: String(writes) };
     },
   },
   {
-    name: '在富文本编辑器里拖动选中 → 不复制',
+    name: '在富文本编辑器里拖动选中 → 默认不复制',
     async run(ctx) {
       const points = await ctx.evaluate(() => window.__page.linePoints('#editor-text', 2, 140));
       await ctx.input.drag(points.start, points.end);
@@ -186,6 +213,31 @@ export const scenarios = [
     },
   },
   {
+    name: 'macOS 的 Cmd+A 全选 → 也复制',
+    async run(ctx) {
+      await ctx.evaluate(() => {
+        const range = document.createRange();
+        range.selectNodeContents(document.querySelector('#text'));
+        const selection = window.getSelection();
+        selection.removeAllRanges();
+        selection.addRange(range);
+      });
+      await ctx.input.press('a', { code: 'KeyA', keyCode: 65, modifiers: ['meta'] });
+      await ctx.wait(80);
+      const state = await ctx.evaluate(() => ({
+        selected: window.__page.selection(),
+        clipboard: window.__page.clipboard(),
+      }));
+      return {
+        expected: '剪贴板与选中的文字一致',
+        actual:
+          state.selected !== '' && state.clipboard === state.selected
+            ? '剪贴板与选中的文字一致'
+            : `剪贴板是「${state.clipboard}」`,
+      };
+    },
+  },
+  {
     name: '程序化选区（没有用户手势）→ 不复制',
     async run(ctx) {
       await ctx.evaluate(() => {
@@ -199,6 +251,123 @@ export const scenarios = [
       await ctx.wait(100);
       const writes = await ctx.evaluate(() => window.__page.writes());
       return { expected: '0', actual: String(writes) };
+    },
+  },
+  {
+    name: '剪贴板写入全失败 → 标签显示「复制失败」',
+    async run(ctx) {
+      await ctx.evaluate(() => window.__page.blockClipboard());
+      const points = await ctx.evaluate(() => window.__page.linePoints('#text', 2, 160));
+      await ctx.input.drag(points.start, points.end);
+      await ctx.wait(120);
+      const state = await ctx.evaluate(() => window.__page.pill());
+      return {
+        expected: '标签显示「复制失败」',
+        actual:
+          state?.visible && state.variant === 'failure' && state.text.includes('复制失败')
+            ? '标签显示「复制失败」'
+            : `标签是${JSON.stringify(state)}`,
+      };
+    },
+  },
+  {
+    name: '脚本菜单能打开设置面板',
+    async run(ctx) {
+      const opened = await ctx.evaluate(() => {
+        window.__gm.menu?.();
+        return window.__page.panel();
+      });
+      return {
+        expected: '面板打开 / 标题是「选中复制设置」 / 5 个开关',
+        actual: `${opened?.open ? '面板打开' : '面板没打开'} / ${
+          opened?.title === '选中复制设置'
+            ? '标题是「选中复制设置」'
+            : `标题是「${opened?.title ?? ''}」`
+        } / ${await ctx.evaluate(() => window.__page.switchCount())} 个开关`,
+      };
+    },
+  },
+  {
+    name: '关闭当前网站后不复制，再打开恢复',
+    async run(ctx) {
+      await ctx.evaluate(() => window.__gm.menu?.());
+      await ctx.wait(50);
+      await ctx.evaluate(() => window.__page.toggleSwitch(1));
+      await ctx.wait(50);
+      const offChecked = await ctx.evaluate(() => window.__page.switchChecked(1));
+      await ctx.evaluate(() => window.__page.closePanel());
+
+      const first = await ctx.evaluate(() => window.__page.linePoints('#text', 2, 160));
+      await ctx.input.drag(first.start, first.end);
+      await ctx.wait(80);
+      const writesOff = await ctx.evaluate(() => window.__page.writes());
+
+      await ctx.evaluate(() => window.__gm.menu?.());
+      await ctx.wait(50);
+      await ctx.evaluate(() => window.__page.toggleSwitch(1));
+      await ctx.wait(50);
+      const onChecked = await ctx.evaluate(() => window.__page.switchChecked(1));
+      await ctx.evaluate(() => window.__page.closePanel());
+
+      // 换一段没被选中的文字：在已有选区里按下会被浏览器当成“拖动选中文字”，
+      // 不会产生新的选区，验证的就不再是脚本对本站开关的响应。
+      const second = await ctx.evaluate(() => window.__page.linePoints('#other', 2, 160));
+      await ctx.input.drag(second.start, second.end);
+      await ctx.wait(80);
+      const writesOn = await ctx.evaluate(() => window.__page.writes());
+
+      return {
+        expected: '本站开关已关 / 0 次 / 本站开关已开 / 1 次',
+        actual: `${offChecked === false ? '本站开关已关' : '本站开关仍开着'} / ${writesOff} 次 / ${
+          onChecked === true ? '本站开关已开' : '本站开关仍关着'
+        } / ${writesOn} 次`,
+      };
+    },
+  },
+  {
+    name: '关闭总开关后不复制',
+    async run(ctx) {
+      await ctx.evaluate(() => window.__gm.menu?.());
+      await ctx.wait(50);
+      await ctx.evaluate(() => window.__page.toggleSwitch(0));
+      await ctx.wait(50);
+      await ctx.evaluate(() => window.__page.closePanel());
+
+      const points = await ctx.evaluate(() => window.__page.linePoints('#text', 2, 160));
+      await ctx.input.drag(points.start, points.end);
+      await ctx.wait(80);
+      const writes = await ctx.evaluate(() => window.__page.writes());
+      return { expected: '0', actual: String(writes) };
+    },
+  },
+  {
+    name: '打开「输入框里也复制」后，输入框内选中也能复制',
+    async run(ctx) {
+      await ctx.evaluate(() => window.__gm.menu?.());
+      await ctx.wait(50);
+      await ctx.evaluate(() => window.__page.toggleSwitch(2));
+      await ctx.wait(50);
+      await ctx.evaluate(() => window.__page.closePanel());
+
+      const points = await ctx.evaluate(() => window.__page.linePoints('#field', 6, 140));
+      await ctx.input.drag(points.start, points.end);
+      await ctx.wait(80);
+      const state = await ctx.evaluate(() => {
+        const field = document.querySelector('#field');
+        return {
+          selected: field.value.slice(field.selectionStart, field.selectionEnd).trim(),
+          clipboard: window.__page.clipboard(),
+          writes: window.__page.writes(),
+        };
+      });
+      return {
+        expected: '1 次 / 剪贴板与输入框选区一致',
+        actual: `${state.writes} 次 / ${
+          state.selected !== '' && state.clipboard === state.selected
+            ? '剪贴板与输入框选区一致'
+            : `剪贴板是「${state.clipboard}」`
+        }`,
+      };
     },
   },
 ];

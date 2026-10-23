@@ -70,7 +70,14 @@ describe('shouldCopyOnMouseUp', () => {
 });
 
 describe('shouldCopyOnKeyUp', () => {
-  const base = { isTrusted: true, altKey: false, shiftKey: false, ctrlKey: false, key: 'a' };
+  const base = {
+    isTrusted: true,
+    altKey: false,
+    shiftKey: false,
+    ctrlKey: false,
+    metaKey: false,
+    key: 'a',
+  };
 
   it('Shift + 选区扩展键触发', () => {
     for (const key of ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End']) {
@@ -82,6 +89,11 @@ describe('shouldCopyOnKeyUp', () => {
   it('Ctrl+A 触发，Ctrl+Shift+A 不触发', () => {
     expect(shouldCopyOnKeyUp({ ...base, ctrlKey: true })).toBe(true);
     expect(shouldCopyOnKeyUp({ ...base, ctrlKey: true, shiftKey: true })).toBe(false);
+  });
+
+  it('macOS 的 Cmd+A 也触发，Cmd+Shift+A 不触发', () => {
+    expect(shouldCopyOnKeyUp({ ...base, metaKey: true })).toBe(true);
+    expect(shouldCopyOnKeyUp({ ...base, metaKey: true, shiftKey: true })).toBe(false);
   });
 
   it('Alt 组合、普通按键与不可信事件都不触发', () => {

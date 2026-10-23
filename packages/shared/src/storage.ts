@@ -55,13 +55,6 @@ export function mergeDefaults<T>(defaults: T, stored: unknown): T {
 }
 
 /**
- * 读取设置；存储不可用或内容损坏时回到默认值。
- */
-export function loadStoredSettings<T>(api: GmApi, key: string, defaults: T): T {
-  return mergeDefaults(defaults, api.getValue(key, null));
-}
-
-/**
  * 写入设置；失败时返回 false，由调用方决定是否保留内存副本。
  */
 export function saveStoredSettings(api: GmApi, key: string, value: unknown): boolean {

@@ -42,7 +42,7 @@ function setup() {
   const panel = createLinkPanel({
     ui,
     getCopyFormat: () => 'url',
-    copy: async () => true,
+    copy: () => Promise.resolve(true),
     notify: vi.fn(),
   });
   cleanup = () => ui.destroy();

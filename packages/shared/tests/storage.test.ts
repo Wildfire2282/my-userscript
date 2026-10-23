@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { GmApi } from '../src/gm';
-import { loadStoredSettings, mergeDefaults, saveStoredSettings } from '../src/storage';
+import { mergeDefaults, saveStoredSettings } from '../src/storage';
 
 const defaults = {
   enabled: true,
@@ -68,13 +68,6 @@ describe('存储读写', () => {
     getValue: vi.fn((_key: string, fallback: unknown) => fallback),
     setValue: vi.fn(() => true),
     registerMenuCommand: vi.fn(() => true),
-  });
-
-  it('读取时走 GM 并按默认值补齐', () => {
-    const gm = api();
-    vi.mocked(gm.getValue).mockReturnValue({ enabled: false });
-    expect(loadStoredSettings(gm, 'settings', defaults)).toEqual({ ...defaults, enabled: false });
-    expect(gm.getValue).toHaveBeenCalledWith('settings', null);
   });
 
   it('写入失败时返回 false 而不是抛错', () => {

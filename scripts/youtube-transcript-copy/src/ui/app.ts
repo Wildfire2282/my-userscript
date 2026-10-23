@@ -20,7 +20,8 @@ import { createTranscriptButton, type TranscriptButtonHandle } from './button';
  * 菜单只有两项：操作面板（复制、重置按钮位置）与功能设置（清空记忆）。
  */
 
-export type CopyOutcome = 'success' | 'empty' | 'error';
+/** `skipped`：上一次复制还没结束，这次什么都没做。 */
+export type CopyOutcome = 'success' | 'empty' | 'error' | 'skipped';
 
 // 面板与提示都只出现在中文界面里；不传就是 @ui 的英文默认文案。
 const LABELS = {
@@ -52,7 +53,6 @@ export interface TranscriptButtonApp {
   openActions: () => void;
   /** 油猴菜单「功能设置」。 */
   openSettings: () => void;
-  isMounted: () => boolean;
   destroy: () => void;
 }
 
@@ -79,7 +79,8 @@ export function createTranscriptButtonApp(
 
   /** 抓取并复制；按钮和面板共用，同一时刻只跑一个。 */
   const copy = async (): Promise<CopyOutcome> => {
-    if (busy) return 'error';
+    // 已经在抓的时候不能谎报失败：调用方对“跳过”不出任何提示。
+    if (busy) return 'skipped';
     busy = true;
     try {
       return await options.activate();
@@ -125,6 +126,7 @@ export function createTranscriptButtonApp(
         copyButton.setLoading(true);
         void copy().then((outcome) => {
           copyButton.setLoading(false);
+          if (outcome === 'skipped') return;
           if (outcome === 'success') {
             notify.success('已复制转写文稿');
             actions.close();
@@ -234,7 +236,6 @@ export function createTranscriptButtonApp(
     openSettings() {
       ensurePanels().settings.open();
     },
-    isMounted: () => button !== null,
     destroy() {
       if (settleTimer !== undefined) {
         window.clearTimeout(settleTimer);

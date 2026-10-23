@@ -213,31 +213,6 @@ export const scenarios = [
     },
   },
   {
-    name: 'macOS 的 Cmd+A 全选 → 也复制',
-    async run(ctx) {
-      await ctx.evaluate(() => {
-        const range = document.createRange();
-        range.selectNodeContents(document.querySelector('#text'));
-        const selection = window.getSelection();
-        selection.removeAllRanges();
-        selection.addRange(range);
-      });
-      await ctx.input.press('a', { code: 'KeyA', keyCode: 65, modifiers: ['meta'] });
-      await ctx.wait(80);
-      const state = await ctx.evaluate(() => ({
-        selected: window.__page.selection(),
-        clipboard: window.__page.clipboard(),
-      }));
-      return {
-        expected: '剪贴板与选中的文字一致',
-        actual:
-          state.selected !== '' && state.clipboard === state.selected
-            ? '剪贴板与选中的文字一致'
-            : `剪贴板是「${state.clipboard}」`,
-      };
-    },
-  },
-  {
     name: '程序化选区（没有用户手势）→ 不复制',
     async run(ctx) {
       await ctx.evaluate(() => {

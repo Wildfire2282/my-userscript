@@ -37,8 +37,6 @@ export interface KeyUpLike {
   altKey: boolean;
   shiftKey: boolean;
   ctrlKey: boolean;
-  /** macOS 的 Cmd 键；全选在 Mac 上是 Cmd+A，不认它就会漏掉一半用户。 */
-  metaKey: boolean;
   key: string;
 }
 
@@ -77,14 +75,13 @@ export function shouldCopyOnMouseUp(
 }
 
 /**
- * 松开按键后是否去复制：Shift + 选区扩展键，或 Ctrl+A / Cmd+A（不带 Shift）。
+ * 松开按键后是否去复制：Shift + 选区扩展键，或 Ctrl+A（不带 Shift）。
  *
  * Alt 组合交给系统；页面合成的键盘事件一律忽略，避免被脚本反复触发。
  */
 export function shouldCopyOnKeyUp(event: KeyUpLike): boolean {
   if (!event.isTrusted || event.altKey) return false;
   const extendsSelection = event.shiftKey && SELECTION_EXTEND_KEYS.has(event.key);
-  const selectsAll =
-    (event.ctrlKey || event.metaKey) && !event.shiftKey && event.key.toLowerCase() === 'a';
+  const selectsAll = event.ctrlKey && !event.shiftKey && event.key.toLowerCase() === 'a';
   return extendsSelection || selectsAll;
 }

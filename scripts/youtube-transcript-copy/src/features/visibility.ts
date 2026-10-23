@@ -27,19 +27,12 @@ export function findVideo(doc: Document = document): HTMLVideoElement | null {
   return doc.querySelector<HTMLVideoElement>('video.html5-main-video, #movie_player video');
 }
 
-interface WebkitDocument extends Document {
-  webkitFullscreenElement?: Element | null;
-}
-
 export function readVideoState(
   doc: Document = document,
   fullscreen: Element | null | undefined = undefined,
 ): VideoSnapshot {
   const video = findVideo(doc);
-  const fullscreenElement =
-    fullscreen === undefined
-      ? (doc.fullscreenElement ?? (doc as WebkitDocument).webkitFullscreenElement ?? null)
-      : fullscreen;
+  const fullscreenElement = fullscreen === undefined ? doc.fullscreenElement : fullscreen;
   return {
     exists: video !== null,
     paused: video?.paused ?? true,
@@ -99,7 +92,6 @@ export function watchVisibility(
   const onFullscreen = (): void => emit();
 
   doc.addEventListener('fullscreenchange', onFullscreen);
-  doc.addEventListener('webkitfullscreenchange', onFullscreen);
   const timer = window.setInterval(() => {
     bind();
     emit();
@@ -111,7 +103,6 @@ export function watchVisibility(
   return () => {
     window.clearInterval(timer);
     doc.removeEventListener('fullscreenchange', onFullscreen);
-    doc.removeEventListener('webkitfullscreenchange', onFullscreen);
     detach();
   };
 }

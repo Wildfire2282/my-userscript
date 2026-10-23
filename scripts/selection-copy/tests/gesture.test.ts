@@ -75,7 +75,6 @@ describe('shouldCopyOnKeyUp', () => {
     altKey: false,
     shiftKey: false,
     ctrlKey: false,
-    metaKey: false,
     key: 'a',
   };
 
@@ -89,11 +88,6 @@ describe('shouldCopyOnKeyUp', () => {
   it('Ctrl+A 触发，Ctrl+Shift+A 不触发', () => {
     expect(shouldCopyOnKeyUp({ ...base, ctrlKey: true })).toBe(true);
     expect(shouldCopyOnKeyUp({ ...base, ctrlKey: true, shiftKey: true })).toBe(false);
-  });
-
-  it('macOS 的 Cmd+A 也触发，Cmd+Shift+A 不触发', () => {
-    expect(shouldCopyOnKeyUp({ ...base, metaKey: true })).toBe(true);
-    expect(shouldCopyOnKeyUp({ ...base, metaKey: true, shiftKey: true })).toBe(false);
   });
 
   it('Alt 组合、普通按键与不可信事件都不触发', () => {

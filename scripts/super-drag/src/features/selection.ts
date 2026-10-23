@@ -26,25 +26,13 @@ function pointNearRect(x: number, y: number, rect: DOMRect, slop: number): boole
 }
 
 function caretRangeFromPoint(x: number, y: number): Range | null {
+  // Chromium 有原生的 caretRangeFromPoint；其他引擎的同名 API 不再兼容。
   try {
     if (typeof document.caretRangeFromPoint === 'function') {
       return document.caretRangeFromPoint(x, y);
     }
   } catch {
-    // 继续尝试标准方法
-  }
-  try {
-    if (typeof document.caretPositionFromPoint === 'function') {
-      const position = document.caretPositionFromPoint(x, y);
-      if (position) {
-        const range = document.createRange();
-        range.setStart(position.offsetNode, position.offset);
-        range.collapse(true);
-        return range;
-      }
-    }
-  } catch {
-    // 浏览器不支持：调用方回落到矩形判断
+    // 坐标落在文档外等情况：调用方回落到矩形判断。
   }
   return null;
 }

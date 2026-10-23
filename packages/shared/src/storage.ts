@@ -13,8 +13,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function clone<T>(value: T): T {
-  if (typeof structuredClone === 'function') return structuredClone(value);
-  return JSON.parse(JSON.stringify(value)) as T;
+  // 目标平台（Chrome 111+ / Node 20+）一定有 structuredClone，不再做 JSON 兜底。
+  return structuredClone(value);
 }
 
 function mergeValue(defaultValue: unknown, storedValue: unknown): unknown {

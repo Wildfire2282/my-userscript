@@ -82,7 +82,7 @@ export function createLinkPanel(options: LinkPanelOptions): LinkPanelHandle {
   // 首屏只建这么多行：上千条链接一次全建会卡住，点“显示更多”再往后加。
   let shownCount = PAGE_SIZE;
 
-  /** 勾选状态按事件委托记在列表上：行会被反复重建，逐行挂监听无法可靠清理。 */
+  /** 勾选状态与“显示更多”都用事件委托：行会被反复重建，逐行挂监听会随重画次数累积。 */
   list.addEventListener(
     'change',
     (event) => {
@@ -93,6 +93,17 @@ export function createLinkPanel(options: LinkPanelOptions): LinkPanelHandle {
       if (target.checked) selectedIds.add(id);
       else selectedIds.delete(id);
       updateStats();
+    },
+    { signal: ui.signal },
+  );
+
+  list.addEventListener(
+    'click',
+    (event) => {
+      const target = event.target;
+      if (!(target instanceof Element) || !target.closest('.cl-more')) return;
+      shownCount += PAGE_SIZE;
+      render();
     },
     { signal: ui.signal },
   );
@@ -149,14 +160,6 @@ export function createLinkPanel(options: LinkPanelOptions): LinkPanelHandle {
         more.type = 'button';
         more.className = 'cl-more';
         more.textContent = `显示更多（剩余 ${filteredItems.length - shownCount} 条）`;
-        more.addEventListener(
-          'click',
-          () => {
-            shownCount += PAGE_SIZE;
-            render();
-          },
-          { signal: ui.signal },
-        );
         list.appendChild(more);
       }
     }

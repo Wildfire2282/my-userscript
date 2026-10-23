@@ -1,6 +1,6 @@
 {
   "source": "https://greasyfork.org/zh-CN/users/852134-wildfire2282",
-  "generatedAt": "2026-10-23T09:36:18Z",
+  "generatedAt": "2026-10-23T09:46:55Z",
   "scriptCount": 4,
   "scripts": [
     {
@@ -24,11 +24,11 @@
     },
     {
       "id": 580630,
-      "name": "超级拖拽",
+      "name": "拖拽打开",
       "slug": "super-drag",
       "package": "scripts/super-drag",
       "file": "scripts/super-drag/legacy/580630-super-drag.user.js",
-      "version": "2.5.0",
+      "version": "2.6.0",
       "description": "拖拽文本搜索，拖拽链接在新标签页打开，拖拽图片查看",
       "author": "Wildfire2282 (https://github.com/Wildfire2282)",
       "namespace": "https://github.com/Wildfire2282",
@@ -37,10 +37,10 @@
         "https://*/*",
         "http://*/*"
       ],
-      "downloadUrl": "https://update.greasyfork.org/scripts/580630/%E8%B6%85%E7%BA%A7%E6%8B%96%E6%8B%BD.user.js",
+      "downloadUrl": "https://update.greasyfork.org/scripts/580630/%E6%8B%96%E6%8B%BD%E6%89%93%E5%BC%80.user.js",
       "scriptUrl": "https://greasyfork.org/zh-CN/scripts/580630",
-      "sha256": "90D5C7BB0F86D541BB30D05CF9EE91F29AD80C1801D5CC6C9DBB3F4C30F91E9B",
-      "size": 87305
+      "sha256": "180F00D197710BBC9834064E5D51C8DA72DFB79FEA55A661655C927F4D8FE796",
+      "size": 87307
     },
     {
       "id": 582371,

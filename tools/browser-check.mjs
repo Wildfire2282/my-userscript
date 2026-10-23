@@ -247,7 +247,8 @@ try {
       const first = text.split('\n')[0]?.trim();
       return first ? Number(first) : 0;
     },
-    { what: '浏览器调试端口' },
+    // CI 的冷启动偶尔超过 15 秒；放宽等待，避免把环境慢当成脚本回归。
+    { timeout: 30000, what: '浏览器调试端口' },
   );
 
   const targets = await waitFor(
@@ -257,7 +258,7 @@ try {
       const page = list.find((target) => target.type === 'page');
       return page ? [page] : null;
     },
-    { what: '页面调试目标' },
+    { timeout: 30000, what: '页面调试目标' },
   );
 
   const cdp = await CdpClient.connect(targets[0].webSocketDebuggerUrl);

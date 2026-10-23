@@ -61,7 +61,8 @@ export function installNetworkCapture(win: WindowScope = window): NetworkCapture
         .then(async (response) => {
           try {
             const data: unknown = await response.clone().json();
-            globals.__ytTxNetSegments = extractFromPanelResponse(data) ?? globals.__ytTxNetSegments ?? null;
+            globals.__ytTxNetSegments =
+              extractFromPanelResponse(data) ?? globals.__ytTxNetSegments ?? null;
           } catch {
             // 响应不是 JSON 或已被消费：不影响页面。
           }
@@ -87,7 +88,8 @@ export function installNetworkCapture(win: WindowScope = window): NetworkCapture
       this.addEventListener('load', () => {
         try {
           const data: unknown = JSON.parse(this.responseText);
-          globals.__ytTxNetSegments = extractFromPanelResponse(data) ?? globals.__ytTxNetSegments ?? null;
+          globals.__ytTxNetSegments =
+            extractFromPanelResponse(data) ?? globals.__ytTxNetSegments ?? null;
         } catch {
           // 响应不是 JSON：忽略。
         }

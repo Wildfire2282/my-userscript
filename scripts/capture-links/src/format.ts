@@ -30,6 +30,8 @@ export function formatLinks(items: LinkItem[], format: CopyFormat): string {
       )
       .join('\n');
   if (format === 'html')
-    return items.map((item) => `<a href="${escapeHtml(item.url)}">${escapeHtml(item.title)}</a>`).join('\n');
+    return items
+      .map((item) => `<a href="${escapeHtml(item.url)}">${escapeHtml(item.title)}</a>`)
+      .join('\n');
   return items.map((item) => item.url).join('\n');
 }

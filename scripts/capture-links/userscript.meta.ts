@@ -11,7 +11,6 @@
 // @source       https://github.com/Wildfire2282/my-userscript
 // @match        https://*/*
 // @match        http://*/*
-// @grant        GM_addStyle
 // @grant        GM_registerMenuCommand
 // @grant        GM_setClipboard
 // @grant        GM_setValue

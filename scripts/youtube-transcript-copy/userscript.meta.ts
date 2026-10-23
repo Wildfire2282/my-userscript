@@ -12,7 +12,6 @@
 // @match        https://www.youtube.com/*
 // @grant        GM_setClipboard
 // @grant        GM_registerMenuCommand
-// @grant        GM_addStyle
 // @grant        GM_setValue
 // @grant        GM_getValue
 // @grant        GM_deleteValue

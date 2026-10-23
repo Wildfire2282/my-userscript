@@ -16,7 +16,7 @@ export function looksLikeUrl(text: string): boolean {
 }
 
 /** 中文标点不可能出现在地址里：第一次出现就截断（`https://a。这是说明` → `https://a`）。 */
-const CJK_PUNCT = /[。、，．・…？！；：『』「」《》（）【】　]/u;
+const CJK_PUNCT = /[。、，．・…？！；：『』「」《》（）【】\u3000]/u;
 
 /** 地址结尾不可能是这些符号（句尾的 `。，;!?` 和全角引号括号）；半角 `)]}` 不剥，Wikipedia 的 `..._(film)` 就是右括号结尾。 */
 const TRAILING_PUNCT = /[。.，,;；:：!！?？'"'""…、〉》」』〕）]+$/u;

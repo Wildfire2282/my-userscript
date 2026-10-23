@@ -2,7 +2,7 @@
 // @name         YouTube 转写文稿复制
 // @name:en      YouTube Transcript Copy
 // @namespace    https://github.com/Wildfire2282
-// @version      1.2.1
+// @version      1.3.0
 // @description  视频播放页面出现可拖拽悬浮按钮，可一键复制转写文稿（transcript），支持英语等多语言界面
 // @description:en Add a draggable button to copy YouTube transcripts
 // @author       Wildfire2282 (https://github.com/Wildfire2282)
@@ -196,32 +196,27 @@
 	//#endregion
 	//#region scripts/youtube-transcript-copy/src/features/visibility.ts
 	function shouldShowButton(snapshot) {
-		return snapshot.exists && !snapshot.paused && !snapshot.ended && snapshot.readyState > 2 && !snapshot.fullscreen;
+		return snapshot.exists && !snapshot.fullscreen;
 	}
 	function findVideo(doc = document) {
 		return doc.querySelector("video.html5-main-video, #movie_player video");
 	}
 	function readVideoState(doc = document, fullscreen = void 0) {
-		const video = findVideo(doc);
 		const fullscreenElement = fullscreen === void 0 ? doc.fullscreenElement : fullscreen;
 		return {
-			exists: video !== null,
-			paused: video?.paused ?? true,
-			ended: video?.ended ?? false,
-			readyState: video?.readyState ?? 0,
+			exists: findVideo(doc) !== null,
 			fullscreen: fullscreenElement !== null
 		};
 	}
 	/**
-	* 监听播放状态与全屏变化。
+	* 监听播放器出现 / 消失与全屏变化。
 	*
-	* 只在结果变化时回调，避免每 500ms 写一次 DOM；视频节点被替换后自动重新绑定。
+	* 只在结果变化时回调，避免每 500ms 写一次 DOM。
 	*
-	* @returns 清理函数（定时器与所有监听）
+	* @returns 清理函数（定时器与全屏监听）
 	*/
 	function watchVisibility(onChange, options = {}) {
 		const doc = options.doc ?? document;
-		let video = null;
 		let last = null;
 		const emit = () => {
 			const next = shouldShowButton(readVideoState(doc));
@@ -229,41 +224,12 @@
 			last = next;
 			onChange(next);
 		};
-		const detach = () => {
-			if (!video) return;
-			for (const type of [
-				"play",
-				"pause",
-				"ended",
-				"loadeddata"
-			]) video.removeEventListener(type, emit);
-			video = null;
-		};
-		const bind = () => {
-			const found = findVideo(doc);
-			if (found === video) return;
-			detach();
-			video = found;
-			if (!video) return;
-			for (const type of [
-				"play",
-				"pause",
-				"ended",
-				"loadeddata"
-			]) video.addEventListener(type, emit);
-		};
-		const onFullscreen = () => emit();
-		doc.addEventListener("fullscreenchange", onFullscreen);
-		const timer = window.setInterval(() => {
-			bind();
-			emit();
-		}, options.intervalMs ?? 500);
-		bind();
+		doc.addEventListener("fullscreenchange", emit);
+		const timer = window.setInterval(emit, options.intervalMs ?? 500);
 		emit();
 		return () => {
 			window.clearInterval(timer);
-			doc.removeEventListener("fullscreenchange", onFullscreen);
-			detach();
+			doc.removeEventListener("fullscreenchange", emit);
 		};
 	}
 	var STRATEGY_KEY = "strategy";
@@ -1038,85 +1004,195 @@
 		node.style.setProperty(property, value, "important");
 	}
 	//#endregion
+	//#region packages/userscript-ui/src/core/lifecycle.ts
+	function createScope(ui) {
+		const controller = new AbortController();
+		const callbacks = /* @__PURE__ */ new Set();
+		let destroyed = false;
+		let unregister = () => {};
+		const scope = {
+			signal: controller.signal,
+			get destroyed() {
+				return destroyed;
+			},
+			onDestroy(callback) {
+				if (destroyed) {
+					callback();
+					return () => {};
+				}
+				callbacks.add(callback);
+				return () => {
+					callbacks.delete(callback);
+				};
+			},
+			destroy() {
+				if (destroyed) return;
+				destroyed = true;
+				unregister();
+				for (const callback of [...callbacks].reverse()) try {
+					callback();
+				} catch {}
+				callbacks.clear();
+				controller.abort();
+			}
+		};
+		unregister = ui.onDestroy(() => scope.destroy());
+		return scope;
+	}
+	/**
+	* Components are unusable once the UI is destroyed: listeners on an aborted
+	* signal never fire and the host is detached. Fail loudly instead of returning
+	* a dead component.
+	*/
+	function assertAlive(ui, component) {
+		if (ui.destroyed) throw new Error(`Cannot create a ${component} after ui.destroy().`);
+	}
+	//#endregion
+	//#region packages/userscript-ui/src/components/button.css?inline
+	var button_default = ".ds-button {\n  --ds-button-bg: var(--ds-primary);\n  --ds-button-fg: var(--ds-primary-foreground);\n  --ds-button-border: transparent;\n  --ds-button-hover: color-mix(in srgb, var(--ds-primary) 90%, var(--ds-background));\n\n  display: inline-flex;\n  align-items: center;\n  justify-content: center;\n  gap: var(--ds-space-2);\n  min-width: 0;\n  height: var(--ds-control-h);\n  padding: 0 var(--ds-space-3);\n  border: var(--ds-border-width) solid var(--ds-button-border);\n  border-radius: var(--ds-radius-md);\n  background: var(--ds-button-bg);\n  color: var(--ds-button-fg);\n  font-family: inherit;\n  font-size: var(--ds-text-sm);\n  font-weight: var(--ds-weight-medium);\n  line-height: 1;\n  white-space: nowrap;\n  cursor: pointer;\n  user-select: none;\n  touch-action: manipulation;\n  transition:\n    background-color var(--ds-duration-fast) var(--ds-ease),\n    border-color var(--ds-duration-fast) var(--ds-ease),\n    color var(--ds-duration-fast) var(--ds-ease),\n    opacity var(--ds-duration-fast) var(--ds-ease);\n}\n\n.ds-button:hover:not(:disabled):not([aria-disabled='true']) {\n  background: var(--ds-button-hover);\n}\n\n.ds-button:active:not(:disabled):not([aria-disabled='true']) {\n  transform: translateY(var(--ds-border-width));\n}\n\n.ds-button:focus-visible {\n  outline: var(--ds-ring-width) solid var(--ds-ring);\n  outline-offset: var(--ds-ring-offset);\n}\n\n.ds-button:disabled,\n.ds-button[aria-disabled='true'] {\n  opacity: 0.5;\n  cursor: not-allowed;\n}\n\n.ds-button[data-loading='true'] {\n  cursor: progress;\n}\n\n.ds-button svg {\n  width: var(--ds-icon);\n  height: var(--ds-icon);\n  flex: none;\n}\n\n.ds-button--secondary {\n  --ds-button-bg: var(--ds-secondary);\n  --ds-button-fg: var(--ds-secondary-foreground);\n  --ds-button-hover: color-mix(in srgb, var(--ds-secondary) 92%, var(--ds-foreground));\n}\n\n.ds-button--outline {\n  --ds-button-bg: transparent;\n  --ds-button-fg: var(--ds-foreground);\n  --ds-button-border: var(--ds-input);\n  --ds-button-hover: var(--ds-muted);\n}\n\n.ds-button--ghost {\n  --ds-button-bg: transparent;\n  --ds-button-fg: var(--ds-foreground);\n  --ds-button-hover: var(--ds-muted);\n}\n\n.ds-button--destructive {\n  --ds-button-bg: var(--ds-destructive);\n  --ds-button-fg: var(--ds-destructive-foreground);\n  --ds-button-hover: color-mix(in srgb, var(--ds-destructive) 88%, var(--ds-foreground));\n}\n\n.ds-button--sm {\n  height: var(--ds-control-h-sm);\n  padding: 0 var(--ds-space-2-5);\n  font-size: var(--ds-text-xs);\n}\n\n.ds-button--lg {\n  height: var(--ds-control-h-lg);\n  padding: 0 var(--ds-space-4);\n  font-size: var(--ds-text-base);\n}\n\n.ds-button--icon {\n  width: var(--ds-control-h);\n  padding: 0;\n}\n\n.ds-button--icon.ds-button--sm {\n  width: var(--ds-control-h-sm);\n}\n\n.ds-button--icon.ds-button--lg {\n  width: var(--ds-control-h-lg);\n}\n\n.ds-button-label {\n  min-width: 0;\n  overflow: hidden;\n  text-overflow: ellipsis;\n}\n\n.ds-button[data-loading='true'] .ds-button-icon {\n  display: none;\n}\n\n.ds-button-spinner {\n  width: var(--ds-icon-sm);\n  height: var(--ds-icon-sm);\n  flex: none;\n  border: var(--ds-ring-width) solid currentColor;\n  border-right-color: transparent;\n  border-radius: var(--ds-radius-full);\n  animation: ds-button-spin 700ms linear infinite;\n}\n\n@keyframes ds-button-spin {\n  to {\n    transform: rotate(360deg);\n  }\n}\n\n@media (prefers-reduced-motion: reduce) {\n  .ds-button-spinner {\n    animation-duration: 1400ms;\n  }\n}\n";
+	//#endregion
+	//#region packages/userscript-ui/src/components/button.ts
+	function createButton(ui, options = {}) {
+		ui.useStyles(button_default);
+		assertAlive(ui, "button");
+		const scope = createScope(ui);
+		const iconOnly = options.size === "icon" || options.iconOnly === true;
+		const variant = options.variant ?? "primary";
+		const size = options.size ?? "md";
+		if (iconOnly && !options.ariaLabel) throw new Error("Icon-only buttons require an ariaLabel.");
+		if (!iconOnly && (options.label == null || typeof options.label === "string" && options.label.trim() === "")) throw new Error("Buttons require a label.");
+		const el = document.createElement("button");
+		el.type = options.type ?? "button";
+		el.className = `ds-button ds-button--${variant} ds-button--${size}`;
+		if (iconOnly) el.classList.add("ds-button--icon");
+		el.setAttribute("data-ds-button", "");
+		if (options.ariaLabel) el.setAttribute("aria-label", options.ariaLabel);
+		if (options.title) el.title = options.title;
+		const spinner = document.createElement("span");
+		spinner.className = "ds-button-spinner";
+		spinner.setAttribute("aria-hidden", "true");
+		if (options.icon) {
+			options.icon.classList.add("ds-button-icon");
+			el.appendChild(options.icon);
+		}
+		if (options.label != null) {
+			const label = document.createElement("span");
+			label.className = "ds-button-label";
+			appendContent(label, options.label);
+			el.appendChild(label);
+		}
+		let disabled = options.disabled ?? false;
+		let loading = options.loading ?? false;
+		const sync = () => {
+			el.disabled = disabled || loading;
+			el.dataset.loading = loading ? "true" : "false";
+			if (loading) {
+				el.setAttribute("aria-busy", "true");
+				el.setAttribute("aria-disabled", "true");
+				if (!spinner.isConnected) el.prepend(spinner);
+			} else {
+				el.removeAttribute("aria-busy");
+				el.removeAttribute("aria-disabled");
+				spinner.remove();
+			}
+		};
+		if (options.onClick) el.addEventListener("click", options.onClick, { signal: scope.signal });
+		sync();
+		return {
+			el,
+			setLoading(next) {
+				loading = next;
+				sync();
+			},
+			setDisabled(next) {
+				disabled = next;
+				sync();
+			},
+			destroy() {
+				scope.destroy();
+				el.remove();
+			}
+		};
+	}
+	function appendContent(parent, content) {
+		if (typeof content === "string") parent.textContent = content;
+		else if (content) parent.appendChild(content);
+	}
+	//#endregion
 	//#region scripts/youtube-transcript-copy/src/ui/transcript-button.css?inline
-	var transcript_button_default = "/*\n * 悬浮按钮：尺寸、圆角、颜色全部取自 --ds-* Token。\n * 旧版是一个 40px 的红色圆形按钮，就绪时半透明、悬停时变亮，这里保持一致。\n */\n.yt-transcript-wrap {\n  position: fixed;\n  z-index: 1;\n  cursor: grab;\n  user-select: none;\n}\n\n.yt-transcript-wrap[data-dragging='true'] {\n  cursor: grabbing;\n}\n\n.yt-transcript-button {\n  display: flex;\n  align-items: center;\n  justify-content: center;\n  width: var(--ds-launcher-size);\n  height: var(--ds-launcher-size);\n  padding: 0;\n  border: 0;\n  border-radius: var(--ds-radius-full);\n  color: var(--ds-primary-foreground);\n  font-family: var(--ds-font-sans);\n  font-size: var(--ds-text-lg);\n  font-weight: var(--ds-weight-semibold);\n  line-height: 1;\n  cursor: pointer;\n  opacity: 0.5;\n  transition:\n    opacity var(--ds-duration-slow) var(--ds-ease),\n    background-color var(--ds-duration-slow) var(--ds-ease),\n    filter var(--ds-duration-slow) var(--ds-ease);\n}\n\n.yt-transcript-button[data-state='normal'],\n.yt-transcript-button[data-state='loading'],\n.yt-transcript-button[data-state='error'] {\n  background: var(--ds-destructive);\n}\n\n.yt-transcript-button[data-state='success'] {\n  background: var(--ds-success);\n}\n\n.yt-transcript-button[data-state='loading'],\n.yt-transcript-button[data-state='error'],\n.yt-transcript-button[data-state='success'] {\n  opacity: 0.7;\n}\n\n.yt-transcript-wrap:hover .yt-transcript-button {\n  opacity: 1;\n  filter: brightness(1.08);\n}\n\n.yt-transcript-button:focus-visible {\n  outline: var(--ds-ring-width) solid var(--ds-ring);\n  outline-offset: var(--ds-ring-offset);\n}\n\n.yt-transcript-label {\n  display: block;\n  min-width: 1ch;\n  text-align: center;\n}\n";
+	var transcript_button_default = "/*\n * 只负责定位与拖动光标：尺寸、颜色、悬停、焦点环、加载态都由 @ui 的按钮组件提供。\n */\n.yt-transcript-wrap {\n  position: fixed;\n  z-index: 1;\n  cursor: grab;\n  user-select: none;\n}\n\n.yt-transcript-wrap[data-dragging='true'] {\n  cursor: grabbing;\n}\n";
 	//#endregion
 	//#region scripts/youtube-transcript-copy/src/ui/button.ts
 	var DRAG_THRESHOLD_PX = 3;
 	var RESET_DELAY_MS = 1500;
-	var DOT_INTERVAL_MS = 300;
 	var CLICK_SUPPRESS_MS = 50;
-	var LABELS$1 = {
+	var LABELS = {
 		normal: "T",
-		loading: ".",
+		loading: "",
 		success: "✓",
 		error: "✕"
 	};
 	function createTranscriptButton(options) {
-		options.ui.useStyles(transcript_button_default);
+		const { ui } = options;
+		if (ui.destroyed) throw new Error("Cannot create a transcript button after ui.destroy().");
+		ui.useStyles(transcript_button_default);
 		const wrap = document.createElement("div");
 		wrap.className = "yt-transcript-wrap";
 		wrap.dataset.dragging = "false";
-		const button = document.createElement("button");
-		button.type = "button";
-		button.className = "yt-transcript-button";
-		button.dataset.state = "normal";
-		button.setAttribute("aria-label", options.label);
-		button.title = options.label;
-		const label = document.createElement("span");
-		label.className = "yt-transcript-label";
-		label.textContent = LABELS$1.normal;
-		button.appendChild(label);
-		wrap.appendChild(button);
-		options.ui.layers.base.appendChild(wrap);
+		wrap.dataset.state = "normal";
+		const stateLabel = document.createElement("span");
+		stateLabel.textContent = LABELS.normal;
 		let state = "normal";
 		let position = {
 			right: 30,
 			top: 30
 		};
-		let dotsTimer;
-		let resetTimer;
 		let suppressClick = false;
-		const clearTimers = () => {
-			if (dotsTimer !== void 0) window.clearInterval(dotsTimer);
-			if (resetTimer !== void 0) window.clearTimeout(resetTimer);
-			dotsTimer = void 0;
-			resetTimer = void 0;
-		};
+		let resetTimer;
+		let dragScope = null;
+		const button = createButton(ui, {
+			label: stateLabel,
+			variant: "destructive",
+			size: "lg",
+			iconOnly: true,
+			ariaLabel: options.label,
+			title: options.label,
+			onClick: (event) => {
+				event.stopPropagation();
+				if (suppressClick || state === "loading") return;
+				options.onClick();
+			}
+		});
+		wrap.appendChild(button.el);
+		ui.mount(wrap);
 		const applyPosition = () => {
 			wrap.style.right = `${position.right}px`;
 			wrap.style.top = `${position.top}px`;
 		};
 		const applyState = (next) => {
 			state = next;
-			button.dataset.state = next;
-			button.disabled = next === "loading";
-			clearTimers();
-			if (next === "loading") {
-				let count = 1;
-				label.textContent = LABELS$1.loading;
-				dotsTimer = window.setInterval(() => {
-					count = count % 3 + 1;
-					label.textContent = ".".repeat(count);
-				}, DOT_INTERVAL_MS);
-				return;
+			wrap.dataset.state = next;
+			stateLabel.textContent = LABELS[next];
+			button.setLoading(next === "loading");
+			if (resetTimer !== void 0) {
+				window.clearTimeout(resetTimer);
+				resetTimer = void 0;
 			}
-			label.textContent = LABELS$1[next];
 			if (next === "success" || next === "error") resetTimer = window.setTimeout(() => applyState("normal"), RESET_DELAY_MS);
 		};
-		button.addEventListener("click", (event) => {
-			event.stopPropagation();
-			if (suppressClick || state === "loading") return;
-			options.onClick();
-		});
 		wrap.addEventListener("pointerdown", (event) => {
-			if (event.button !== 0) return;
+			event.stopPropagation();
+			if (event.button !== 0 || state === "loading") return;
 			const rect = wrap.getBoundingClientRect();
 			const startRight = window.innerWidth - rect.right;
 			const startTop = rect.top;
 			const startX = event.clientX;
 			const startY = event.clientY;
 			let moved = false;
+			dragScope?.abort();
+			const scope = new AbortController();
+			dragScope = scope;
+			const { signal } = scope;
 			const onMove = (moveEvent) => {
 				const dx = moveEvent.clientX - startX;
 				const dy = moveEvent.clientY - startY;
@@ -1131,21 +1207,27 @@
 				applyPosition();
 			};
 			const onUp = () => {
-				document.removeEventListener("pointermove", onMove);
-				document.removeEventListener("pointerup", onUp);
+				scope.abort();
+				dragScope = null;
 				wrap.dataset.dragging = "false";
 				options.onMoveEnd(position);
-				if (moved) {
-					suppressClick = true;
-					window.setTimeout(() => {
-						suppressClick = false;
-					}, CLICK_SUPPRESS_MS);
-				}
+				if (!moved) return;
+				suppressClick = true;
+				window.setTimeout(() => {
+					suppressClick = false;
+				}, CLICK_SUPPRESS_MS);
 			};
 			wrap.dataset.dragging = "true";
-			document.addEventListener("pointermove", onMove);
-			document.addEventListener("pointerup", onUp);
+			document.addEventListener("pointermove", onMove, { signal });
+			document.addEventListener("pointerup", onUp, { signal });
 		});
+		const cleanup = () => {
+			if (resetTimer !== void 0) window.clearTimeout(resetTimer);
+			resetTimer = void 0;
+			dragScope?.abort();
+			dragScope = null;
+		};
+		ui.onDestroy(cleanup);
 		applyPosition();
 		return {
 			el: wrap,
@@ -1162,23 +1244,14 @@
 			},
 			getPosition: () => position,
 			destroy() {
-				clearTimers();
+				cleanup();
+				button.destroy();
 				wrap.remove();
 			}
 		};
 	}
 	//#endregion
 	//#region scripts/youtube-transcript-copy/src/ui/app.ts
-	var LABELS = {
-		close: "关闭",
-		settings: "设置",
-		notifications: "通知",
-		dismissNotification: "关闭通知",
-		closeSettings: "关闭设置",
-		scrollHint: "向下滚动查看更多内容",
-		cancel: "取消",
-		confirm: "确定"
-	};
 	function createTranscriptButtonApp(options) {
 		let ui = null;
 		let button = null;
@@ -1215,10 +1288,7 @@
 			if (button) return button;
 			const position = options.getSavedPosition() ?? options.getDefaultPosition();
 			if (!position) return null;
-			const mounted = mountUI({
-				theme: "system",
-				labels: LABELS
-			});
+			const mounted = mountUI({ theme: "system" });
 			const created = createTranscriptButton({
 				ui: mounted,
 				label: "复制当前转写文稿",
@@ -1267,9 +1337,10 @@
 					window.clearTimeout(settleTimer);
 					settleTimer = void 0;
 				}
+				button?.destroy();
 				ui?.destroy();
-				ui = null;
 				button = null;
+				ui = null;
 			}
 		};
 	}

@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         超级拖拽
-// @name:en      Super Drag
+// @name         拖拽打开
+// @name:en      Drag to Open
 // @namespace    https://github.com/Wildfire2282
-// @version      2.5.0
+// @version      2.6.0
 // @description  拖拽文本搜索，拖拽链接在新标签页打开，拖拽图片查看
 // @description:en Drag text to search, links to open, and images to view
 // @author       Wildfire2282 (https://github.com/Wildfire2282)
@@ -1725,7 +1725,7 @@
 		});
 		const initial = options.getSettings();
 		const panel = createPanel(ui, {
-			title: "超级拖拽设置",
+			title: "拖拽打开设置",
 			description: "拖拽选中文字搜索，拖拽链接或图片在新标签页打开；按住 Shift 这一次前台打开，按 Esc 取消。",
 			open: false,
 			position: "center",

@@ -236,29 +236,35 @@ export const scenarios = [
     },
   },
   {
-    name: '拖拽后的那一次点击被吞掉，之后的点击照常送达',
+    name: '拖拽后浏览器补发的那次点击被吞掉，点别处照常送达',
     async run(ctx) {
-      const { swallowed, restored, later } = await ctx.evaluate(async () => {
-        const link = document.querySelector('#link');
+      const { same, other, later } = await ctx.evaluate(async () => {
+        const image = document.querySelector('#image');
         const area = document.querySelector('#click-area');
         const clicks = () => window.__clicks;
 
-        window.__page.drag(link, link);
+        // 补发的 click 落在拖拽起点上：这次要吞掉，否则拖完就跳走。
+        window.__page.drag(image, image);
         const before = clicks();
-        area.click();
-        const first = clicks() - before;
-        area.click();
-        const second = clicks() - before - first;
+        image.click();
+        const same = clicks() - before;
 
-        window.__page.drag(link, link);
+        // 拖完立刻点别处是用户的真实操作：不能被吞。
+        window.__page.drag(image, image);
+        const otherBefore = clicks();
+        area.click();
+        const other = clicks() - otherBefore;
+
+        // 过一会儿再点拖拽起点也照常送达。
+        window.__page.drag(image, image);
         const laterBefore = clicks();
         await new Promise((resolve) => setTimeout(resolve, 450));
-        area.click();
-        return { swallowed: first, restored: second, later: clicks() - laterBefore };
+        image.click();
+        return { same, other, later: clicks() - laterBefore };
       });
       return {
-        expected: '吞掉 0 / 下一次 1 / 450ms 后 1',
-        actual: `吞掉 ${swallowed} / 下一次 ${restored} / 450ms 后 ${later}`,
+        expected: '吞掉 0 / 点别处 1 / 450ms 后 1',
+        actual: `吞掉 ${same} / 点别处 ${other} / 450ms 后 ${later}`,
       };
     },
   },

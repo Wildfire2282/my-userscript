@@ -36,6 +36,12 @@ const CLICK_SWALLOW_MS = 400;
 const GHOST_PIXEL_SRC =
   'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
 
+/** 事件发生处最里层的元素；Shadow DOM 内的拖拽要拿到内部节点而不是宿主。 */
+function targetOf(event: Event): Element | null {
+  const target = realTarget(event);
+  return target instanceof Element ? target : null;
+}
+
 export function installDragSensor(deps: DragSensorDeps): DragSensor {
   const controller = new AbortController();
   const { signal } = controller;
@@ -46,6 +52,8 @@ export function installDragSensor(deps: DragSensorDeps): DragSensor {
   let data = '';
   // 截止时间而不是布尔值：原生补发的 click 紧跟 dragend，拖拽很久之后的一次正常点击不该被吞。
   let swallowClickUntil = 0;
+  // 浏览器补发的 click 落在拖拽起点上；只有这一次该吞，用户点别处是真实操作。
+  let dragSource: Element | null = null;
   let ghost: HTMLImageElement | null = null;
 
   const reset = () => {
@@ -119,6 +127,7 @@ export function installDragSensor(deps: DragSensorDeps): DragSensor {
     phase = 'dragging';
     kind = payload.kind;
     data = payload.data;
+    dragSource = targetOf(event);
   };
 
   const handleDragOver = (event: DragEvent) => {
@@ -166,14 +175,19 @@ export function installDragSensor(deps: DragSensorDeps): DragSensor {
 
   const handleClickCapture = (event: MouseEvent) => {
     if (swallowClickUntil !== 0 && performance.now() <= swallowClickUntil) {
-      swallowClickUntil = 0;
-      event.preventDefault();
-      event.stopPropagation();
-      event.stopImmediatePropagation();
-      return;
+      const fromDragSource = dragSource !== null && event.composedPath().includes(dragSource);
+      if (fromDragSource) {
+        swallowClickUntil = 0;
+        dragSource = null;
+        event.preventDefault();
+        event.stopPropagation();
+        event.stopImmediatePropagation();
+        return;
+      }
     }
-    // 过期标记只清掉，不影响这次点击。
+    // 过期标记与不属于拖拽起点的点击都只清标记，不影响这次点击。
     swallowClickUntil = 0;
+    dragSource = null;
     // 兜底：任何情况下都不留下过期的拖拽状态。
     if (phase !== 'idle') reset();
   };
@@ -185,6 +199,7 @@ export function installDragSensor(deps: DragSensorDeps): DragSensor {
   // 新的按下动作说明是另一次交互：浏览器补发的 click 不可能再出现了，清掉标记。
   const handlePressStart = () => {
     swallowClickUntil = 0;
+    dragSource = null;
   };
 
   window.addEventListener('dragstart', handleDragStart, listenerOptions);

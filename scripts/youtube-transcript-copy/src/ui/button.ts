@@ -76,7 +76,12 @@ export function createTranscriptButton(options: TranscriptButtonOptions): Transc
   wrap.appendChild(button.el);
   ui.mount(wrap);
 
+  /** 已写进样式的坐标；定时校正每次都会调用，值没变就不碰 DOM（写样式会触发重排）。 */
+  let applied: ButtonPosition | null = null;
+
   const applyPosition = (): void => {
+    if (applied?.right === position.right && applied.top === position.top) return;
+    applied = { ...position };
     wrap.style.right = `${position.right}px`;
     wrap.style.top = `${position.top}px`;
   };

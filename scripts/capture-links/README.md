@@ -8,7 +8,7 @@
 | 当前版本 | 1.1.0 |
 | 迁移状态 | 已迁移：由 `src/` 模块构建，界面使用 `@ui` |
 | 匹配站点 | `https://*/*`、`http://*/*`（`@noframes`，`document-end`） |
-| 授予权限 | `GM_addStyle`（保留旧授权，当前代码不再使用）、`GM_registerMenuCommand`、`GM_setClipboard`、`GM_setValue`、`GM_getValue` |
+| 授予权限 | `GM_registerMenuCommand`、`GM_setClipboard`、`GM_setValue`、`GM_getValue` |
 | 设置键 | `settings`（旧键，未改名）：`showFloatButton`、`copyFormat` |
 
 ## 行为

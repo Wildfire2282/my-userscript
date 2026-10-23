@@ -8,7 +8,7 @@
 | 当前版本 | 1.2.0 |
 | 迁移状态 | 已迁移：由 `src/` 模块构建，界面使用 `@ui` |
 | 匹配站点 | `https://www.youtube.com/*`（`document-start`） |
-| 授予权限 | `GM_setClipboard`、`GM_registerMenuCommand`、`GM_addStyle`（保留旧授权，当前代码不再使用）、`GM_setValue`、`GM_getValue`、`GM_deleteValue` |
+| 授予权限 | `GM_setClipboard`、`GM_registerMenuCommand`、`GM_setValue`、`GM_getValue`、`GM_deleteValue` |
 | 设置键 | `pos`（按钮位置）、`strategy`（提取策略记忆） |
 
 ## 行为

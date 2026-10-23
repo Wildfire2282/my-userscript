@@ -11,6 +11,11 @@ function escapeMarkdownTitle(title: string): string {
   return title.replace(/\\/g, '\\\\').replace(/\[/g, '\\[').replace(/\]/g, '\\]');
 }
 
+/** Markdown 链接地址里的括号用反斜杠转义：`<>` 包裹法遇到地址自带 `>` 就提前闭合。 */
+function escapeMarkdownUrl(url: string): string {
+  return url.replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)');
+}
+
 function escapeHtml(text: string): string {
   return text
     .replace(/&/g, '&amp;')
@@ -22,12 +27,7 @@ function escapeHtml(text: string): string {
 export function formatLinks(items: LinkItem[], format: CopyFormat): string {
   if (format === 'markdown')
     return items
-      .map((item) =>
-        // 地址里有括号时包一层 <>，否则 Markdown 会把地址提前截断。
-        /[()]/.test(item.url)
-          ? `[${escapeMarkdownTitle(item.title)}](<${item.url}>)`
-          : `[${escapeMarkdownTitle(item.title)}](${item.url})`,
-      )
+      .map((item) => `[${escapeMarkdownTitle(item.title)}](${escapeMarkdownUrl(item.url)})`)
       .join('\n');
   if (format === 'html')
     return items

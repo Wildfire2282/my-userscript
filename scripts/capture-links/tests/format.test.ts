@@ -34,8 +34,10 @@ describe('formatLinks', () => {
     expect(formatLinks(items, 'html')).toBe('<a href="https://example.com/a">a]b&quot;c&lt;d</a>');
   });
 
-  it('地址里有括号时 Markdown 用 <> 包裹', () => {
+  it('地址里有括号或尖括号时用反斜杠转义，不断错', () => {
     const items: LinkItem[] = [{ id: '1', url: 'https://example.com/a(1)', title: 'A' }];
-    expect(formatLinks(items, 'markdown')).toBe('[A](<https://example.com/a(1)>)');
+    expect(formatLinks(items, 'markdown')).toBe('[A](https://example.com/a\\(1\\))');
+    const sharp: LinkItem[] = [{ id: '2', url: 'https://x/?a=(1)&b=c>d', title: 'T' }];
+    expect(formatLinks(sharp, 'markdown')).toBe('[T](https://x/?a=\\(1\\)&b=c>d)');
   });
 });

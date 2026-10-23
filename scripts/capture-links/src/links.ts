@@ -19,14 +19,40 @@ export interface LinkCandidate {
   title: string;
 }
 
-/** 线上旧版对地址做的实体解码；链接文字与地址都可能来自被转义的页面。 */
+/** 线上旧版对地址做的实体解码；链接文字与地址都可能来自被转义的页面。
+ *
+ * 一次只解一层：`&amp;lt;` 还原成 `&lt;` 就停，不再往 `<` 解，
+ * 否则页面原文里就写着 `&lt;` 的地方会被多解一层。 */
 export function decodeText(text: string): string {
-  return text
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'");
+  return text.replace(
+    /&(amp|lt|gt|quot|nbsp|#39|#\d+|#x[0-9a-f]+);/gi,
+    (match, name: string) => {
+      switch (name.toLowerCase()) {
+        case 'amp':
+          return '&';
+        case 'lt':
+          return '<';
+        case 'gt':
+          return '>';
+        case 'quot':
+          return '"';
+        case 'nbsp':
+          return ' ';
+        case '#39':
+          return "'";
+        default: {
+          // 数字实体：`&#58;` / `&#x3A;`；非法编码原样保留。
+          const lower = name.toLowerCase();
+          const code = lower.startsWith('#x')
+            ? Number.parseInt(lower.slice(2), 16)
+            : Number(lower.slice(1));
+          return Number.isInteger(code) && code >= 0 && code <= 0x10ffff
+            ? String.fromCodePoint(code)
+            : match;
+        }
+      }
+    },
+  );
 }
 
 export function normalizeUrl(url: string): string {

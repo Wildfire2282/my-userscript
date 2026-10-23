@@ -12,6 +12,8 @@ const PANEL_PATTERN = /youtubei\/v1\/get_panel/i;
 
 interface HookGlobals {
   __ytTxNetHooked?: boolean;
+  // 捕获到的片段存在 window 上：同一窗口装两次时第二个实例也能读到同一份。
+  __ytTxNetSegments?: Segment[] | null;
 }
 
 /** `Window` 接口本身不含 XMLHttpRequest，`window` 的类型是它与全局对象的交叉。 */
@@ -27,14 +29,19 @@ export interface NetworkCapture {
 }
 
 export function installNetworkCapture(win: WindowScope = window): NetworkCapture {
-  let segments: Segment[] | null = null;
-
   const globals = win as unknown as HookGlobals;
   if (globals.__ytTxNetHooked) {
-    // 同一窗口已经钩过一次：保留已有捕获，避免包装两层。
-    return { get: () => segments, clear: () => undefined, restore: () => undefined };
+    // 同一窗口已经钩过一次：共用 window 上的缓存，避免包装两层，也避免新闭包拿不到旧数据。
+    return {
+      get: () => globals.__ytTxNetSegments ?? null,
+      clear: () => {
+        globals.__ytTxNetSegments = null;
+      },
+      restore: () => undefined,
+    };
   }
   globals.__ytTxNetHooked = true;
+  globals.__ytTxNetSegments = null;
 
   // bind 到 window：原生 fetch 依赖 this，直接引用会被 lint 视为“unbound method”。
   const originalFetch = win.fetch.bind(win);
@@ -54,7 +61,7 @@ export function installNetworkCapture(win: WindowScope = window): NetworkCapture
         .then(async (response) => {
           try {
             const data: unknown = await response.clone().json();
-            segments = extractFromPanelResponse(data) ?? segments;
+            globals.__ytTxNetSegments = extractFromPanelResponse(data) ?? globals.__ytTxNetSegments ?? null;
           } catch {
             // 响应不是 JSON 或已被消费：不影响页面。
           }
@@ -80,7 +87,7 @@ export function installNetworkCapture(win: WindowScope = window): NetworkCapture
       this.addEventListener('load', () => {
         try {
           const data: unknown = JSON.parse(this.responseText);
-          segments = extractFromPanelResponse(data) ?? segments;
+          globals.__ytTxNetSegments = extractFromPanelResponse(data) ?? globals.__ytTxNetSegments ?? null;
         } catch {
           // 响应不是 JSON：忽略。
         }
@@ -91,9 +98,9 @@ export function installNetworkCapture(win: WindowScope = window): NetworkCapture
   proto.open = wrappedOpen;
 
   return {
-    get: () => segments,
+    get: () => globals.__ytTxNetSegments ?? null,
     clear() {
-      segments = null;
+      globals.__ytTxNetSegments = null;
     },
     restore() {
       win.fetch = originalFetch;

@@ -111,7 +111,7 @@ export function extractFromViewModel(root: ParentNode): Segment[] | null {
     const timestamp = (timestampNode?.textContent ?? '').trim();
     const textNode =
       host.querySelector('span[role="text"], #segment-text, .segment-text') ??
-      findLeafWithLetters(host);
+      findLeafWithText(host);
     const text = clean(textNode?.textContent);
     if (text && text !== timestamp) {
       segments.push({ start: tsToSec(timestamp) * 1000, text });
@@ -120,9 +120,11 @@ export function extractFromViewModel(root: ParentNode): Segment[] | null {
   if (segments.length > 0) return segments;
 
   // 兜底：新版把时间戳与文字拆成了相邻的 span，找不到片段容器时按“时间戳 + 同块文字”配对。
+  // 只扫转写面板容器，不扫整个 body：YouTube 首页有几千个节点，全页扫每次复制都卡一下。
+  const scope = scopeRoot(root);
   const timestampPattern = /^\d{1,2}(:\d{2}){1,2}$/;
   const seen = new WeakSet<Element>();
-  const candidates = [...root.querySelectorAll('span, div')].filter(
+  const candidates = [...scope.querySelectorAll('span, div')].filter(
     (node) => node.children.length === 0 && timestampPattern.test((node.textContent ?? '').trim()),
   );
   for (const node of candidates) {
@@ -138,7 +140,8 @@ export function extractFromViewModel(root: ParentNode): Segment[] | null {
     const blockText = clean(block.textContent);
     if (timestampPattern.test(blockText) && blockText.length < 30) continue;
     const text = blockText.replace(/^\d{1,2}(:\d{2}){1,2}/, '').trim();
-    if (text.length > 1 && /[A-Za-z]/.test(text)) {
+    // 不要求英文字母：纯中文转写（“你好世界”）也要收进来。
+    if (text.length > 1) {
       segments.push({ start: tsToSec(timestamp) * 1000, text });
     }
   }
@@ -149,7 +152,7 @@ export function extractFromViewModel(root: ParentNode): Segment[] | null {
 export function extractFromPanelDump(root: ParentNode): Segment[] | null {
   const linePattern = /^\d{1,2}(?::\d{2}){1,2}\s+/;
   const segments: Segment[] = [];
-  for (const node of root.querySelectorAll('div, span, p')) {
+  for (const node of scopeRoot(root).querySelectorAll('div, span, p')) {
     if (node.children.length !== 0) continue;
     const content = node.textContent ?? '';
     if (!linePattern.test(content)) continue;
@@ -160,9 +163,20 @@ export function extractFromPanelDump(root: ParentNode): Segment[] | null {
   return segments.length > 0 ? segments : null;
 }
 
-function findLeafWithLetters(root: ParentNode): Element | null {
+/** 转写面板容器：兜底扫描只在这里面找，找不到才退回全页。 */
+function scopeRoot(root: ParentNode): ParentNode {
+  const doc = root as Document;
+  if (typeof doc.querySelector !== 'function') return root;
+  const panel = doc.querySelector(
+    'ytd-transcript-renderer, [target-id*="transcript"], ytd-engagement-panel-section-list-renderer',
+  );
+  return panel ?? root;
+}
+
+/** 片段容器里第一个有文字的叶子节点；不要求英文字母，中文也能命中。 */
+function findLeafWithText(root: ParentNode): Element | null {
   for (const node of root.querySelectorAll('*')) {
-    if (node.children.length === 0 && /[A-Za-z]/.test(node.textContent ?? '')) return node;
+    if (node.children.length === 0 && clean(node.textContent) !== '') return node;
   }
   return null;
 }

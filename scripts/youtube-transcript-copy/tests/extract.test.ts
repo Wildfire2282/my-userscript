@@ -129,6 +129,19 @@ describe('extractFromViewModel', () => {
     expect(extractFromViewModel(document.body)).toEqual([{ start: 5_000, text: 'Hello there' }]);
   });
 
+  it('纯中文兜底行也会收进来', () => {
+    const block = document.createElement('div');
+    block.setAttribute('role', 'button');
+    const timestamp = document.createElement('span');
+    timestamp.textContent = '0:05';
+    const text = document.createElement('span');
+    text.textContent = '你好世界';
+    block.append(timestamp, text);
+    document.body.appendChild(block);
+
+    expect(extractFromViewModel(document.body)).toEqual([{ start: 5_000, text: '你好世界' }]);
+  });
+
   it('没有可识别的结构时返回 null', () => {
     document.body.appendChild(document.createElement('p')).textContent = '没有转写';
     expect(extractFromViewModel(document.body)).toBeNull();

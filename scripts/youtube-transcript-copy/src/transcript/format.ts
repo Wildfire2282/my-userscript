@@ -19,14 +19,39 @@ export function clean(text: string | null | undefined): string {
  */
 export function tsToSec(text: string): number {
   const parts = text.split(':').map(Number);
-  if (parts.length === 2) return (parts[0] ?? 0) * 60 + (parts[1] ?? 0);
-  if (parts.length === 3) return (parts[0] ?? 0) * 3600 + (parts[1] ?? 0) * 60 + (parts[2] ?? 0);
+  if (parts.length === 2) {
+    const [minutes, seconds] = parts;
+    // ?? 防不住 NaN（'ab:cd' 会算出 NaN）：非数字一律按认不出处理。
+    if (
+      minutes === undefined ||
+      seconds === undefined ||
+      !Number.isFinite(minutes) ||
+      !Number.isFinite(seconds)
+    ) {
+      return 0;
+    }
+    return minutes * 60 + seconds;
+  }
+  if (parts.length === 3) {
+    const [hours, minutes, seconds] = parts;
+    if (
+      hours === undefined ||
+      minutes === undefined ||
+      seconds === undefined ||
+      !Number.isFinite(hours) ||
+      !Number.isFinite(minutes) ||
+      !Number.isFinite(seconds)
+    ) {
+      return 0;
+    }
+    return hours * 3600 + minutes * 60 + seconds;
+  }
   return 0;
 }
 
 /** 毫秒 → 复制到剪贴板里的 `分:秒`；未知时间戳返回空串。 */
 export function fmtTs(ms: number | null): string {
-  if (ms === null) return '';
+  if (ms === null || !Number.isFinite(ms)) return '';
   const total = Math.max(0, Math.floor(ms / 1000));
   const minutes = Math.floor(total / 60);
   const seconds = total % 60;

@@ -17,6 +17,8 @@ describe('tsToSec', () => {
   it('认不出的格式按 0 处理', () => {
     expect(tsToSec('')).toBe(0);
     expect(tsToSec('abc')).toBe(0);
+    expect(tsToSec('ab:cd')).toBe(0);
+    expect(tsToSec('1:ab')).toBe(0);
   });
 });
 
@@ -33,6 +35,7 @@ describe('fmtTs', () => {
 
   it('未知时间戳返回空串，负数按 0 处理', () => {
     expect(fmtTs(null)).toBe('');
+    expect(fmtTs(Number.NaN)).toBe('');
     expect(fmtTs(-1_000)).toBe('0:00');
   });
 });

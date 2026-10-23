@@ -20,7 +20,7 @@ import { createSettingsPanel, type SettingsPanelHandle } from './ui/settings-pan
  */
 
 const INSTALL_LOCK_ATTRIBUTE = 'data-selection-auto-copy-installed';
-const MENU_LABEL = '选中复制设置';
+const MENU_LABEL = '功能设置';
 
 function start(): void {
   const root = document.documentElement;

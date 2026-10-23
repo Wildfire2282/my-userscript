@@ -34,7 +34,7 @@ export function createSettingsPanel(options: SettingsPanelOptions): SettingsPane
   const siteName = siteLabel(options.site);
 
   const panel = createPanel(options.ui, {
-    title: '选中复制设置',
+    title: '功能设置',
     description: '选中文字后自动复制为纯文本；下面的开关改完立即生效。',
     open: false,
     position: 'center',

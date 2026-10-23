@@ -5,12 +5,12 @@
 | 项目 | 值 |
 | --- | --- |
 | Greasy Fork | [582576](https://greasyfork.org/zh-CN/scripts/582576) |
-| 当前版本 | 1.3.0 |
+| 当前版本 | 1.4.0 |
 | 迁移状态 | 已迁移：由 `src/` 模块构建，界面使用 `@ui` |
 | 匹配站点 | `*://*/*`（`document-end`，每个 frame 独立生效） |
 | 授予权限 | `GM_setClipboard`、`GM_getValue`、`GM_setValue`、`GM_registerMenuCommand` |
 | 设置键 | `selection-copy:config.settings` |
-| 设置入口 | 脚本管理器菜单 →「选中复制设置」 |
+| 设置入口 | 脚本管理器菜单 →「功能设置」 |
 
 ## 行为
 
@@ -33,7 +33,7 @@
 
 ## 设置
 
-从脚本管理器菜单打开「选中复制设置」，改动立即生效，没有保存按钮：
+从脚本管理器菜单打开「功能设置」，改动立即生效，没有保存按钮：
 
 | 开关 | 默认 | 作用 |
 | --- | --- | --- |

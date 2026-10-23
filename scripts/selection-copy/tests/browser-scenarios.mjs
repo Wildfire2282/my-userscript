@@ -253,11 +253,9 @@ export const scenarios = [
         return window.__page.panel();
       });
       return {
-        expected: '面板打开 / 标题是「选中复制设置」 / 5 个开关',
+        expected: '面板打开 / 标题是「功能设置」 / 5 个开关',
         actual: `${opened?.open ? '面板打开' : '面板没打开'} / ${
-          opened?.title === '选中复制设置'
-            ? '标题是「选中复制设置」'
-            : `标题是「${opened?.title ?? ''}」`
+          opened?.title === '功能设置' ? '标题是「功能设置」' : `标题是「${opened?.title ?? ''}」`
         } / ${await ctx.evaluate(() => window.__page.switchCount())} 个开关`,
       };
     },

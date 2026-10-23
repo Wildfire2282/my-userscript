@@ -154,11 +154,13 @@ export const scenarios = [
         return {
           label,
           opened: panel ? !panel.hidden : false,
+          rows: window.__page.rows().length,
+          stats: window.__page.stats(),
         };
       });
       return {
-        expected: '打开链接面板 / 面板已打开',
-        actual: `${state.label} / ${state.opened ? '面板已打开' : '面板未打开'}`,
+        expected: '打开链接面板 / 面板已打开 / 7 行 / 共 7 / 筛选 7 / 选中 0',
+        actual: `${state.label} / ${state.opened ? '面板已打开' : '面板未打开'} / ${state.rows} 行 / ${state.stats}`,
       };
     },
   },

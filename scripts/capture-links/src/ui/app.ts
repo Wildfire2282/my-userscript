@@ -3,6 +3,7 @@ import {
   createToast,
   mountUI,
   type LauncherHandle,
+  type PanelHandle,
   type ToastController,
   type UI,
 } from '@ui';
@@ -69,10 +70,16 @@ export function createApp(options: AppOptions): AppHandle {
     }
     const current = ensure();
     if (current.launcher) return;
+    // Launcher 点击时只会 toggle 传给它的面板本身；直接接原始面板会打开一个从未
+    // 扫描过的空列表。包一层，让浮标和菜单「面板」走同一条重新扫描的路径。
+    const launcherPanel: PanelHandle = {
+      ...current.linkPanel.panel,
+      open: () => current.linkPanel.open(),
+    };
     current.launcher = createLauncher(current.ui, {
       label: '打开链接面板',
       closeLabel: '关闭链接面板',
-      panel: current.linkPanel.panel,
+      panel: launcherPanel,
       icon: linkIcon(),
     });
     // 链接面板居中显示；Launcher 默认会把面板摆到自己的角落。

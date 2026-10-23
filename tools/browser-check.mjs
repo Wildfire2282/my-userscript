@@ -138,6 +138,17 @@ class CdpClient {
     return () => this.listeners.delete(listener);
   }
 
+  /** 关闭 CDP 连接：不调的话这个 socket 会一直占着事件循环，进程退不出。 */
+  close() {
+    for (const { reject } of this.pending.values()) reject(new Error('CDP 连接已关闭'));
+    this.pending.clear();
+    try {
+      this.socket.close();
+    } catch {
+      // 连接已经断了：本来就是要关，不用管。
+    }
+  }
+
   static async connect(url) {
     const socket = new WebSocket(url);
     await new Promise((resolve, reject) => {
@@ -238,6 +249,7 @@ let failed = 0;
 let total = 0;
 const pageErrors = [];
 const consoleErrors = [];
+let cdp = null;
 
 try {
   const portFile = path.join(profileDir, 'DevToolsActivePort');
@@ -261,7 +273,7 @@ try {
     { timeout: 30000, what: '页面调试目标' },
   );
 
-  const cdp = await CdpClient.connect(targets[0].webSocketDebuggerUrl);
+  cdp = await CdpClient.connect(targets[0].webSocketDebuggerUrl);
 
   cdp.onEvent((message) => {
     if (message.method === 'Runtime.exceptionThrown') {
@@ -520,6 +532,12 @@ try {
       `浏览器与配置目录保留在 ${path.relative(ROOT, workDir)}（端口见 DevToolsActivePort）。`,
     );
   } else {
+    // 先关 CDP 连接再杀浏览器：连接不断，进程退不出。
+    try {
+      cdp?.close();
+    } catch {
+      // 收尾阶段的异常不覆盖场景结果。
+    }
     chrome.kill();
     await sleep(300);
     await rm(workDir, { recursive: true, force: true }).catch(() => undefined);

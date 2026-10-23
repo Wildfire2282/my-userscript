@@ -287,7 +287,7 @@ export const scenarios = [
     },
   },
   {
-    name: '菜单「设置」→ 居中的面板，八项设置齐全',
+    name: '菜单「功能设置」→ 居中的面板，八项设置齐全',
     async run(ctx) {
       const state = await ctx.evaluate(() => {
         const expected = [
@@ -319,7 +319,7 @@ export const scenarios = [
         };
       });
       return {
-        expected: '设置 / 面板可见 / 8 项齐全 / 居中',
+        expected: '功能设置 / 面板可见 / 8 项齐全 / 居中',
         actual: `${state.label} / ${state.visible ? '面板可见' : '面板不可见'} / ${state.count} 项${
           state.missing.length === 0 ? '齐全' : `缺 ${state.missing.join('、')}`
         } / ${state.centered ? '居中' : '未居中'}`,

@@ -53,7 +53,7 @@ export function createSettingsPanel(options: SettingsPanelOptions): SettingsPane
   const initial = options.getSettings();
 
   const panel = createPanel(ui, {
-    title: '拖拽打开设置',
+    title: '功能设置',
     description:
       '拖拽选中文字搜索，拖拽链接或图片在新标签页打开；按住 Shift 这一次前台打开，按 Esc 取消。',
     open: false,

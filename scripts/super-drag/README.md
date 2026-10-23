@@ -5,7 +5,7 @@
 | 项目 | 值 |
 | --- | --- |
 | Greasy Fork | [580630](https://greasyfork.org/zh-CN/scripts/580630) |
-| 当前版本 | 2.6.0 |
+| 当前版本 | 2.7.0 |
 | 迁移状态 | 已迁移：由 `src/` 模块构建，界面使用 `@ui` |
 | 匹配站点 | `https://*/*`、`http://*/*`（`@noframes`，`document-end`） |
 | 授予权限 | `GM_getValue`、`GM_setValue`、`GM_registerMenuCommand`、`GM_openInTab` |
@@ -56,7 +56,7 @@ npm run check                # 全部检查，含上面的浏览器场景
 
 ## 设置面板
 
-入口是油猴菜单「设置」，没有悬浮按钮。第一次打开时才创建 UI 与面板，普通页面零 DOM。
+入口是油猴菜单「功能设置」，没有悬浮按钮。第一次打开时才创建 UI 与面板，普通页面零 DOM。
 
 面板固定在屏幕正中（440px 宽，内容多时内部滚动），分为：
 

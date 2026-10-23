@@ -130,6 +130,8 @@ export function createTranscriptButton(options: TranscriptButtonOptions): Transc
     const onUp = (): void => {
       document.removeEventListener('pointermove', onMove);
       document.removeEventListener('pointerup', onUp);
+      // 触屏拖动被系统手势抢占时会发 cancel 而不是 up：不摘监听就越积越多。
+      document.removeEventListener('pointercancel', onUp);
       wrap.dataset.dragging = 'false';
       options.onMoveEnd(position);
       if (moved) {
@@ -143,6 +145,7 @@ export function createTranscriptButton(options: TranscriptButtonOptions): Transc
     wrap.dataset.dragging = 'true';
     document.addEventListener('pointermove', onMove);
     document.addEventListener('pointerup', onUp);
+    document.addEventListener('pointercancel', onUp);
   });
 
   applyPosition();

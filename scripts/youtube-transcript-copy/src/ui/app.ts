@@ -1,15 +1,38 @@
-import { mountUI, type UI } from '@ui';
+import {
+  createButton,
+  createPanel,
+  createSection,
+  createToast,
+  mountUI,
+  type PanelHandle,
+  type ToastController,
+  type UI,
+} from '@ui';
 import type { ButtonPosition } from '../features/position';
 import { createTranscriptButton, type TranscriptButtonHandle } from './button';
 
 /**
- * 悬浮按钮的应用外壳。
+ * 悬浮按钮与油猴菜单面板的应用外壳。
  *
- * UI 与按钮只在第一次拿到位置时创建（观看页有播放器）；之后复用同一个实例，
- * SPA 换视频只更新位置与显隐，不重复 `mountUI()`。
+ * UI 只创建一次：要么是第一次拿到按钮位置（观看页有播放器），要么是第一次从菜单
+ * 打开面板。之后复用同一个实例，SPA 换视频只更新位置与显隐，不重复 `mountUI()`。
+ *
+ * 菜单只有两项：操作面板（复制、重置按钮位置）与功能设置（清空记忆）。
  */
 
 export type CopyOutcome = 'success' | 'empty' | 'error';
+
+// 面板与提示都只出现在中文界面里；不传就是 @ui 的英文默认文案。
+const LABELS = {
+  close: '关闭',
+  settings: '设置',
+  notifications: '通知',
+  dismissNotification: '关闭通知',
+  closeSettings: '关闭设置',
+  scrollHint: '向下滚动查看更多内容',
+  cancel: '取消',
+  confirm: '确定',
+};
 
 export interface TranscriptButtonAppOptions {
   getSavedPosition: () => ButtonPosition | null;
@@ -17,14 +40,18 @@ export interface TranscriptButtonAppOptions {
   getDefaultPosition: () => ButtonPosition | null;
   isVisible: () => boolean;
   activate: () => Promise<CopyOutcome>;
+  clearSavedPosition: () => void;
+  clearStrategy: () => void;
 }
 
 export interface TranscriptButtonApp {
   /** 确保按钮已创建、位置在视口内，并按最近一次可见性状态显示。 */
   sync: () => void;
   setVisible: (visible: boolean) => void;
-  /** 回到页面右上角 30px，并删除位置记忆。 */
-  resetPosition: () => void;
+  /** 油猴菜单「操作面板」。 */
+  openActions: () => void;
+  /** 油猴菜单「功能设置」。 */
+  openSettings: () => void;
   isMounted: () => boolean;
   destroy: () => void;
 }
@@ -34,6 +61,8 @@ export function createTranscriptButtonApp(
 ): TranscriptButtonApp {
   let ui: UI | null = null;
   let button: TranscriptButtonHandle | null = null;
+  let toast: ToastController | null = null;
+  let panels: { actions: PanelHandle; settings: PanelHandle } | null = null;
   let visible = options.isVisible();
   let busy = false;
   // 没有存过位置时，按钮跟着播放器走：首屏布局会二次调整（播放器从初始位置
@@ -43,20 +72,106 @@ export function createTranscriptButtonApp(
   // 首屏布局稳定前分几次重算；只在这几个时间点校正，不做常驻轮询。
   const SETTLE_DELAYS_MS = [300, 1000, 2000, 4000];
 
-  const activate = async (target: TranscriptButtonHandle): Promise<void> => {
-    // 抓取期间忽略重复点击：面板与网络请求都不便宜，重复发起只会互相打断。
-    if (busy) return;
+  const ensureUI = (): UI => {
+    if (!ui) ui = mountUI({ theme: 'system', labels: LABELS });
+    return ui;
+  };
+
+  /** 抓取并复制；按钮和面板共用，同一时刻只跑一个。 */
+  const copy = async (): Promise<CopyOutcome> => {
+    if (busy) return 'error';
     busy = true;
-    target.setState('loading');
     try {
-      const outcome = await options.activate();
-      // 没有文稿与写入失败都显示 ✕：用户能看到“这次没复制成功”。
-      target.setState(outcome === 'success' ? 'success' : 'error');
+      return await options.activate();
     } catch {
-      target.setState('error');
+      return 'error';
     } finally {
       busy = false;
     }
+  };
+
+  const activateFromButton = async (target: TranscriptButtonHandle): Promise<void> => {
+    // 抓取期间忽略重复点击：面板与网络请求都不便宜，重复发起只会互相打断。
+    if (busy) return;
+    target.setState('loading');
+    const outcome = await copy();
+    // 没有文稿与写入失败都显示 ✕：用户能看到“这次没复制成功”。
+    target.setState(outcome === 'success' ? 'success' : 'error');
+  };
+
+  /** 回到视口右上角 30px，并清掉位置记忆。 */
+  const resetPosition = (): void => {
+    autoPosition = false;
+    options.clearSavedPosition();
+    button?.setPosition({ right: 30, top: 30 });
+  };
+
+  const ensurePanels = (): { actions: PanelHandle; settings: PanelHandle } => {
+    if (panels) return panels;
+
+    const current = ensureUI();
+    const notify = createToast(current);
+    toast = notify;
+
+    const actions = createPanel(current, {
+      title: '操作面板',
+      description: '复制本页的转写文稿，或把悬浮按钮放回右上角。',
+      open: false,
+      closeLabel: '关闭操作面板',
+    });
+    const copyButton = createButton(current, {
+      label: '复制当前转写文稿',
+      onClick: () => {
+        copyButton.setLoading(true);
+        void copy().then((outcome) => {
+          copyButton.setLoading(false);
+          if (outcome === 'success') {
+            notify.success('已复制转写文稿');
+            actions.close();
+          } else if (outcome === 'empty') {
+            notify.warning('没有找到转写文稿');
+          } else {
+            notify.error('复制失败，请稍后重试');
+          }
+        });
+      },
+    });
+    const resetButton = createButton(current, {
+      label: '重置按钮位置',
+      variant: 'secondary',
+      onClick: () => {
+        resetPosition();
+        notify.success('按钮已回到播放器右上角');
+        actions.close();
+      },
+    });
+    const actionSection = createSection(current, { title: '操作' });
+    actionSection.body.append(copyButton.el, resetButton.el);
+    actions.body.append(actionSection.el);
+
+    const settings = createPanel(current, {
+      title: '功能设置',
+      description: '这里只放会影响脚本行为的开关；改动立即生效。',
+      open: false,
+      closeLabel: '关闭功能设置',
+    });
+    const memorySection = createSection(current, {
+      title: '记忆',
+      description: '脚本会记住上次能用的转写抓取方式，下次优先用它；清空后重新按默认顺序尝试。',
+    });
+    const clearStrategy = createButton(current, {
+      label: '清空策略记忆',
+      variant: 'destructive',
+      onClick: () => {
+        options.clearStrategy();
+        notify.success('已清空策略记忆');
+      },
+    });
+    memorySection.body.append(clearStrategy.el);
+    settings.body.append(memorySection.el);
+
+    panels = { actions, settings };
+    return panels;
   };
 
   function sync(): void {
@@ -76,11 +191,11 @@ export function createTranscriptButtonApp(
     const position = options.getSavedPosition() ?? options.getDefaultPosition();
     if (!position) return null;
 
-    const mounted = mountUI({ theme: 'system' });
+    const mounted = ensureUI();
     const created = createTranscriptButton({
       ui: mounted,
       label: '复制当前转写文稿',
-      onClick: () => void activate(created),
+      onClick: () => void activateFromButton(created),
       onMoveEnd: (next) => {
         autoPosition = false;
         options.savePosition(next);
@@ -88,7 +203,6 @@ export function createTranscriptButtonApp(
     });
     created.setPosition(position);
     created.setVisible(visible);
-    ui = mounted;
     button = created;
     scheduleSettle(0);
     return created;
@@ -114,10 +228,11 @@ export function createTranscriptButtonApp(
       visible = next;
       button?.setVisible(next);
     },
-    resetPosition() {
-      // 与线上旧版一致：回到视口右上角 30px，而不是播放器相对位置。
-      autoPosition = false;
-      button?.setPosition({ right: 30, top: 30 });
+    openActions() {
+      ensurePanels().actions.open();
+    },
+    openSettings() {
+      ensurePanels().settings.open();
     },
     isMounted: () => button !== null,
     destroy() {
@@ -126,8 +241,11 @@ export function createTranscriptButtonApp(
         settleTimer = undefined;
       }
       button?.destroy();
-      ui?.destroy();
+      toast?.destroy();
       button = null;
+      toast = null;
+      panels = null;
+      ui?.destroy();
       ui = null;
     },
   };

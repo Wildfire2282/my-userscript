@@ -18,9 +18,8 @@ import { createTranscriptButtonApp, type CopyOutcome } from './ui/app';
  * 只在顶层 frame 运行：转写面板与播放器都在主文档里，iframe 里跑一份只会重复请求。
  */
 
-const MENU_COPY = '复制当前转写文稿';
-const MENU_RESET_POSITION = '重置按钮位置';
-const MENU_CLEAR_STRATEGY = '清空策略记忆';
+const MENU_ACTIONS = '操作面板';
+const MENU_SETTINGS = '功能设置';
 
 interface YtWindow extends Window {
   ytInitialPlayerResponse?: unknown;
@@ -77,6 +76,8 @@ function start(): void {
       }),
     isVisible: () => shouldShowButton(readVideoState()),
     activate: copyTranscript,
+    clearSavedPosition: store.clearPosition,
+    clearStrategy: store.clearStrategy,
   });
 
   const register = (label: string, run: () => void): void => {
@@ -85,20 +86,8 @@ function start(): void {
     }
   };
 
-  register(MENU_COPY, () => {
-    void (async () => {
-      const outcome = await copyTranscript();
-      if (outcome !== 'success') {
-        // 菜单没有按钮状态可看，只把结果写进控制台；不输出任何文稿内容。
-        console.warn(`[youtube-transcript-copy] 复制未成功：${outcome}`);
-      }
-    })();
-  });
-  register(MENU_RESET_POSITION, () => {
-    store.clearPosition();
-    app.resetPosition();
-  });
-  register(MENU_CLEAR_STRATEGY, () => store.clearStrategy());
+  register(MENU_ACTIONS, () => app.openActions());
+  register(MENU_SETTINGS, () => app.openSettings());
 
   const boot = (): void => {
     app.sync();

@@ -80,6 +80,16 @@ export function helpers() {
       if (!entry) throw new Error(`没有菜单项「${label}」`);
       entry.run();
     },
+    menuItems: () => window.__gm.menus.map((menu) => menu.label),
+    panelTitle: () =>
+      root()?.querySelector('.ds-panel[data-open="true"] .ds-panel-title')?.textContent ?? '',
+    clickInPanel: (text) => {
+      const target = [...(root()?.querySelectorAll('button') ?? [])].find(
+        (element) => element.textContent.trim() === text,
+      );
+      if (!target) throw new Error(`面板里没有「${text}」`);
+      target.click();
+    },
     /** 触发一次 get_panel 请求，让脚本的网络钩子拿到转写。 */
     capturePanel: () =>
       window.fetch('https://www.youtube.com/youtubei/v1/get_panel?prettyPrint=false'),
@@ -96,6 +106,13 @@ export function helpers() {
 const EXPECTED = '[0:00] 你好，世界\n[0:02] 第二句台词\n[0:05] Third line';
 
 export const scenarios = [
+  {
+    name: '油猴菜单只有「操作面板」和「功能设置」两项',
+    async run(ctx) {
+      const items = await ctx.evaluate(() => window.__page.menuItems());
+      return { expected: '操作面板 / 功能设置', actual: items.join(' / ') };
+    },
+  },
   {
     name: '视频播放中 → 悬浮按钮出现在播放器右上角',
     async run(ctx) {
@@ -225,15 +242,27 @@ export const scenarios = [
     },
   },
   {
-    name: '菜单「复制当前转写文稿」→ 同样写入剪贴板',
+    name: '菜单「操作面板」→ 复制当前转写文稿并关闭面板',
     async run(ctx) {
       await ctx.evaluate(() => window.__page.capturePanel());
       // fetch 的响应解析挂在钩子的 then 里，等一拍再点菜单，否则会走很慢的 DOM 兜底。
       await ctx.wait(80);
-      await ctx.evaluate(() => window.__page.menu('复制当前转写文稿'));
+      const opened = await ctx.evaluate(() => {
+        window.__page.menu('操作面板');
+        return window.__page.panelTitle();
+      });
+      await ctx.evaluate(() => window.__page.clickInPanel('复制当前转写文稿'));
       await ctx.wait(150);
-      const clipboard = await ctx.evaluate(() => window.__page.lastClipboard());
-      return { expected: EXPECTED.replace(/\n/g, ' / '), actual: clipboard.replace(/\n/g, ' / ') };
+      const state = await ctx.evaluate(() => ({
+        clipboard: window.__page.lastClipboard(),
+        panel: window.__page.panelTitle(),
+      }));
+      return {
+        expected: `操作面板 / ${EXPECTED.replace(/\n/g, ' / ')} / 已关闭`,
+        actual: `${opened} / ${state.clipboard.replace(/\n/g, ' / ')} / ${
+          state.panel === '' ? '已关闭' : '仍打开'
+        }`,
+      };
     },
   },
   {
@@ -258,13 +287,16 @@ export const scenarios = [
     },
   },
   {
-    name: '菜单「重置按钮位置」→ 回到右上角并删除记忆',
+    name: '操作面板「重置按钮位置」→ 回到右上角并删除记忆',
     async run(ctx) {
       const point = await ctx.evaluate(() => window.__page.center());
       await ctx.input.drag(point, { x: point.x - 120, y: point.y + 80 });
       await ctx.wait(60);
+      await ctx.evaluate(() => {
+        window.__page.menu('操作面板');
+        window.__page.clickInPanel('重置按钮位置');
+      });
       const state = await ctx.evaluate(() => {
-        window.__page.menu('重置按钮位置');
         return {
           position: window.__page.position(),
           stored: window.__gm.store.pos ?? null,
@@ -279,11 +311,12 @@ export const scenarios = [
     },
   },
   {
-    name: '菜单「清空策略记忆」→ 删除保存的策略',
+    name: '功能设置「清空策略记忆」→ 删除保存的策略',
     async run(ctx) {
       const stored = await ctx.evaluate(() => {
         window.__gm.store.strategy = { net: { idx: 1, at: 1 } };
-        window.__page.menu('清空策略记忆');
+        window.__page.menu('功能设置');
+        window.__page.clickInPanel('清空策略记忆');
         return window.__gm.store.strategy ?? null;
       });
       return { expected: '已删除', actual: stored === null ? '已删除' : '仍在' };

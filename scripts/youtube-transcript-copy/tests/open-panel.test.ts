@@ -39,6 +39,38 @@ describe('findTranscriptTrigger', () => {
     expect(findTranscriptTrigger(document)).toBe(button);
   });
 
+  it('中文界面：识别描述区里的转写组件，不依赖英文按钮文字', () => {
+    const section = document.createElement('ytd-video-description-transcript-section-renderer');
+    const button = document.createElement('button');
+    button.textContent = '内容转文字';
+    section.appendChild(button);
+    document.body.appendChild(section);
+    stubRect(section, 300);
+
+    expect(findTranscriptTrigger(document)).toBe(button);
+  });
+
+  it('描述区还在折叠时不选组件里的隐藏按钮', () => {
+    const section = document.createElement('ytd-video-description-transcript-section-renderer');
+    const button = document.createElement('button');
+    button.textContent = '内容转文字';
+    section.appendChild(button);
+    document.body.appendChild(section);
+    stubRect(section, 0);
+
+    expect(findTranscriptTrigger(document)).toBeNull();
+  });
+
+  it('中文按钮在描述区内也能按文字找到', () => {
+    const expander = document.createElement('ytd-text-inline-expander');
+    const button = document.createElement('button');
+    button.setAttribute('aria-label', '内容转文字');
+    expander.appendChild(button);
+    document.body.appendChild(expander);
+
+    expect(findTranscriptTrigger(document)).toBe(button);
+  });
+
   it('没有可识别的按钮时返回 null', () => {
     document.body.appendChild(document.createElement('div')).textContent = '没有按钮';
     expect(findTranscriptTrigger(document)).toBeNull();

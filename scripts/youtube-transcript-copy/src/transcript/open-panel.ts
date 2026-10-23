@@ -31,8 +31,27 @@ function ariaOrText(element: Element): string {
   return clean(element.getAttribute('aria-label')) || clean(element.textContent);
 }
 
+/** 各语言里“显示转写文稿”的说法；英文之外至少覆盖简中、日、韩、俄与拉丁语系。 */
+const TRANSCRIPT_LABEL = /transcript|转写|转文字|文字起こし|스크립트|транскрип|transcri/i;
+
 /** 按 aria-label 优先、按钮文字兜底的顺序找“显示转写文稿”。 */
 export function findTranscriptTrigger(doc: Document = document): Element | null {
+  // 固定的组件名比按钮文字可靠：描述区里的转写入口是独立组件，不随界面语言变。
+  const section = doc.querySelector('ytd-video-description-transcript-section-renderer');
+  if (section && section.getBoundingClientRect().width > 0) {
+    const buttons = [
+      ...section.querySelectorAll(
+        'button, [role="button"], tp-yt-paper-button, yt-button-shape, button-view-model',
+      ),
+    ];
+    const button =
+      buttons.find(
+        (candidate) =>
+          candidate.tagName === 'BUTTON' || candidate.getAttribute('role') === 'button',
+      ) ?? buttons[0];
+    if (button) return button;
+  }
+
   const expander = doc.querySelector('ytd-text-inline-expander');
   if (expander) {
     const buttons = [
@@ -45,11 +64,11 @@ export function findTranscriptTrigger(doc: Document = document): Element | null 
     if (byAriaShow) return byAriaShow;
 
     const byAria = buttons.find((button) =>
-      /transcript/i.test(clean(button.getAttribute('aria-label'))),
+      TRANSCRIPT_LABEL.test(clean(button.getAttribute('aria-label'))),
     );
     if (byAria) return byAria;
 
-    const byText = buttons.find((button) => /transcript/i.test(clean(button.textContent)));
+    const byText = buttons.find((button) => TRANSCRIPT_LABEL.test(clean(button.textContent)));
     if (byText) return byText;
   }
 
@@ -58,7 +77,9 @@ export function findTranscriptTrigger(doc: Document = document): Element | null 
     'button, [role="button"], yt-button-shape, button-view-model',
   )) {
     if (!(button instanceof HTMLElement) || !button.offsetParent) continue;
-    if (/transcript/i.test(clean(button.getAttribute('aria-label')) + clean(button.textContent))) {
+    if (
+      TRANSCRIPT_LABEL.test(clean(button.getAttribute('aria-label')) + clean(button.textContent))
+    ) {
       return button;
     }
   }

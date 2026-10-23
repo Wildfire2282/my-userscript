@@ -99,6 +99,19 @@ export function extractFromJson3(data: unknown): Segment[] | null {
   return segments.length > 0 ? segments : null;
 }
 
+/** 同一时间戳 + 同一文字的片段只保留一条：面板会同时挂一份隐藏副本，不去重会整篇翻倍。 */
+function dedupeSegments(segments: Segment[]): Segment[] {
+  const seen = new Set<string>();
+  const unique: Segment[] = [];
+  for (const segment of segments) {
+    const key = `${segment.start}\t${segment.text}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unique.push(segment);
+  }
+  return unique;
+}
+
 /** 面板里新的 view-model 结构：每个片段一个节点，时间戳与文字分开。 */
 export function extractFromViewModel(root: ParentNode): Segment[] | null {
   const segments: Segment[] = [];
@@ -117,7 +130,8 @@ export function extractFromViewModel(root: ParentNode): Segment[] | null {
       segments.push({ start: tsToSec(timestamp) * 1000, text });
     }
   }
-  if (segments.length > 0) return segments;
+  const fromNodes = dedupeSegments(segments);
+  if (fromNodes.length > 0) return fromNodes;
 
   // 兜底：新版把时间戳与文字拆成了相邻的 span，找不到片段容器时按“时间戳 + 同块文字”配对。
   // 只扫转写面板容器，不扫整个 body：YouTube 首页有几千个节点，全页扫每次复制都卡一下。
@@ -145,7 +159,8 @@ export function extractFromViewModel(root: ParentNode): Segment[] | null {
       segments.push({ start: tsToSec(timestamp) * 1000, text });
     }
   }
-  return segments.length > 0 ? segments : null;
+  const unique = dedupeSegments(segments);
+  return unique.length > 0 ? unique : null;
 }
 
 /** 最老的结构：每个时间戳与文字在同一行文本里（`0:05 你好`）。 */

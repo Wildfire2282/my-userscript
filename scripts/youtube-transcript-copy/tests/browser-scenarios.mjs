@@ -110,6 +110,44 @@ export const scenarios = [
     },
   },
   {
+    name: '播放器布局变化 → 没拖动过时按钮跟到新的右上角',
+    async run(ctx) {
+      const state = await ctx.evaluate(async () => {
+        const player = document.querySelector('#movie_player');
+        player.style.marginLeft = '200px';
+        window.dispatchEvent(new Event('resize'));
+        await new Promise((resolve) => setTimeout(resolve, 80));
+        return {
+          position: window.__page.position(),
+          expected: window.__page.expectedRightTop(),
+        };
+      });
+      return {
+        expected: `${state.expected.right} / ${state.expected.top}`,
+        actual: `${state.position.right} / ${state.position.top}`,
+      };
+    },
+  },
+  {
+    name: '拖动过按钮后再改布局 → 保持用户放的位置',
+    async run(ctx) {
+      const point = await ctx.evaluate(() => window.__page.center());
+      await ctx.input.drag(point, { x: point.x - 120, y: point.y + 80 });
+      await ctx.wait(80);
+      const state = await ctx.evaluate(async () => {
+        const dragged = window.__page.position();
+        document.querySelector('#movie_player').style.marginLeft = '200px';
+        window.dispatchEvent(new Event('resize'));
+        await new Promise((resolve) => setTimeout(resolve, 80));
+        return { dragged, after: window.__page.position() };
+      });
+      return {
+        expected: `${state.dragged.right} / ${state.dragged.top}`,
+        actual: `${state.after.right} / ${state.after.top}`,
+      };
+    },
+  },
+  {
     name: '暂停后隐藏，继续播放后重新出现',
     async run(ctx) {
       await ctx.evaluate(() => {

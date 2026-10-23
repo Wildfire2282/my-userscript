@@ -18,11 +18,10 @@ interface YtConfig {
 
 /** 读页面当前的客户端版本，读不到返回 null（调用方用写死的兜底）。 */
 export function readPageClientVersion(
-  scope: Record<string, unknown> = globalThis as Record<string, unknown>,
+  scope: { ytcfg?: YtConfig } = globalThis as { ytcfg?: YtConfig },
 ): string | null {
   try {
-    const ytcfg = scope['ytcfg'] as YtConfig | undefined;
-    const version = ytcfg?.get?.('CLIENT_VERSION');
+    const version = scope.ytcfg?.get?.('CLIENT_VERSION');
     return typeof version === 'string' && version !== '' ? version : null;
   } catch {
     return null;

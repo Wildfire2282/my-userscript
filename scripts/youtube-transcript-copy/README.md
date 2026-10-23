@@ -5,7 +5,7 @@
 | 项目 | 值 |
 | --- | --- |
 | Greasy Fork | [579560](https://greasyfork.org/zh-CN/scripts/579560) |
-| 当前版本 | 1.2.0 |
+| 当前版本 | 1.2.1 |
 | 迁移状态 | 已迁移：由 `src/` 模块构建，界面使用 `@ui` |
 | 匹配站点 | `https://www.youtube.com/*`（`document-start`） |
 | 授予权限 | `GM_setClipboard`、`GM_registerMenuCommand`、`GM_setValue`、`GM_getValue`、`GM_deleteValue` |
@@ -27,7 +27,7 @@
 抓取顺序（成功一次就记住这次的方式，下次优先）：
 
 1. `ytInitialPlayerResponse` 里的第一条字幕轨（最快，不用打开面板）；
-2. 页面自己请求转写面板时被网络钩子留下的缓存；
+2. 播放器自己拉字幕、页面请求转写面板时被网络钩子留下的缓存（含带 `pot` 的 `timedtext`）；
 3. 打开转写面板后读新版 view-model 结构；
 4. 再退到面板里的“时间戳 + 文字”纯文本行；
 5. 最后直接请求 `get_panel`。

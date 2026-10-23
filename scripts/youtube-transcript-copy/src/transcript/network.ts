@@ -1,4 +1,4 @@
-import { extractFromPanelResponse } from './extract';
+import { extractFromJson3, extractFromPanelResponse } from './extract';
 import type { Segment } from './types';
 
 /**
@@ -8,7 +8,20 @@ import type { Segment } from './types';
  * 只观察，不改写请求与响应；解析失败静默跳过，不影响页面。
  */
 
-const PANEL_PATTERN = /youtubei\/v1\/get_panel/i;
+/**
+ * 需要旁听的地址：
+ *
+ * - `get_panel` / `get_transcript`：转写面板的接口，不同年代的名字；
+ * - `/api/timedtext`：播放器自己拉字幕的地址。2026 起不带 `pot` 的裸字幕地址
+ *   会返回空响应，只有播放器请求里的完整地址（含 `pot`）能拿到内容，所以顺带缓存它。
+ */
+const CAPTURE_PATTERN = /(?:youtubei\/v1\/(?:get_panel|get_transcript)|\/api\/timedtext)/i;
+const TIMEDTEXT_PATTERN = /\/api\/timedtext/i;
+
+/** 按地址选择解析方式；解析不出来返回 null。 */
+export function parseCapturedResponse(url: string, data: unknown): Segment[] | null {
+  return TIMEDTEXT_PATTERN.test(url) ? extractFromJson3(data) : extractFromPanelResponse(data);
+}
 
 interface HookGlobals {
   __ytTxNetHooked?: boolean;
@@ -56,13 +69,13 @@ export function installNetworkCapture(win: WindowScope = window): NetworkCapture
             ? input.href
             : '';
     const request = originalFetch(...args);
-    if (PANEL_PATTERN.test(url)) {
+    if (CAPTURE_PATTERN.test(url)) {
       void request
         .then(async (response) => {
           try {
             const data: unknown = await response.clone().json();
             globals.__ytTxNetSegments =
-              extractFromPanelResponse(data) ?? globals.__ytTxNetSegments ?? null;
+              parseCapturedResponse(url, data) ?? globals.__ytTxNetSegments ?? null;
           } catch {
             // 响应不是 JSON 或已被消费：不影响页面。
           }
@@ -84,12 +97,13 @@ export function installNetworkCapture(win: WindowScope = window): NetworkCapture
     ...rest: unknown[]
   ): void {
     const target = typeof url === 'string' ? url : url.href;
-    if (PANEL_PATTERN.test(target)) {
+    if (CAPTURE_PATTERN.test(target)) {
       this.addEventListener('load', () => {
         try {
-          const data: unknown = JSON.parse(this.responseText);
+          const data: unknown =
+            this.responseType === 'json' ? this.response : JSON.parse(this.responseText);
           globals.__ytTxNetSegments =
-            extractFromPanelResponse(data) ?? globals.__ytTxNetSegments ?? null;
+            parseCapturedResponse(target, data) ?? globals.__ytTxNetSegments ?? null;
         } catch {
           // 响应不是 JSON：忽略。
         }

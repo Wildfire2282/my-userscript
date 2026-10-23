@@ -116,6 +116,41 @@ describe('extractFromViewModel', () => {
     expect(extractFromViewModel(document.body)).toEqual([{ start: 65_000, text: '一段 台词' }]);
   });
 
+  it('同一片段带一份隐藏副本时只保留一条', () => {
+    for (let copy = 0; copy < 2; copy += 1) {
+      const host = document.createElement('transcript-segment-view-model');
+      const timestamp = document.createElement('span');
+      timestamp.className = 'ytwTranscriptSegmentViewModelTimestamp';
+      timestamp.textContent = '1:05';
+      const text = document.createElement('span');
+      text.setAttribute('role', 'text');
+      text.textContent = '重复台词';
+      host.append(timestamp, text);
+      document.body.appendChild(host);
+    }
+
+    expect(extractFromViewModel(document.body)).toEqual([{ start: 65_000, text: '重复台词' }]);
+  });
+
+  it('同一句话出现在不同时间点时都保留', () => {
+    for (const stamp of ['0:05', '0:09']) {
+      const host = document.createElement('transcript-segment-view-model');
+      const timestamp = document.createElement('span');
+      timestamp.className = 'ytwTranscriptSegmentViewModelTimestamp';
+      timestamp.textContent = stamp;
+      const text = document.createElement('span');
+      text.setAttribute('role', 'text');
+      text.textContent = '重复台词';
+      host.append(timestamp, text);
+      document.body.appendChild(host);
+    }
+
+    expect(extractFromViewModel(document.body)).toEqual([
+      { start: 5_000, text: '重复台词' },
+      { start: 9_000, text: '重复台词' },
+    ]);
+  });
+
   it('没有片段容器时按“时间戳 + 同块文字”兜底', () => {
     const block = document.createElement('div');
     block.setAttribute('role', 'button');

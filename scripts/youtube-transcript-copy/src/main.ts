@@ -31,8 +31,9 @@ function start(): void {
   const gm = createGmApi();
   const store = createStore(gm);
   const clipboard = createClipboard();
-  const network = installNetworkCapture(window);
   const currentVideoId = (): string => new URLSearchParams(location.search).get('v') ?? '';
+  // 把当前视频交给网络钩子：页面还会为别的视频和翻译字幕发同样的请求，那些不能留。
+  const network = installNetworkCapture(window, { currentVideoId });
 
   // `document-start` 时播放器响应还没挂到 window 上，等 DOMContentLoaded 再读一次。
   // 记下它属于哪个视频：SPA 换视频后不能再拿旧视频的字幕轨。

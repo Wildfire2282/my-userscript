@@ -36,6 +36,16 @@ export function setup() {
 
   window.fetch = (input) => {
     const url = typeof input === 'string' ? input : (input && input.url) || '';
+    if (/timedtext/i.test(url)) {
+      // 播放器自己拉的字幕：内容与当前视频无关，用来验证别的视频的响应不会被留下。
+      const body = { events: [{ tStartMs: 0, segs: [{ utf8: '别人的台词' }] }] };
+      return Promise.resolve(
+        new Response(JSON.stringify(body), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+      );
+    }
     if (/get_panel/i.test(url)) {
       return Promise.resolve(
         new Response(JSON.stringify(window.__panel), {
@@ -143,6 +153,29 @@ export const scenarios = [
       return {
         expected: `${state.expected.right} / ${state.expected.top}`,
         actual: `${state.position.right} / ${state.position.top}`,
+      };
+    },
+  },
+  {
+    name: '播放器预取了别的视频的字幕 → 网络缓存不会留下它',
+    async run(ctx) {
+      const state = await ctx.evaluate(async () => {
+        const mine = new URLSearchParams(location.search).get('v');
+        await window.fetch('https://www.youtube.com/api/timedtext?v=other&fmt=json3');
+        await new Promise((resolve) => setTimeout(resolve, 150));
+        const foreign = window.__ytTxNetSegments ?? null;
+        await window.fetch(`https://www.youtube.com/api/timedtext?v=${mine}&fmt=json3`);
+        await new Promise((resolve) => setTimeout(resolve, 150));
+        const current = window.__ytTxNetSegments ?? null;
+        return { mine, foreign, current };
+      });
+      return {
+        expected: `别人的响应不留下 / 当前视频 ${state.mine} 留下`,
+        actual: `${state.foreign === null ? '别人的响应不留下' : `留下了 ${state.foreign.videoId}`} / ${
+          state.current?.videoId === state.mine
+            ? `当前视频 ${state.current.videoId} 留下`
+            : '当前视频的字幕没留下'
+        }`,
       };
     },
   },

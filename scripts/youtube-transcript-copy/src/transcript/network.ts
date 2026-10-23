@@ -23,17 +23,73 @@ export function parseCapturedResponse(url: string, data: unknown): Segment[] | n
   return TIMEDTEXT_PATTERN.test(url) ? extractFromJson3(data) : extractFromPanelResponse(data);
 }
 
+/** 抓到的内容连同它的来源，用于判断能不能给当前视频用。 */
+export interface NetworkCaptureState {
+  videoId: string;
+  /** 来自转写面板接口：比播放器自己拉的字幕更完整，不该被后者覆盖。 */
+  fromPanel: boolean;
+  segments: Segment[];
+}
+
+/** 地址里能读到的信息：`v=` 是视频 ID，`tlang` 表示这是翻译字幕。 */
+function readCapturedUrl(url: string): { videoId: string; translated: boolean } {
+  try {
+    const parsed = new URL(url, 'https://www.youtube.com');
+    return {
+      videoId: parsed.searchParams.get('v') ?? '',
+      translated: parsed.searchParams.get('tlang') !== null,
+    };
+  } catch {
+    return { videoId: '', translated: false };
+  }
+}
+
+/**
+ * 决定这次抓到的内容要不要留下。
+ *
+ * 页面同一时刻只留一份：播放器会为别的视频（下一个视频、迷你播放器）和翻译字幕
+ * 也发同样的请求，谁的响应后到就覆盖谁的做法会让人复制到别的内容。
+ *
+ * @param state 已缓存的内容
+ * @param currentVideoId 当前地址栏里的视频
+ * @param url 这次响应的地址
+ * @param segments 这次解析出的片段；null 表示这份响应没有文稿
+ * @returns 新的缓存内容；`null` 表示丢掉这次响应
+ */
+export function nextCapture(
+  state: NetworkCaptureState | null,
+  currentVideoId: string,
+  url: string,
+  segments: Segment[] | null,
+): NetworkCaptureState | null {
+  if (!segments || segments.length === 0 || currentVideoId === '') return null;
+  const { videoId, translated } = readCapturedUrl(url);
+  const fromPanel = !TIMEDTEXT_PATTERN.test(url);
+  // 别的视频的响应：未来的自己不会想要，现在的自己也不能用。
+  if (videoId !== '' && videoId !== currentVideoId) return null;
+  // 翻译字幕只是同一篇文稿的另一种语言，不是视频原本的文稿。
+  if (!fromPanel && translated) return null;
+  // 面板数据更完整，别让播放器的字幕把它换成半份。
+  if (state?.fromPanel && !fromPanel) return null;
+  return { videoId: currentVideoId, fromPanel, segments };
+}
+
 interface HookGlobals {
   __ytTxNetHooked?: boolean;
-  // 捕获到的片段存在 window 上：同一窗口装两次时第二个实例也能读到同一份。
-  __ytTxNetSegments?: Segment[] | null;
+  // 捕获到的内容存在 window 上：同一窗口装两次时第二个实例也能读到同一份。
+  __ytTxNetSegments?: NetworkCaptureState | null;
 }
 
 /** `Window` 接口本身不含 XMLHttpRequest，`window` 的类型是它与全局对象的交叉。 */
 type WindowScope = Window & typeof globalThis;
 
+export interface NetworkCaptureOptions {
+  /** 当前视频 ID；用来丢掉其它视频的响应。默认读地址栏的 `v=`。 */
+  currentVideoId?: () => string;
+}
+
 export interface NetworkCapture {
-  /** 已捕获的片段；没有捕获返回 null。 */
+  /** 当前视频已捕获的片段；没有捕获或是别的视频的响应时返回 null。 */
   get: () => Segment[] | null;
   /** 清空捕获：SPA 换视频后旧的转写不能给新视频用。 */
   clear: () => void;
@@ -41,12 +97,33 @@ export interface NetworkCapture {
   restore: () => void;
 }
 
-export function installNetworkCapture(win: WindowScope = window): NetworkCapture {
+export function installNetworkCapture(
+  win: WindowScope = window,
+  options: NetworkCaptureOptions = {},
+): NetworkCapture {
   const globals = win as unknown as HookGlobals;
+  const currentVideoId =
+    options.currentVideoId ?? (() => new URLSearchParams(win.location.search).get('v') ?? '');
+
+  const read = (): Segment[] | null => {
+    const state = globals.__ytTxNetSegments ?? null;
+    return state !== null && state.videoId === currentVideoId() ? state.segments : null;
+  };
+
+  const accept = (url: string, data: unknown): void => {
+    const next = nextCapture(
+      globals.__ytTxNetSegments ?? null,
+      currentVideoId(),
+      url,
+      parseCapturedResponse(url, data),
+    );
+    if (next) globals.__ytTxNetSegments = next;
+  };
+
   if (globals.__ytTxNetHooked) {
     // 同一窗口已经钩过一次：共用 window 上的缓存，避免包装两层，也避免新闭包拿不到旧数据。
     return {
-      get: () => globals.__ytTxNetSegments ?? null,
+      get: read,
       clear: () => {
         globals.__ytTxNetSegments = null;
       },
@@ -73,9 +150,7 @@ export function installNetworkCapture(win: WindowScope = window): NetworkCapture
       void request
         .then(async (response) => {
           try {
-            const data: unknown = await response.clone().json();
-            globals.__ytTxNetSegments =
-              parseCapturedResponse(url, data) ?? globals.__ytTxNetSegments ?? null;
+            accept(url, await response.clone().json());
           } catch {
             // 响应不是 JSON 或已被消费：不影响页面。
           }
@@ -102,8 +177,7 @@ export function installNetworkCapture(win: WindowScope = window): NetworkCapture
         try {
           const data: unknown =
             this.responseType === 'json' ? this.response : JSON.parse(this.responseText);
-          globals.__ytTxNetSegments =
-            parseCapturedResponse(target, data) ?? globals.__ytTxNetSegments ?? null;
+          accept(target, data);
         } catch {
           // 响应不是 JSON：忽略。
         }
@@ -114,7 +188,7 @@ export function installNetworkCapture(win: WindowScope = window): NetworkCapture
   proto.open = wrappedOpen;
 
   return {
-    get: () => globals.__ytTxNetSegments ?? null,
+    get: read,
     clear() {
       globals.__ytTxNetSegments = null;
     },

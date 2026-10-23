@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseCapturedResponse } from '../src/transcript/network';
+import { nextCapture, parseCapturedResponse } from '../src/transcript/network';
 
 const TIMEDTEXT = {
   events: [
@@ -59,6 +59,54 @@ describe('parseCapturedResponse', () => {
     expect(parseCapturedResponse('https://www.youtube.com/api/timedtext?v=x', {})).toBeNull();
     expect(
       parseCapturedResponse('https://www.youtube.com/youtubei/v1/get_transcript', { actions: [] }),
+    ).toBeNull();
+  });
+});
+
+describe('nextCapture', () => {
+  const other = [{ start: 0, text: '别的视频' }];
+  const mine = [{ start: 0, text: '这个视频' }];
+
+  it('当前视频的字幕留下', () => {
+    expect(
+      nextCapture(null, 'abc', 'https://www.youtube.com/api/timedtext?v=abc&fmt=json3', mine),
+    ).toEqual({ videoId: 'abc', fromPanel: false, segments: mine });
+  });
+
+  it('别的视频的响应丢掉', () => {
+    expect(
+      nextCapture(null, 'abc', 'https://www.youtube.com/api/timedtext?v=xyz&fmt=json3', other),
+    ).toBeNull();
+  });
+
+  it('翻译字幕丢掉，不冒充原文稿', () => {
+    expect(
+      nextCapture(
+        null,
+        'abc',
+        'https://www.youtube.com/api/timedtext?v=abc&tlang=zh-Hans&fmt=json3',
+        mine,
+      ),
+    ).toBeNull();
+  });
+
+  it('面板数据不被播放器字幕覆盖', () => {
+    const state = { videoId: 'abc', fromPanel: true, segments: mine };
+    expect(
+      nextCapture(state, 'abc', 'https://www.youtube.com/api/timedtext?v=abc&fmt=json3', mine),
+    ).toBeNull();
+  });
+
+  it('没有视频 ID 时不缓存', () => {
+    expect(
+      nextCapture(null, '', 'https://www.youtube.com/api/timedtext?v=abc&fmt=json3', mine),
+    ).toBeNull();
+  });
+
+  it('解析不出内容时不覆盖已有缓存', () => {
+    const state = { videoId: 'abc', fromPanel: true, segments: mine };
+    expect(
+      nextCapture(state, 'abc', 'https://www.youtube.com/api/timedtext?v=abc', null),
     ).toBeNull();
   });
 });

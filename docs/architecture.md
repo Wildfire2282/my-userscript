@@ -13,8 +13,8 @@
 - 构建与自动化以 Chromium 111+ 为基线；Firefox 只做手工冒烟，不纳入 E2E；
 - 不采集、不上报用户数据，日志不含页面内容或个人信息；
 - 不模拟 Greasy Fork 登录，不自动提交发布。
-- 只针对 Windows 上的 Chromium 系浏览器（Chrome / Edge 111+）优化：触屏手势、macOS 按键、
-  Safari / Firefox 的私有 API  fallback 一律不写，相关代码出现即删。
+- 只针对 Windows 11 上的 Chromium 系浏览器（Chrome / Edge 111+，桌面端鼠标操作）优化：触屏手势、macOS 按键、
+  Safari / Firefox 的私有 API fallback 一律不写，相关代码出现即删。
 
 非目标：引入 React / Vue / Tailwind 等运行时框架，把脚本改成后台服务，或为尚未出现的重复提前造抽象。
 
@@ -154,7 +154,7 @@ npm run check           # 交付前全量：静态检查 + 单测 + 构建 + 元
 | 复制反馈 | 中性卡片底 + 彩色图标；成功停留 1.2s、失败 1.8s | 12px 文字在整块绿色 / 红色底上对比度不足；失败信息需要更长的阅读时间 |
 | 剪贴板 | `@shared` 的 `createClipboard` 在每次写入时解析可用通道 | 页面或管理器可能替换写入能力，固定引用会让降级顺序与实际能力不一致 |
 | 主题 | `light` / `dark` / `system` 显式传入 | 不跟随宿主页面，避免被站点主题带偏 |
-| 目标平台 | 只认 Windows 上的 Chromium 系（Chrome / Edge 111+）；触屏手势、macOS 按键、Safari / Firefox 私有 API 的 fallback 一律不写 | 用户群就是 Windows 桌面浏览器，每条兼容分支都要人读、要测、要修，不写就是最省 |
+| 目标平台 | 只认 Windows 11 上的 Chromium 系（Chrome / Edge 111+，桌面端鼠标操作）；触屏手势、macOS 按键、Safari / Firefox 私有 API 的 fallback 一律不写 | 用户群就是 Windows 11 桌面浏览器，每条兼容分支都要人读、要测、要修，不写就是最省 |
 
 ## 8. 发布与迁移
 

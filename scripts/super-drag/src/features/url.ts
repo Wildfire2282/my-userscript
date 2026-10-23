@@ -18,8 +18,22 @@ export function looksLikeUrl(text: string): boolean {
 /** 中文标点不可能出现在地址里：第一次出现就截断（`https://a。这是说明` → `https://a`）。 */
 const CJK_PUNCT = /[。、，．・…？！；：『』「」《》（）【】\u3000]/u;
 
-/** 地址结尾不可能是这些符号（句尾的 `。，;!?` 和全角引号括号）；半角 `)]}` 不剥，Wikipedia 的 `..._(film)` 就是右括号结尾。 */
+/** 地址结尾不可能是这些符号（句尾的 `。，;!?` 和全角引号括号）；半角 `)]}` 不在这里剥，
+ * Wikipedia 的 `..._(film)` 就是右括号结尾，见 `balanceTrailingParen`。 */
 const TRAILING_PUNCT = /[。.，,;；:：!！?？'"'""…、〉》」』〕）]+$/u;
+
+/** 括号配平：右括号比左括号多时，多出来的只能是句尾混进来的，剥掉一个。
+ *
+ * `（见https://a)` → `https://a`；`..._(film)` 配平，保留。 */
+function balanceTrailingParen(url: string): string {
+  if (!url.endsWith(')')) return url;
+  let depth = 0;
+  for (const char of url) {
+    if (char === '(') depth += 1;
+    else if (char === ')') depth -= 1;
+  }
+  return depth < 0 ? url.slice(0, -1) : url;
+}
 
 /**
  * 从一段无空格的文字里切出地址：从协议头开始，到中文标点结束。
@@ -32,7 +46,7 @@ function extractUrlCandidate(keyword: string): string {
   const fromStart = start >= 0 ? keyword.slice(start) : keyword;
   const cut = fromStart.search(CJK_PUNCT);
   const candidate = cut >= 0 ? fromStart.slice(0, cut) : fromStart;
-  return candidate.replace(TRAILING_PUNCT, '');
+  return balanceTrailingParen(candidate.replace(TRAILING_PUNCT, ''));
 }
 
 /**

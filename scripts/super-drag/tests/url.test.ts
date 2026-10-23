@@ -38,6 +38,7 @@ describe('asDirectUrl', () => {
     expect(asDirectUrl('https://example.com。这是说明')).toBe('https://example.com');
     expect(asDirectUrl('https://example.com/a,')).toBe('https://example.com/a');
     expect(asDirectUrl('HTTPS://EXAMPLE.COM/Path')).toBe('HTTPS://EXAMPLE.COM/Path');
+    expect(asDirectUrl('（见https://example.com/a)')).toBe('https://example.com/a');
     expect(asDirectUrl('https://en.wikipedia.org/wiki/X_(film)')).toBe(
       'https://en.wikipedia.org/wiki/X_(film)',
     );

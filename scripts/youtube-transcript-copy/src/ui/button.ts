@@ -14,8 +14,7 @@ export type ButtonState = 'normal' | 'loading' | 'success' | 'error';
 const DRAG_THRESHOLD_PX = 3;
 const RESET_DELAY_MS = 1500;
 const DOT_INTERVAL_MS = 300;
-// 拖动结束后浏览器会补一次 click，触屏上到得晚：和超级拖拽的 400ms 对齐，宁可多吞一次。
-const CLICK_SUPPRESS_MS = 350;
+const CLICK_SUPPRESS_MS = 50;
 const LABELS: Record<ButtonState, string> = {
   normal: 'T',
   loading: '.',
@@ -131,8 +130,6 @@ export function createTranscriptButton(options: TranscriptButtonOptions): Transc
     const onUp = (): void => {
       document.removeEventListener('pointermove', onMove);
       document.removeEventListener('pointerup', onUp);
-      // 触屏拖动被系统手势抢占时会发 cancel 而不是 up：不摘监听就越积越多。
-      document.removeEventListener('pointercancel', onUp);
       wrap.dataset.dragging = 'false';
       options.onMoveEnd(position);
       if (moved) {
@@ -146,7 +143,6 @@ export function createTranscriptButton(options: TranscriptButtonOptions): Transc
     wrap.dataset.dragging = 'true';
     document.addEventListener('pointermove', onMove);
     document.addEventListener('pointerup', onUp);
-    document.addEventListener('pointercancel', onUp);
   });
 
   applyPosition();

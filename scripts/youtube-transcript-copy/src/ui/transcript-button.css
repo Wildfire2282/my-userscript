@@ -6,7 +6,6 @@
   position: fixed;
   z-index: 1;
   cursor: grab;
-  touch-action: none;
   user-select: none;
 }
 

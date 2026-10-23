@@ -33,24 +33,29 @@ export function normalizeUrl(url: string): string {
   return decodeText(url).trim();
 }
 
+/** 不执行的链接协议：不能打开、复制出来也是坏地址，列表里直接不要。 */
+const BLOCKED_SCHEMES = /^(javascript|data|vbscript):/i;
+
 /**
  * 把 `href` 补成绝对地址。
  *
  * @param rawHref 元素上的原始 `href`
  * @param baseHref 页面地址，用来解析相对地址
  * @param absoluteHref 浏览器已经解析好的 `a.href`，解析失败时用它兜底
- * @returns 归一化后的地址；空地址返回 `null`
+ * @returns 归一化后的地址；空地址或不可执行的协议返回 `null`
  */
 export function resolveUrl(rawHref: string, baseHref: string, absoluteHref = ''): string | null {
-  if (rawHref.trim() === '') return null;
+  const raw = rawHref.trim();
+  if (raw === '' || BLOCKED_SCHEMES.test(raw)) return null;
   let resolved: string;
   try {
-    resolved = new URL(rawHref, baseHref).toString();
+    resolved = new URL(raw, baseHref).toString();
   } catch {
-    resolved = absoluteHref || rawHref;
+    resolved = absoluteHref || raw;
   }
   const normalized = normalizeUrl(resolved);
-  return normalized === '' ? null : normalized;
+  if (normalized === '' || BLOCKED_SCHEMES.test(normalized)) return null;
+  return normalized;
 }
 
 /**

@@ -33,6 +33,9 @@ export interface LinkPanelHandle {
   isOpen: () => boolean;
 }
 
+/** 首屏最多建这么多行，剩下的点“显示更多”再加。 */
+const PAGE_SIZE = 200;
+
 export function createLinkPanel(options: LinkPanelOptions): LinkPanelHandle {
   const { ui } = options;
   ui.useStyles(listCss);
@@ -76,6 +79,8 @@ export function createLinkPanel(options: LinkPanelOptions): LinkPanelHandle {
   let allItems: LinkItem[] = [];
   let filteredItems: LinkItem[] = [];
   let selectedIds = new Set<string>();
+  // 首屏只建这么多行：上千条链接一次全建会卡住，点“显示更多”再往后加。
+  let shownCount = PAGE_SIZE;
 
   /** 勾选状态按事件委托记在列表上：行会被反复重建，逐行挂监听无法可靠清理。 */
   list.addEventListener(
@@ -136,13 +141,31 @@ export function createLinkPanel(options: LinkPanelOptions): LinkPanelHandle {
       empty.textContent = '无匹配结果';
       list.appendChild(empty);
     } else {
-      filteredItems.forEach((item, index) => list.appendChild(createRow(item, index)));
+      filteredItems
+        .slice(0, shownCount)
+        .forEach((item, index) => list.appendChild(createRow(item, index)));
+      if (filteredItems.length > shownCount) {
+        const more = document.createElement('button');
+        more.type = 'button';
+        more.className = 'cl-empty';
+        more.textContent = `显示更多（剩余 ${filteredItems.length - shownCount} 条）`;
+        more.addEventListener(
+          'click',
+          () => {
+            shownCount += PAGE_SIZE;
+            render();
+          },
+          { signal: ui.signal },
+        );
+        list.appendChild(more);
+      }
     }
     updateStats();
   }
 
   function applyFilter(): void {
     filteredItems = filterLinks(allItems, search.getValue(), magnet.isChecked());
+    shownCount = PAGE_SIZE;
     render();
   }
 
@@ -197,6 +220,7 @@ export function createLinkPanel(options: LinkPanelOptions): LinkPanelHandle {
     open() {
       allItems = scanLinks();
       selectedIds = new Set();
+      shownCount = PAGE_SIZE;
       search.setValue('');
       magnet.setChecked(false);
       applyFilter();

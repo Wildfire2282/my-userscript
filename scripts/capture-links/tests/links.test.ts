@@ -48,6 +48,13 @@ describe('resolveUrl', () => {
       'https://example.com/rel',
     );
   });
+
+  it('javascript:/data: 链接直接丢掉', () => {
+    expect(resolveUrl('javascript:void(0)', BASE)).toBeNull();
+    expect(resolveUrl('JAVASCRIPT:alert(1)', BASE)).toBeNull();
+    expect(resolveUrl('data:text/html,hi', BASE)).toBeNull();
+    expect(collectLinks([{ rawHref: 'javascript:void(0)', absoluteHref: 'javascript:void(0)', title: '按钮' }], BASE)).toEqual([]);
+  });
 });
 
 describe('collectLinks', () => {

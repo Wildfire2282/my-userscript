@@ -27,4 +27,15 @@ describe('formatLinks', () => {
   it('没有选中项时是空字符串', () => {
     expect(formatLinks([], 'url')).toBe('');
   });
+
+  it('标题里的特殊字符会转义，不拼出坏格式', () => {
+    const items: LinkItem[] = [{ id: '1', url: 'https://example.com/a', title: 'a]b"c<d' }];
+    expect(formatLinks(items, 'markdown')).toBe('[a\\]b"c<d](https://example.com/a)');
+    expect(formatLinks(items, 'html')).toBe('<a href="https://example.com/a">a]b&quot;c&lt;d</a>');
+  });
+
+  it('地址里有括号时 Markdown 用 <> 包裹', () => {
+    const items: LinkItem[] = [{ id: '1', url: 'https://example.com/a(1)', title: 'A' }];
+    expect(formatLinks(items, 'markdown')).toBe('[A](<https://example.com/a(1)>)');
+  });
 });

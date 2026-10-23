@@ -49,7 +49,7 @@
 
 | `@name` | `@name:en` | `@description:en` |
 | --- | --- | --- |
-| 超级拖拽 | Super Drag | Drag text to search, links to open, and images to view |
+| 拖拽打开 | Drag to Open | Drag text to search, links to open, and images to view |
 | 捕获链接 | Link Capture | Collect, filter, and copy all links on a page |
 | 选中复制 | Copy on Select | Copy selected text as plain text with whitespace trimmed |
 | YouTube 转写文稿复制 | YouTube Transcript Copy | Add a draggable button to copy YouTube transcripts |
@@ -60,8 +60,8 @@
 
 ```text
 // ==UserScript==
-// @name         超级拖拽
-// @name:en      Super Drag
+// @name         拖拽打开
+// @name:en      Drag to Open
 // @namespace    https://github.com/Wildfire2282
 // @description  拖拽文本搜索，拖拽链接在新标签页打开，拖拽图片查看
 // @description:en Drag text to search, links to open, and images to view

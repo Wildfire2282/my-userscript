@@ -1,6 +1,6 @@
 // ==UserScript==
-// @name         超级拖拽
-// @name:en      Super Drag
+// @name         拖拽打开
+// @name:en      Drag to Open
 // @namespace    https://github.com/Wildfire2282
 // @description  拖拽文本搜索，拖拽链接在新标签页打开，拖拽图片查看
 // @description:en Drag text to search, links to open, and images to view

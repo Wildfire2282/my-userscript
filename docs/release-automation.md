@@ -94,7 +94,7 @@ push main
 
 | 脚本 | 同步 URL |
 | --- | --- |
-| 超级拖拽 | `https://raw.githubusercontent.com/Wildfire2282/my-userscript/release/super-drag.user.js` |
+| 拖拽打开 | `https://raw.githubusercontent.com/Wildfire2282/my-userscript/release/super-drag.user.js` |
 | 捕获链接 | `https://raw.githubusercontent.com/Wildfire2282/my-userscript/release/capture-links.user.js` |
 | 选中复制 | `https://raw.githubusercontent.com/Wildfire2282/my-userscript/release/selection-copy.user.js` |
 | YouTube 转写文稿复制 | `https://raw.githubusercontent.com/Wildfire2282/my-userscript/release/youtube-transcript-copy.user.js` |

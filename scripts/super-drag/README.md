@@ -1,11 +1,11 @@
-# 超级拖拽
+# 拖拽打开
 
 拖拽文本搜索，拖拽链接在新标签页打开，拖拽图片查看。
 
 | 项目 | 值 |
 | --- | --- |
 | Greasy Fork | [580630](https://greasyfork.org/zh-CN/scripts/580630) |
-| 当前版本 | 2.4.1 |
+| 当前版本 | 2.6.0 |
 | 迁移状态 | 已迁移：由 `src/` 模块构建，界面使用 `@ui` |
 | 匹配站点 | `https://*/*`、`http://*/*`（`@noframes`，`document-end`） |
 | 授予权限 | `GM_getValue`、`GM_setValue`、`GM_registerMenuCommand`、`GM_openInTab` |

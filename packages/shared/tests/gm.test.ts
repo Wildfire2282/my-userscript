@@ -44,7 +44,7 @@ describe('createGmApi', () => {
   it('注册菜单项时把回调原样交给管理器', () => {
     const run = vi.fn();
     const register = vi.fn();
-    createGmApi({ GM_registerMenuCommand: register }).registerMenuCommand('超级拖拽：设置', run);
-    expect(register).toHaveBeenCalledWith('超级拖拽：设置', run);
+    createGmApi({ GM_registerMenuCommand: register }).registerMenuCommand('拖拽打开设置', run);
+    expect(register).toHaveBeenCalledWith('拖拽打开设置', run);
   });
 });

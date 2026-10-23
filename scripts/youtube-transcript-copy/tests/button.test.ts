@@ -24,11 +24,19 @@ function press(wrap: Element, x = 100, y = 100): void {
 }
 
 function move(x: number, y: number): void {
-  document.dispatchEvent(new PointerEvent('pointermove', { clientX: x, clientY: y, bubbles: true }));
+  document.dispatchEvent(
+    new PointerEvent('pointermove', { clientX: x, clientY: y, bubbles: true }),
+  );
 }
 
 function release(): void {
   document.dispatchEvent(new PointerEvent('pointerup', { bubbles: true }));
+}
+
+function clickButton(wrap: Element): void {
+  wrap
+    .querySelector('button')
+    ?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
 }
 
 describe('createTranscriptButton', () => {
@@ -56,6 +64,23 @@ describe('createTranscriptButton', () => {
     release();
     expect(handle.el.dataset.dragging).toBe('false');
     expect(onMoveEnd).toHaveBeenCalledTimes(2);
+    handle.destroy();
+  });
+
+  it('拖动后 200ms 內的点击仍被吞掉，过期后恢复', async () => {
+    const { handle, onClick } = setup();
+    press(handle.el);
+    move(120, 120);
+    release();
+    clickButton(handle.el);
+    expect(onClick).not.toHaveBeenCalled();
+    // 触屏上补发的点击到得晚：200ms 后还在抑制窗内，不能误复制。
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    clickButton(handle.el);
+    expect(onClick).not.toHaveBeenCalled();
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    clickButton(handle.el);
+    expect(onClick).toHaveBeenCalledTimes(1);
     handle.destroy();
   });
 });

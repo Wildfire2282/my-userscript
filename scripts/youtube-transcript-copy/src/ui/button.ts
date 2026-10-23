@@ -14,7 +14,8 @@ export type ButtonState = 'normal' | 'loading' | 'success' | 'error';
 const DRAG_THRESHOLD_PX = 3;
 const RESET_DELAY_MS = 1500;
 const DOT_INTERVAL_MS = 300;
-const CLICK_SUPPRESS_MS = 50;
+// 拖动结束后浏览器会补一次 click，触屏上到得晚：和超级拖拽的 400ms 对齐，宁可多吞一次。
+const CLICK_SUPPRESS_MS = 350;
 const LABELS: Record<ButtonState, string> = {
   normal: 'T',
   loading: '.',

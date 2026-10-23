@@ -34,7 +34,7 @@ function start(): void {
 
   const copy = createCopyAction({
     clipboard: createClipboard(),
-    getSettings: store.snapshot,
+    getSettings: store.get,
     site,
     showFeedback: app.showFeedback,
   });

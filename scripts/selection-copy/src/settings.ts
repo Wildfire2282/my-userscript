@@ -1,4 +1,9 @@
-import { createGmApi, mergeDefaults, saveStoredSettings, type GmApi } from '@shared';
+import {
+  createGmApi,
+  createSettingsStore as createSharedStore,
+  mergeDefaults,
+  type GmApi,
+} from '@shared';
 
 /**
  * 本脚本的设置。
@@ -152,49 +157,17 @@ export function topSiteKey(win: Window): string {
   });
 }
 
-/** 设置的读取与保存；读取结果缓存在内存里，热路径不重复访问 GM。 */
+/** 设置的读取与保存：每次读取都看存储，iframe 与其它标签页的改动立即生效。 */
 export interface SettingsStore {
-  /** 当前缓存，供面板显示。 */
   get: () => Settings;
-  /**
-   * 每次复制前取最新设置。
-   *
-   * iframe 与顶层页面共用存储，但各自的缓存不会自动刷新；复制是低频手势，
-   * 每次读一次存储，才能让“暂停本站”立刻在 iframe 里生效。
-   */
-  snapshot: () => Settings;
   update: (patch: Partial<Settings>) => Settings;
 }
 
 /**
- * 创建设置仓库。
+ * 创建设置仓库；读取与写回的通用逻辑在 `@shared`。
  *
  * @param api GM 适配层；测试里可以传入假实现
  */
 export function createSettingsStore(api: GmApi = createGmApi()): SettingsStore {
-  let cache: Settings | null = null;
-  // 写失败后不再从存储回读，否则刚改的设置会被旧值覆盖。
-  let writeFailed = false;
-
-  const get = (): Settings => {
-    if (!cache) cache = normalizeSettings(api.getValue(SETTINGS_KEY, null));
-    return cache;
-  };
-
-  return {
-    get,
-    snapshot() {
-      if (writeFailed) return get();
-      const stored = api.getValue(SETTINGS_KEY, null);
-      if (stored !== null && stored !== undefined) cache = normalizeSettings(stored);
-      return get();
-    },
-    update(patch) {
-      const next = normalizeSettings({ ...get(), ...patch });
-      cache = next;
-      // 写失败时保留内存副本：本次浏览仍按新设置工作，不打断用户。
-      writeFailed = !saveStoredSettings(api, SETTINGS_KEY, next);
-      return next;
-    },
-  };
+  return createSharedStore({ api, key: SETTINGS_KEY, normalize: normalizeSettings });
 }

@@ -8,13 +8,21 @@ import {
   toCopyFormat,
 } from '../src/settings';
 
-function fakeGm(stored: unknown = null): GmApi & { written: unknown[] } {
+function fakeGm(
+  stored: unknown = null,
+): GmApi & { written: unknown[]; values: Map<string, unknown> } {
   const written: unknown[] = [];
+  const values = new Map<string, unknown>();
+  if (stored !== null) values.set(SETTINGS_KEY, stored);
   return {
     written,
-    getValue: vi.fn(() => stored),
-    setValue: vi.fn((_key: string, value: unknown) => {
+    values,
+    getValue: vi.fn((key: string, fallback: unknown) =>
+      values.has(key) ? values.get(key) : fallback,
+    ),
+    setValue: vi.fn((key: string, value: unknown) => {
       written.push(value);
+      values.set(key, value);
       return true;
     }),
     registerMenuCommand: vi.fn(() => true),
@@ -56,13 +64,14 @@ describe('normalizeSettings', () => {
 });
 
 describe('createSettingsStore', () => {
-  it('首次读取走 GM，之后走内存缓存', () => {
+  it('每次都读存储：别的标签页改了设置立即生效', () => {
     const gm = fakeGm({ copyFormat: 'html' });
     const store = createSettingsStore(gm);
     expect(store.get().copyFormat).toBe('html');
-    expect(store.get().copyFormat).toBe('html');
-    expect(gm.getValue).toHaveBeenCalledTimes(1);
     expect(gm.getValue).toHaveBeenCalledWith(SETTINGS_KEY, null);
+
+    gm.values.set(SETTINGS_KEY, { copyFormat: 'markdown' });
+    expect(store.get().copyFormat).toBe('markdown');
   });
 
   it('更新时写回完整设置并立即生效', () => {

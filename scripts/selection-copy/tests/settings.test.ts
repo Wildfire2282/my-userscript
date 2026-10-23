@@ -131,7 +131,7 @@ describe('站点开关', () => {
 });
 
 describe('createSettingsStore', () => {
-  it('读取一次后走内存缓存，更新写回同一个键', () => {
+  it('更新写回同一个键并立即生效', () => {
     const { api, values } = fakeGm();
     const store = createSettingsStore(api);
 
@@ -145,15 +145,13 @@ describe('createSettingsStore', () => {
     expect(store.get().copyInInputs).toBe(true);
   });
 
-  it('复制前读到别的 frame 刚写入的设置', () => {
+  it('读到别的 frame 刚写入的设置', () => {
     const { api, values } = fakeGm();
     const store = createSettingsStore(api);
 
     expect(store.get().trimWhitespace).toBe(true);
     values.set(SETTINGS_KEY, { ...DEFAULT_SETTINGS, trimWhitespace: false });
 
-    expect(store.get().trimWhitespace).toBe(true);
-    expect(store.snapshot().trimWhitespace).toBe(false);
     expect(store.get().trimWhitespace).toBe(false);
   });
 
@@ -163,7 +161,6 @@ describe('createSettingsStore', () => {
 
     store.update({ enabled: false });
     expect(store.get().enabled).toBe(false);
-    expect(store.snapshot().enabled).toBe(false);
     expect(values.has(SETTINGS_KEY)).toBe(false);
   });
 

@@ -23,7 +23,7 @@
 | 路径 | 职责 |
 | --- | --- |
 | `packages/userscript-ui/` | UI 设计体系，git submodule，只读；升级走独立提交 |
-| `packages/shared/` | 跨脚本共用代码：GM 适配（`gm.ts`）、设置读写（`storage.ts`）与剪贴板写入（`clipboard.ts`） |
+| `packages/shared/` | 跨脚本共用代码：GM 适配（`gm.ts`）、设置合并与读写（`storage.ts`）、设置仓库（`settings-store.ts`）与剪贴板写入（`clipboard.ts`） |
 | `scripts/<slug>/` | 一个脚本一个 npm workspace 包 |
 | `scripts/<slug>/userscript.meta.ts` | 静态元数据（名称、匹配、权限），不含 `@version` |
 | `scripts/<slug>/src/` | 模块化源码，入口 `src/main.ts` |
@@ -57,7 +57,7 @@ scripts/<slug>
 | `vitest.config.ts` 的 `resolve.alias` | 单测 |
 
 - 包之间不互相 import；共享代码只从上表两个来源进入。
-- `packages/shared` 只收纳在多个 legacy 脚本中重复出现、且已在新结构中使用的逻辑，目前是 `gm`、`storage` 与 `clipboard`。UI、站点规则、日志、i18n 一律不进。
+- `packages/shared` 只收纳在多个 legacy 脚本中重复出现、且已在新结构中使用的逻辑，目前是 `gm`、`storage`、`settings-store` 与 `clipboard`。UI、站点规则、日志、i18n 一律不进。
 
 ## 4. 单脚本形态
 
@@ -143,12 +143,13 @@ npm run check           # 交付前全量：静态检查 + 单测 + 构建 + 元
 | 构建 | 自研 `tools/build.mjs` + Vite IIFE，不引入 `vite-plugin-monkey` | 单文件、banner、CSS 内联已满足需求，插件带来的权限收集与配置成本没有收益 |
 | 版本 | `package.json` 唯一来源，构建时注入 | 元数据与包版本两处手写必然漂移 |
 | 元数据 lint | 只用 `tools/check-meta.mjs`，不引入 `eslint-plugin-userscripts` | 该插件只认 `.user.js` 里的元数据块，而本仓元数据在 `.ts`、产物不提交；`use-homepage-and-url` 要求非标准 `@homepage`，`align-attributes` 的自动修复会重排整块并插入 `@homepage`，与 `metadata.md` 的字段清单冲突；`@match` 语法它也不校验，唯一能补的是未使用 `@grant` 的拼写，价值低于多一个 devDependency |
-| 共享内核 | 只收纳 `gm`、`storage` 与 `clipboard` | 重复事实来自多个 legacy 脚本；其余抽象尚无稳定复用 |
+| 共享内核 | 只收纳 `gm`、`storage`、`settings-store` 与 `clipboard` | 重复事实来自多个 legacy 脚本；其余抽象尚无稳定复用 |
 | UI 复用 | 子模块源码直引，按需 tree-shake | 不发布运行时包，不引入全局样式与远程资源 |
 | 测试分层 | 纯逻辑走 Vitest，用户可见交互走真实浏览器；同一事实只在一层断言 | 两层都断言同一规则会让维护成本翻倍，失败时也看不出该改哪一层 |
 | 浏览器验证 | 自建 CDP 驱动，不用 Playwright；每个场景独立重载页面 | 环境已有 Chrome/Edge，避免下载浏览器与额外依赖；场景互不污染，可单独删除或调试 |
 | 发布 | 确认发布后 push `main`，CI 推送 `release` 分支，webhook 通知 Greasy Fork | 构建与上线自动完成；发布时机、登录与元数据变化仍由人确认 |
 | 存储 | 旧键不改名，新键用 `<slug>:<area>.<key>` | 改名会丢用户设置 |
+| 设置读取 | 三个脚本共用一个设置仓库，每次读取都看存储，不长期缓存在内存 | 多标签页与同页 iframe 共用存储，长期缓存会让别处的改动不生效，只有刷新才好 |
 | 自绘 UI 的例外 | 没有对应组件的交互（复制提示标签、可拖动悬浮按钮）仍在 `@ui` 的 Shadow Root 内、用 `--ds-*` Token 自绘；可拖动按钮的外观复用 `createButton`，脚本只补定位与拖动；链接列表的数据行用原生 checkbox | `@ui` 没有这些形态，套现成组件会改掉用户熟悉的手势，或让上千行列表的每次筛选都重建组件句柄；样式仍受 Token 约束 |
 | 菜单入口 | 每个脚本的脚本管理器菜单只保留「操作面板」与「功能设置」两项：动作进操作面板，偏好与记忆进功能设置；没有动作的脚本（拖拽打开、选中复制）只注册「功能设置」。菜单只在顶层页面注册 | 菜单项一多就难找，名字不统一时更要靠试；两项固定分类让所有脚本的入口位置一致，其余入口放进面板后还能写说明、给反馈 |
 | 设置入口 | 选中复制只在脚本管理器菜单里提供设置，不建悬浮按钮；菜单只在顶层页面注册 | 这是高频旁路脚本，页面上多一个常驻按钮会打扰阅读；菜单入口零占位，关掉后仍能重新打开；只在顶层注册避免每个 iframe 各加一项 |

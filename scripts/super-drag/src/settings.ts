@@ -1,4 +1,9 @@
-import { createGmApi, mergeDefaults, saveStoredSettings, type GmApi } from '@shared';
+import {
+  createGmApi,
+  createSettingsStore as createSharedStore,
+  mergeDefaults,
+  type GmApi,
+} from '@shared';
 
 export type LinkOpenMode = 'background' | 'foreground';
 
@@ -121,26 +126,10 @@ export interface SettingsStore {
 }
 
 /**
- * 创建设置仓库。
+ * 创建设置仓库；读取与写回的通用逻辑在 `@shared`。
  *
  * @param api GM 适配层；测试里可以传入假实现
  */
 export function createSettingsStore(api: GmApi = createGmApi()): SettingsStore {
-  let cache: Settings | null = null;
-
-  const get = (): Settings => {
-    if (!cache) cache = normalizeSettings(api.getValue(SETTINGS_KEY, null));
-    return cache;
-  };
-
-  return {
-    get,
-    update(patch) {
-      const next: Settings = { ...get(), ...patch };
-      cache = next;
-      // 写失败时保留内存副本：本次浏览仍然按新设置工作，不打断用户。
-      saveStoredSettings(api, SETTINGS_KEY, next);
-      return next;
-    },
-  };
+  return createSharedStore({ api, key: SETTINGS_KEY, normalize: normalizeSettings });
 }

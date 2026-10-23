@@ -163,13 +163,14 @@ export function extractFromPanelDump(root: ParentNode): Segment[] | null {
   return segments.length > 0 ? segments : null;
 }
 
-/** 转写面板容器：兜底扫描只在这里面找，找不到才退回全页。 */
+/** 转写面板容器：兜底扫描只在这里面找，找不到才退回全页。
+ *
+ * 只认转写特有的容器：通用的 engagement-panel 也长这样（评论区、简介区都是），
+ * 写进去的话，改版后兜底会去扫评论区，把“0:05 这里好笑”当成字幕抄回来。 */
 function scopeRoot(root: ParentNode): ParentNode {
   const doc = root as Document;
   if (typeof doc.querySelector !== 'function') return root;
-  const panel = doc.querySelector(
-    'ytd-transcript-renderer, [target-id*="transcript"], ytd-engagement-panel-section-list-renderer',
-  );
+  const panel = doc.querySelector('ytd-transcript-renderer, [target-id*="transcript"]');
   return panel ?? root;
 }
 

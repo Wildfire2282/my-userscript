@@ -142,6 +142,28 @@ describe('extractFromViewModel', () => {
     expect(extractFromViewModel(document.body)).toEqual([{ start: 5_000, text: '你好世界' }]);
   });
 
+  it('兜底不认通用面板：转写在面板外也能扫到', () => {
+    const pair = (timestamp: string, text: string): HTMLElement => {
+      const block = document.createElement('div');
+      block.setAttribute('role', 'button');
+      const time = document.createElement('span');
+      time.textContent = timestamp;
+      const line = document.createElement('span');
+      line.textContent = text;
+      block.append(time, line);
+      return block;
+    };
+    // 通用面板（评论区也长这样）：不能因为它存在，兜底就只扫它。
+    const panel = document.createElement('ytd-engagement-panel-section-list-renderer');
+    panel.appendChild(pair('0:05', '评论区的话'));
+    document.body.append(panel, pair('0:10', '真正的台词'));
+
+    expect(extractFromViewModel(document.body)).toEqual([
+      { start: 5_000, text: '评论区的话' },
+      { start: 10_000, text: '真正的台词' },
+    ]);
+  });
+
   it('没有可识别的结构时返回 null', () => {
     document.body.appendChild(document.createElement('p')).textContent = '没有转写';
     expect(extractFromViewModel(document.body)).toBeNull();

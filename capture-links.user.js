@@ -2,7 +2,7 @@
 // @name         捕获链接
 // @name:en      Link Capture
 // @namespace    https://github.com/Wildfire2282
-// @version      1.1.1
+// @version      1.2.0
 // @description  捕获页面中的全部链接，支持关键词筛选与批量复制
 // @description:en Collect, filter, and copy all links on a page
 // @author       Wildfire2282 (https://github.com/Wildfire2282)
@@ -1792,7 +1792,7 @@
 		const { ui } = options;
 		ui.useStyles(link_list_default);
 		const panel = createPanel(ui, {
-			title: "捕获链接",
+			title: "操作面板",
 			open: false,
 			position: "center",
 			closeLabel: "关闭链接面板"
@@ -1953,7 +1953,7 @@
 	function createSettingsPanel(options) {
 		const { ui } = options;
 		const panel = createPanel(ui, {
-			title: "捕获链接设置",
+			title: "功能设置",
 			open: false,
 			position: "center",
 			closeLabel: "关闭设置"
@@ -2097,8 +2097,8 @@
 	* 页面本体不放任何 DOM：UI 全部在 `@ui` 的 Shadow Root 里，关掉悬浮按钮后
 	* 只有菜单入口，普通页面零节点零样式。
 	*/
-	var MENU_LINKS = "面板";
-	var MENU_SETTINGS = "设置";
+	var MENU_LINKS = "操作面板";
+	var MENU_SETTINGS = "功能设置";
 	function start() {
 		const gm = createGmApi();
 		const store = createSettingsStore(gm);

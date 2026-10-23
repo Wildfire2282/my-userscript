@@ -2,7 +2,7 @@
 // @name         选中复制
 // @name:en      Copy on Select
 // @namespace    https://github.com/Wildfire2282
-// @version      1.3.1
+// @version      1.4.0
 // @description  选中文本后自动纯文本复制到剪贴板，去除首尾空白
 // @description:en Copy selected text as plain text with whitespace trimmed
 // @author       Wildfire2282 (https://github.com/Wildfire2282)
@@ -1659,7 +1659,7 @@ dragThresholdPx: 3 };
 		const initial = options.getSettings();
 		const siteName = siteLabel(options.site);
 		const panel = createPanel(options.ui, {
-			title: "选中复制设置",
+			title: "功能设置",
 			description: "选中文字后自动复制为纯文本；下面的开关改完立即生效。",
 			open: false,
 			position: "center",
@@ -1776,7 +1776,7 @@ dragThresholdPx: 3 };
 	* 面板也可能被塞进看不见的小 iframe 里。
 	*/
 	var INSTALL_LOCK_ATTRIBUTE = "data-selection-auto-copy-installed";
-	var MENU_LABEL = "选中复制设置";
+	var MENU_LABEL = "功能设置";
 	function start() {
 		const root = document.documentElement;
 		if (!root || root.hasAttribute(INSTALL_LOCK_ATTRIBUTE)) return;

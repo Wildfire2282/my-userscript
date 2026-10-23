@@ -2,7 +2,7 @@
 // @name         YouTube 转写文稿复制
 // @name:en      YouTube Transcript Copy
 // @namespace    https://github.com/Wildfire2282
-// @version      1.3.0
+// @version      1.4.0
 // @description  视频播放页面出现可拖拽悬浮按钮，可一键复制转写文稿（transcript），支持英语等多语言界面
 // @description:en Add a draggable button to copy YouTube transcripts
 // @author       Wildfire2282 (https://github.com/Wildfire2282)
@@ -1119,6 +1119,655 @@
 		else if (content) parent.appendChild(content);
 	}
 	//#endregion
+	//#region packages/userscript-ui/src/core/dom.ts
+	function append(parent, ...items) {
+		for (const item of items) {
+			if (item == null) continue;
+			parent.appendChild(typeof item === "string" ? document.createTextNode(item) : item);
+		}
+	}
+	//#endregion
+	//#region packages/userscript-ui/src/core/focus.ts
+	var FOCUSABLE = [
+		"a[href]",
+		"button:not([disabled])",
+		"input:not([disabled])",
+		"select:not([disabled])",
+		"textarea:not([disabled])",
+		"[tabindex]:not([tabindex=\"-1\"])"
+	].join(",");
+	function focusFirst(container) {
+		const root = container.getRootNode();
+		for (const target of container.querySelectorAll(FOCUSABLE)) {
+			target.focus({ preventScroll: true });
+			if (root.activeElement === target) return;
+		}
+		container.focus({ preventScroll: true });
+	}
+	function focusIfConnected(target) {
+		if (target?.isConnected) target.focus({ preventScroll: true });
+	}
+	//#endregion
+	//#region packages/userscript-ui/src/core/id.ts
+	/**
+	* Element ids are global to the page, not to a shadow root. A per-module random
+	* token keeps them unique when two copies of the library (two userscripts, or
+	* an upgrade window with both versions loaded) run in the same document.
+	*/
+	var PAGE_TOKEN = Math.random().toString(36).slice(2, 8);
+	var counter = 0;
+	function uid(prefix = "ds") {
+		counter += 1;
+		return `${prefix}-${PAGE_TOKEN}-${counter}`;
+	}
+	//#endregion
+	//#region packages/userscript-ui/src/icons.ts
+	var SVG_NS = "http://www.w3.org/2000/svg";
+	function icon(paths, size = 16) {
+		const svg = document.createElementNS(SVG_NS, "svg");
+		svg.setAttribute("viewBox", "0 0 24 24");
+		svg.setAttribute("width", String(size));
+		svg.setAttribute("height", String(size));
+		svg.setAttribute("fill", "none");
+		svg.setAttribute("stroke", "currentColor");
+		svg.setAttribute("stroke-width", "2");
+		svg.setAttribute("stroke-linecap", "round");
+		svg.setAttribute("stroke-linejoin", "round");
+		svg.setAttribute("aria-hidden", "true");
+		svg.setAttribute("focusable", "false");
+		for (const definition of paths) {
+			const path = document.createElementNS(SVG_NS, "path");
+			path.setAttribute("d", definition);
+			svg.appendChild(path);
+		}
+		return svg;
+	}
+	var closeIcon = () => icon(["M18 6 6 18", "m6 6 12 12"]);
+	var chevronDownIcon = () => icon(["m6 9 6 6 6-6"]);
+	var circle = "M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20";
+	var infoIcon = () => icon([
+		circle,
+		"M12 16v-4",
+		"M12 8h.01"
+	]);
+	var successIcon = () => icon([circle, "m8 12 3 3 5-6"]);
+	var warningIcon = () => icon([
+		"M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z",
+		"M12 9v4",
+		"M12 17h.01"
+	]);
+	var errorIcon = () => icon([
+		circle,
+		"m15 9-6 6",
+		"m9 9 6 6"
+	]);
+	//#endregion
+	//#region packages/userscript-ui/src/styles/scroll-hint.css?inline
+	var scroll_hint_default = ".ds-scroll-hint {\n  position: absolute;\n  inset-inline: 0;\n  bottom: 0;\n  display: flex;\n  align-items: flex-end;\n  justify-content: center;\n  height: var(--ds-scroll-hint-height);\n  padding-bottom: var(--ds-space-1-5);\n  background: linear-gradient(to top, var(--ds-card) 30%, transparent);\n  color: var(--ds-muted-foreground);\n  font-size: var(--ds-text-xs);\n  pointer-events: none;\n  opacity: 1;\n  visibility: visible;\n  transition: opacity var(--ds-duration-fast) var(--ds-ease);\n}\n\n.ds-scroll-hint[data-state='hidden'] {\n  opacity: 0;\n  visibility: hidden;\n}\n\n.ds-scroll-hint-label {\n  display: inline-flex;\n  align-items: center;\n  gap: var(--ds-space-1);\n  padding: var(--ds-space-0-5) var(--ds-space-2);\n  border-radius: var(--ds-radius-full);\n  background: var(--ds-muted);\n  white-space: nowrap;\n}\n\n.ds-scroll-hint-label svg {\n  width: var(--ds-icon-xs);\n  height: var(--ds-icon-xs);\n  flex: none;\n}\n";
+	//#endregion
+	//#region packages/userscript-ui/src/core/scroll-hint.ts
+	var EDGE = 2;
+	function resolveScrollHint(option) {
+		if (option === false) return null;
+		if (option === true || option === void 0) return {};
+		return option;
+	}
+	/**
+	* Shows a hint above a scrollable area while more content is hidden below.
+	* The hint is decorative; the scroll area itself stays keyboard scrollable.
+	*/
+	function createScrollHint(ui, container, scroller, options = {}) {
+		ui.useStyles(scroll_hint_default);
+		const scope = createScope(ui);
+		const el = document.createElement("div");
+		el.className = "ds-scroll-hint";
+		el.setAttribute("data-ds-scroll-hint", "");
+		el.setAttribute("aria-hidden", "true");
+		el.dataset.state = "hidden";
+		const label = document.createElement("span");
+		label.className = "ds-scroll-hint-label";
+		label.appendChild(chevronDownIcon());
+		const text = document.createElement("span");
+		text.textContent = options.text ?? ui.labels.scrollHint;
+		label.appendChild(text);
+		el.appendChild(label);
+		container.appendChild(el);
+		const update = () => {
+			const scrollable = scroller.scrollHeight > scroller.clientHeight + EDGE;
+			const atEnd = scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - EDGE;
+			el.dataset.state = scrollable && !atEnd ? "visible" : "hidden";
+		};
+		scroller.addEventListener("scroll", update, {
+			passive: true,
+			signal: scope.signal
+		});
+		window.addEventListener("resize", update, {
+			passive: true,
+			signal: scope.signal
+		});
+		const mutations = new MutationObserver(update);
+		mutations.observe(scroller, {
+			childList: true,
+			subtree: true,
+			characterData: true
+		});
+		const resize = typeof ResizeObserver === "function" ? new ResizeObserver(update) : null;
+		resize?.observe(scroller);
+		update();
+		return {
+			el,
+			update,
+			destroy() {
+				scope.destroy();
+				mutations.disconnect();
+				resize?.disconnect();
+				el.remove();
+				mutations.disconnect();
+				resize?.disconnect();
+				el.remove();
+			}
+		};
+	}
+	//#endregion
+	//#region packages/userscript-ui/src/components/panel.css?inline
+	var panel_default = ".ds-panel {\n  position: fixed;\n  z-index: 1;\n  display: flex;\n  flex-direction: column;\n  width: min(var(--ds-panel-width), calc(100vw - 2 * var(--ds-launcher-offset)));\n  max-height: min(var(--ds-panel-max-h), calc(100vh - 2 * var(--ds-launcher-offset)));\n  overflow: hidden;\n  border: var(--ds-border-width) solid var(--ds-border);\n  border-radius: var(--ds-radius-lg);\n  background: var(--ds-card);\n  color: var(--ds-card-foreground);\n  box-shadow: var(--ds-shadow-lg);\n  pointer-events: auto;\n}\n\n/* 居中位置不跟 Launcher 的角落偏移；左右用 auto 外边距居中，避免 transform 影响 RTL。 */\n.ds-panel[data-position='center'] {\n  inset-block-start: 50%;\n  inset-inline: 0;\n  width: min(var(--ds-panel-width-wide), calc(100vw - 2 * var(--ds-launcher-offset)));\n  margin-inline: auto;\n  transform: translateY(-50%);\n}\n\n.ds-panel[data-position='bottom-right'] {\n  inset-block-end: calc(\n    var(--ds-launcher-offset) + env(safe-area-inset-bottom, 0px) + var(--ds-launcher-size) +\n      var(--ds-space-2)\n  );\n  inset-inline-end: calc(var(--ds-launcher-offset) + env(safe-area-inset-right, 0px));\n}\n\n.ds-panel[data-position='bottom-left'] {\n  inset-block-end: calc(\n    var(--ds-launcher-offset) + env(safe-area-inset-bottom, 0px) + var(--ds-launcher-size) +\n      var(--ds-space-2)\n  );\n  inset-inline-start: calc(var(--ds-launcher-offset) + env(safe-area-inset-left, 0px));\n}\n\n.ds-panel[data-position='top-right'] {\n  inset-block-start: calc(\n    var(--ds-launcher-offset) + env(safe-area-inset-top, 0px) + var(--ds-launcher-size) +\n      var(--ds-space-2)\n  );\n  inset-inline-end: calc(var(--ds-launcher-offset) + env(safe-area-inset-right, 0px));\n}\n\n.ds-panel[data-position='top-left'] {\n  inset-block-start: calc(\n    var(--ds-launcher-offset) + env(safe-area-inset-top, 0px) + var(--ds-launcher-size) +\n      var(--ds-space-2)\n  );\n  inset-inline-start: calc(var(--ds-launcher-offset) + env(safe-area-inset-left, 0px));\n}\n\n.ds-panel-header {\n  display: flex;\n  align-items: flex-start;\n  gap: var(--ds-space-3);\n  padding: var(--ds-panel-padding);\n  border-bottom: var(--ds-border-width) solid var(--ds-border);\n}\n\n.ds-panel-heading {\n  display: flex;\n  flex: 1;\n  flex-direction: column;\n  gap: var(--ds-space-0-5);\n  min-width: 0;\n}\n\n.ds-panel-title {\n  margin: 0;\n  font-size: var(--ds-text-lg);\n  font-weight: var(--ds-weight-semibold);\n  line-height: var(--ds-leading-tight);\n}\n\n.ds-panel-description {\n  margin: 0;\n  color: var(--ds-muted-foreground);\n  font-size: var(--ds-text-xs);\n  line-height: var(--ds-leading-snug);\n}\n\n.ds-panel-close {\n  flex: none;\n  margin-block-start: calc(-1 * var(--ds-space-1));\n  margin-inline-end: calc(-1 * var(--ds-space-1));\n}\n\n.ds-panel-content {\n  position: relative;\n  display: flex;\n  flex: 1;\n  flex-direction: column;\n  min-height: 0;\n}\n\n.ds-panel-body {\n  display: flex;\n  flex: 1;\n  flex-direction: column;\n  gap: var(--ds-space-4);\n  min-height: 0;\n  padding: var(--ds-panel-padding);\n  overflow-y: auto;\n  overscroll-behavior: contain;\n  scrollbar-width: thin;\n  scrollbar-color: var(--ds-border) transparent;\n}\n\n.ds-panel-body::-webkit-scrollbar {\n  width: var(--ds-space-2);\n}\n\n.ds-panel-body::-webkit-scrollbar-track {\n  background: transparent;\n}\n\n.ds-panel-body::-webkit-scrollbar-thumb {\n  border-radius: var(--ds-radius-full);\n  background: var(--ds-border);\n}\n\n.ds-panel-footer {\n  display: flex;\n  flex-wrap: wrap;\n  justify-content: flex-end;\n  gap: var(--ds-space-2);\n  padding: var(--ds-space-3) var(--ds-panel-padding);\n  border-top: var(--ds-border-width) solid var(--ds-border);\n}\n";
+	//#endregion
+	//#region packages/userscript-ui/src/components/panel.ts
+	function createPanel(ui, options = {}) {
+		assertAlive(ui, "panel");
+		ui.useStyles(panel_default);
+		const scope = createScope(ui);
+		const titleId = uid("ds-panel-title");
+		const descriptionId = uid("ds-panel-description");
+		const el = document.createElement("section");
+		el.className = "ds-panel";
+		el.setAttribute("data-ds-panel", "");
+		el.dataset.position = options.position ?? "bottom-right";
+		el.setAttribute("role", "region");
+		el.tabIndex = -1;
+		const header = document.createElement("header");
+		header.className = "ds-panel-header";
+		const heading = document.createElement("div");
+		heading.className = "ds-panel-heading";
+		const title = document.createElement("h2");
+		title.className = "ds-panel-title";
+		title.id = titleId;
+		title.textContent = options.title ?? "";
+		title.hidden = !options.title;
+		const description = document.createElement("p");
+		description.className = "ds-panel-description";
+		description.id = descriptionId;
+		description.textContent = options.description ?? "";
+		description.hidden = !options.description;
+		heading.append(title, description);
+		heading.hidden = !options.title && !options.description;
+		header.appendChild(heading);
+		const body = document.createElement("div");
+		body.className = "ds-panel-body";
+		const content = document.createElement("div");
+		content.className = "ds-panel-content";
+		content.appendChild(body);
+		const footer = document.createElement("div");
+		footer.className = "ds-panel-footer";
+		footer.hidden = true;
+		let isOpen = false;
+		let destroyed = false;
+		let returnFocus = null;
+		const openListeners = /* @__PURE__ */ new Set();
+		/**
+		* Listeners observe the current state, not a queue of transitions: when a
+		* listener changes the state mid-broadcast, the remaining listeners are
+		* skipped so nobody is told about a state that is already stale. The new
+		* state is broadcast by the nested `open()` / `close()` call.
+		*/
+		const notify = (open) => {
+			for (const listener of [...openListeners]) {
+				if (isOpen !== open) break;
+				if (!openListeners.has(listener)) continue;
+				listener(open);
+			}
+		};
+		const setTitle = (next) => {
+			title.textContent = next ?? "";
+			title.hidden = !next;
+			heading.hidden = title.hidden && description.hidden;
+			if (next) {
+				el.setAttribute("aria-labelledby", titleId);
+				el.removeAttribute("aria-label");
+			} else {
+				el.removeAttribute("aria-labelledby");
+				el.setAttribute("aria-label", options.ariaLabel ?? ui.labels.settings);
+			}
+		};
+		const setDescription = (next) => {
+			description.textContent = next ?? "";
+			description.hidden = !next;
+			heading.hidden = title.hidden && description.hidden;
+			const ids = new Set((el.getAttribute("aria-describedby") ?? "").split(/\s+/).filter(Boolean));
+			if (next) ids.add(descriptionId);
+			else ids.delete(descriptionId);
+			if (ids.size) el.setAttribute("aria-describedby", [...ids].join(" "));
+			else el.removeAttribute("aria-describedby");
+		};
+		const setFooter = (next) => {
+			footer.replaceChildren();
+			if (next == null) {
+				footer.hidden = true;
+				return;
+			}
+			const items = Array.isArray(next) ? next : [next];
+			append(footer, ...items);
+			footer.hidden = items.length === 0;
+		};
+		const close = () => {
+			if (!isOpen || destroyed) return;
+			const active = ui.root.activeElement;
+			const shouldRestoreFocus = active != null && el.contains(active);
+			isOpen = false;
+			el.hidden = true;
+			el.dataset.open = "false";
+			try {
+				if (shouldRestoreFocus) focusIfConnected(returnFocus);
+				options.onClose?.();
+			} finally {
+				if (!isOpen) notify(false);
+			}
+		};
+		const open = () => {
+			if (isOpen || destroyed) return;
+			isOpen = true;
+			returnFocus = ui.root.activeElement ?? document.activeElement;
+			el.hidden = false;
+			el.dataset.open = "true";
+			if (options.autoFocus !== false) {
+				focusFirst(body);
+				const active = ui.root.activeElement;
+				if (!active || !body.contains(active)) el.focus({ preventScroll: true });
+			}
+			hint?.update();
+			try {
+				options.onOpen?.();
+			} finally {
+				if (isOpen && !destroyed) notify(true);
+			}
+		};
+		const closeButton = createButton(ui, {
+			size: "sm",
+			variant: "ghost",
+			iconOnly: true,
+			ariaLabel: options.closeLabel ?? ui.labels.close,
+			icon: closeIcon()
+		});
+		closeButton.el.classList.add("ds-panel-close");
+		closeButton.el.addEventListener("click", close, { signal: scope.signal });
+		header.appendChild(closeButton.el);
+		el.append(header, content, footer);
+		const hintOptions = resolveScrollHint(options.scrollHint);
+		const hint = hintOptions ? createScrollHint(ui, content, body, hintOptions) : null;
+		el.addEventListener("keydown", (event) => {
+			if (event.key === "Escape" && !event.isComposing && isOpen) {
+				event.preventDefault();
+				event.stopPropagation();
+				close();
+			}
+		}, { signal: scope.signal });
+		if (options.title) el.setAttribute("aria-labelledby", titleId);
+		else el.setAttribute("aria-label", options.ariaLabel ?? ui.labels.settings);
+		setDescription(options.description);
+		if (options.footer) setFooter(options.footer);
+		el.hidden = options.open === false;
+		el.dataset.open = options.open === false ? "false" : "true";
+		isOpen = options.open !== false;
+		ui.layers.base.appendChild(el);
+		/**
+		* Runs for an explicit `destroy()` and for `ui.destroy()`: the scope callback
+		* invokes it, so a panel is always torn down exactly once.
+		*/
+		const teardown = () => {
+			if (destroyed) return;
+			const wasOpen = isOpen;
+			const active = ui.root.activeElement;
+			const shouldRestoreFocus = wasOpen && active != null && el.contains(active);
+			destroyed = true;
+			isOpen = false;
+			scope.destroy();
+			hint?.destroy();
+			closeButton.destroy();
+			el.remove();
+			if (wasOpen) try {
+				if (shouldRestoreFocus) focusIfConnected(returnFocus);
+				options.onClose?.();
+			} finally {
+				try {
+					notify(false);
+				} finally {
+					openListeners.clear();
+				}
+			}
+			else openListeners.clear();
+		};
+		scope.onDestroy(teardown);
+		return {
+			el,
+			body,
+			footer,
+			open,
+			close,
+			toggle() {
+				if (isOpen) close();
+				else open();
+			},
+			isOpen() {
+				return isOpen;
+			},
+			setTitle,
+			setDescription,
+			setFooter,
+			setPosition(position) {
+				el.dataset.position = position;
+			},
+			onOpenChange(listener) {
+				openListeners.add(listener);
+				return () => openListeners.delete(listener);
+			},
+			destroy: teardown
+		};
+	}
+	//#endregion
+	//#region packages/userscript-ui/src/components/section.css?inline
+	var section_default = ".ds-section {\n  display: flex;\n  flex-direction: column;\n  gap: var(--ds-space-3);\n  min-width: 0;\n}\n\n.ds-section + .ds-section {\n  padding-top: var(--ds-space-3);\n  border-top: var(--ds-border-width) solid var(--ds-border);\n}\n\n.ds-section-header {\n  display: flex;\n  flex-direction: column;\n  gap: var(--ds-space-0-5);\n  min-width: 0;\n}\n\n.ds-section-title {\n  margin: 0;\n  color: var(--ds-foreground);\n  font-size: var(--ds-text-sm);\n  font-weight: var(--ds-weight-semibold);\n  line-height: var(--ds-leading-snug);\n}\n\n.ds-section-description {\n  margin: 0;\n  color: var(--ds-muted-foreground);\n  font-size: var(--ds-text-xs);\n  line-height: var(--ds-leading-snug);\n}\n\n.ds-section-body {\n  display: flex;\n  flex-direction: column;\n  gap: var(--ds-space-3);\n  min-width: 0;\n}\n";
+	//#endregion
+	//#region packages/userscript-ui/src/components/section.ts
+	function createSection(ui, options = {}) {
+		assertAlive(ui, "section");
+		ui.useStyles(section_default);
+		const root = document.createElement("section");
+		root.className = "ds-section";
+		root.setAttribute("data-ds-section", "");
+		if (options.title || options.description) {
+			const header = document.createElement("header");
+			header.className = "ds-section-header";
+			if (options.title) {
+				const title = document.createElement("h3");
+				title.className = "ds-section-title";
+				title.textContent = options.title;
+				header.appendChild(title);
+			}
+			if (options.description) {
+				const description = document.createElement("p");
+				description.className = "ds-section-description";
+				description.textContent = options.description;
+				header.appendChild(description);
+			}
+			root.appendChild(header);
+		}
+		const body = document.createElement("div");
+		body.className = "ds-section-body";
+		root.appendChild(body);
+		return {
+			el: root,
+			body,
+			destroy() {
+				root.remove();
+			}
+		};
+	}
+	//#endregion
+	//#region packages/userscript-ui/src/components/feedback.ts
+	function feedbackIcon(variant) {
+		switch (variant) {
+			case "success": return successIcon();
+			case "warning": return warningIcon();
+			case "error": return errorIcon();
+			default: return infoIcon();
+		}
+	}
+	//#endregion
+	//#region packages/userscript-ui/src/core/top-layer.ts
+	var states = /* @__PURE__ */ new WeakMap();
+	function stateOf(ui) {
+		let state = states.get(ui);
+		if (!state) {
+			state = {
+				dialogs: [],
+				listeners: /* @__PURE__ */ new Set()
+			};
+			states.set(ui, state);
+		}
+		return state;
+	}
+	function topLayerHost(ui) {
+		const dialogs = states.get(ui)?.dialogs;
+		if (!dialogs?.length) return null;
+		return dialogs[dialogs.length - 1] ?? null;
+	}
+	function onTopLayerChange(ui, listener) {
+		const state = stateOf(ui);
+		state.listeners.add(listener);
+		return () => {
+			state.listeners.delete(listener);
+		};
+	}
+	/**
+	* Host for UI that must stay visible above a modal: the most recently opened
+	* dialog of this UI, otherwise the given layer. The top layer is the only
+	* place a shadow-tree element can paint above `::backdrop`.
+	*/
+	function overlayHost(ui, fallback) {
+		return topLayerHost(ui) ?? fallback;
+	}
+	//#endregion
+	//#region packages/userscript-ui/src/components/toast.css?inline
+	var toast_default = ".ds-toast-viewport {\n  position: fixed;\n  inset-block-start: var(--ds-launcher-offset);\n  inset-inline-end: var(--ds-launcher-offset);\n  display: flex;\n  flex-direction: column;\n  gap: var(--ds-space-2);\n  width: min(var(--ds-toast-width), calc(100vw - 2 * var(--ds-launcher-offset)));\n  pointer-events: none;\n}\n\n.ds-toast {\n  display: flex;\n  align-items: flex-start;\n  gap: var(--ds-space-2-5);\n  padding: var(--ds-space-3);\n  border: var(--ds-border-width) solid var(--ds-border);\n  border-inline-start: var(--ds-accent-width) solid var(--ds-muted-foreground);\n  border-radius: var(--ds-radius-md);\n  background: var(--ds-card);\n  color: var(--ds-card-foreground);\n  box-shadow: var(--ds-shadow-md);\n  pointer-events: auto;\n  animation: ds-toast-in var(--ds-duration-base) var(--ds-ease);\n}\n\n.ds-toast--success {\n  border-inline-start-color: var(--ds-success);\n}\n\n.ds-toast--info {\n  border-inline-start-color: var(--ds-primary);\n}\n\n.ds-toast--warning {\n  border-inline-start-color: var(--ds-warning);\n}\n\n.ds-toast--error {\n  border-inline-start-color: var(--ds-destructive);\n}\n\n.ds-toast-icon {\n  display: flex;\n  flex: none;\n  margin-block-start: var(--ds-border-width);\n  color: var(--ds-muted-foreground);\n}\n\n.ds-toast-icon svg {\n  width: var(--ds-icon);\n  height: var(--ds-icon);\n}\n\n.ds-toast--success .ds-toast-icon {\n  color: var(--ds-success);\n}\n\n.ds-toast--info .ds-toast-icon {\n  color: var(--ds-primary);\n}\n\n.ds-toast--warning .ds-toast-icon {\n  color: var(--ds-warning);\n}\n\n.ds-toast--error .ds-toast-icon {\n  color: var(--ds-destructive);\n}\n\n.ds-toast-content {\n  display: flex;\n  flex: 1;\n  flex-direction: column;\n  gap: var(--ds-space-0-5);\n  min-width: 0;\n}\n\n.ds-toast-title {\n  margin: 0;\n  font-size: var(--ds-text-sm);\n  font-weight: var(--ds-weight-medium);\n  line-height: var(--ds-leading-snug);\n}\n\n.ds-toast-description {\n  margin: 0;\n  color: var(--ds-muted-foreground);\n  font-size: var(--ds-text-xs);\n  line-height: var(--ds-leading-snug);\n}\n\n.ds-toast-close {\n  flex: none;\n  margin-block-start: calc(-1 * var(--ds-space-1));\n  margin-inline-end: calc(-1 * var(--ds-space-1));\n}\n\n/* Visually hidden live regions stay in the DOM so announcements are reliable. */\n.ds-toast-announcer {\n  position: absolute;\n  width: var(--ds-border-width);\n  height: var(--ds-border-width);\n  margin: calc(-1 * var(--ds-border-width));\n  padding: 0;\n  overflow: hidden;\n  clip: rect(0 0 0 0);\n  clip-path: inset(50%);\n  white-space: nowrap;\n  border: 0;\n  pointer-events: none;\n}\n\n@keyframes ds-toast-in {\n  from {\n    opacity: 0;\n    transform: translateY(-4px);\n  }\n\n  to {\n    opacity: 1;\n    transform: none;\n  }\n}\n\n@media (prefers-reduced-motion: reduce) {\n  .ds-toast {\n    animation: none;\n  }\n}\n";
+	//#endregion
+	//#region packages/userscript-ui/src/components/toast.ts
+	var DEFAULT_DURATION = {
+		success: 4e3,
+		info: 4e3,
+		warning: 6e3,
+		error: 8e3
+	};
+	function createToast(ui, options = {}) {
+		assertAlive(ui, "toast");
+		ui.useStyles(toast_default);
+		const scope = createScope(ui);
+		let destroyed = false;
+		const max = Math.max(1, options.max ?? 4);
+		const records = [];
+		const viewport = document.createElement("div");
+		viewport.className = "ds-toast-viewport";
+		viewport.setAttribute("data-ds-toast-viewport", "");
+		viewport.setAttribute("role", "region");
+		viewport.setAttribute("aria-label", options.regionLabel ?? ui.labels.notifications);
+		const announcers = {
+			polite: createAnnouncer("polite"),
+			assertive: createAnnouncer("assertive")
+		};
+		viewport.append(announcers.polite, announcers.assertive);
+		const announce = (variant, title, description) => {
+			const target = variant === "error" ? announcers.assertive : announcers.polite;
+			target.textContent = [title, description].filter(Boolean).join(" ");
+		};
+		const attachViewport = () => {
+			if (destroyed) return;
+			const host = overlayHost(ui, ui.layers.toast);
+			if (viewport.parentElement !== host) host.appendChild(viewport);
+		};
+		attachViewport();
+		const detachTopLayer = onTopLayerChange(ui, attachViewport);
+		scope.onDestroy(() => {
+			detachTopLayer();
+			viewport.remove();
+		});
+		const dismiss = (id) => {
+			records.find((item) => item.id === id)?.remove();
+		};
+		const clear = () => {
+			let failed = false;
+			let failure;
+			for (const record of [...records]) try {
+				record.remove();
+			} catch (error) {
+				if (!failed) {
+					failed = true;
+					failure = error;
+				}
+			}
+			if (failed) throw failure;
+		};
+		const show = (toastOptions) => {
+			if (destroyed) throw new Error("Cannot show a toast after its controller is destroyed.");
+			if (!toastOptions.title && !toastOptions.description) throw new Error("Toasts require a title or description.");
+			const id = toastOptions.id ?? uid("ds-toast");
+			dismiss(id);
+			const variant = toastOptions.variant ?? "info";
+			const duration = toastOptions.duration ?? DEFAULT_DURATION[variant];
+			const autoDismiss = duration > 0;
+			const local = new AbortController();
+			const el = document.createElement("div");
+			el.className = `ds-toast ds-toast--${variant}`;
+			el.setAttribute("data-ds-toast", "");
+			const icon = document.createElement("span");
+			icon.className = "ds-toast-icon";
+			icon.setAttribute("aria-hidden", "true");
+			icon.appendChild(feedbackIcon(variant));
+			const content = document.createElement("div");
+			content.className = "ds-toast-content";
+			if (toastOptions.title) {
+				const title = document.createElement("p");
+				title.className = "ds-toast-title";
+				title.textContent = toastOptions.title;
+				content.appendChild(title);
+			}
+			if (toastOptions.description) {
+				const description = document.createElement("p");
+				description.className = "ds-toast-description";
+				description.textContent = toastOptions.description;
+				content.appendChild(description);
+			}
+			let timer = null;
+			let remaining = duration;
+			let startedAt = 0;
+			let removed = false;
+			let hovered = false;
+			let focused = false;
+			const startTimer = () => {
+				if (!autoDismiss || removed || destroyed || remaining <= 0) return;
+				startedAt = Date.now();
+				timer = window.setTimeout(() => remove(), remaining);
+			};
+			const pause = () => {
+				if (timer == null) return;
+				window.clearTimeout(timer);
+				timer = null;
+				remaining -= Date.now() - startedAt;
+			};
+			const resume = () => {
+				if (!autoDismiss || hovered || focused || timer != null || removed) return;
+				if (remaining <= 0) {
+					remove();
+					return;
+				}
+				startTimer();
+			};
+			const remove = () => {
+				if (removed) return;
+				removed = true;
+				if (timer != null) window.clearTimeout(timer);
+				local.abort();
+				close.destroy();
+				el.remove();
+				const index = records.indexOf(record);
+				if (index >= 0) records.splice(index, 1);
+				toastOptions.onDismiss?.();
+			};
+			const close = createButton(ui, {
+				size: "sm",
+				variant: "ghost",
+				iconOnly: true,
+				ariaLabel: options.dismissLabel ?? ui.labels.dismissNotification,
+				icon: closeIcon()
+			});
+			close.el.classList.add("ds-toast-close");
+			close.el.addEventListener("click", remove, { signal: local.signal });
+			el.append(icon, content, close.el);
+			el.addEventListener("pointerenter", () => {
+				hovered = true;
+				pause();
+			}, { signal: local.signal });
+			el.addEventListener("pointerleave", () => {
+				hovered = false;
+				resume();
+			}, { signal: local.signal });
+			el.addEventListener("focusin", () => {
+				focused = true;
+				pause();
+			}, { signal: local.signal });
+			el.addEventListener("focusout", (event) => {
+				if (!el.contains(event.relatedTarget)) {
+					focused = false;
+					resume();
+				}
+			}, { signal: local.signal });
+			const record = {
+				id,
+				el,
+				variant,
+				dismiss: remove,
+				remove
+			};
+			records.unshift(record);
+			viewport.prepend(el);
+			announce(variant, toastOptions.title, toastOptions.description);
+			while (records.length > max) records[records.length - 1]?.remove();
+			startTimer();
+			return record;
+		};
+		const teardown = () => {
+			if (destroyed) return;
+			destroyed = true;
+			try {
+				clear();
+			} finally {
+				scope.destroy();
+			}
+		};
+		scope.onDestroy(teardown);
+		return {
+			show,
+			success: (title, extra) => show({
+				...extra,
+				title,
+				variant: "success"
+			}),
+			info: (title, extra) => show({
+				...extra,
+				title,
+				variant: "info"
+			}),
+			warning: (title, extra) => show({
+				...extra,
+				title,
+				variant: "warning"
+			}),
+			error: (title, extra) => show({
+				...extra,
+				title,
+				variant: "error"
+			}),
+			dismiss,
+			clear,
+			destroy: teardown
+		};
+	}
+	function createAnnouncer(politeness) {
+		const announcer = document.createElement("div");
+		announcer.className = "ds-toast-announcer";
+		announcer.setAttribute("aria-live", politeness);
+		announcer.setAttribute("aria-atomic", "true");
+		return announcer;
+	}
+	//#endregion
 	//#region scripts/youtube-transcript-copy/src/ui/transcript-button.css?inline
 	var transcript_button_default = "/*\n * 只负责定位与拖动光标：尺寸、颜色、悬停、焦点环、加载态都由 @ui 的按钮组件提供。\n */\n.yt-transcript-wrap {\n  position: fixed;\n  z-index: 1;\n  cursor: grab;\n  user-select: none;\n}\n\n.yt-transcript-wrap[data-dragging='true'] {\n  cursor: grabbing;\n}\n";
 	//#endregion
@@ -1126,7 +1775,7 @@
 	var DRAG_THRESHOLD_PX = 3;
 	var RESET_DELAY_MS = 1500;
 	var CLICK_SUPPRESS_MS = 50;
-	var LABELS = {
+	var LABELS$1 = {
 		normal: "T",
 		loading: "",
 		success: "✓",
@@ -1141,7 +1790,7 @@
 		wrap.dataset.dragging = "false";
 		wrap.dataset.state = "normal";
 		const stateLabel = document.createElement("span");
-		stateLabel.textContent = LABELS.normal;
+		stateLabel.textContent = LABELS$1.normal;
 		let state = "normal";
 		let position = {
 			right: 30,
@@ -1172,7 +1821,7 @@
 		const applyState = (next) => {
 			state = next;
 			wrap.dataset.state = next;
-			stateLabel.textContent = LABELS[next];
+			stateLabel.textContent = LABELS$1[next];
 			button.setLoading(next === "loading");
 			if (resetTimer !== void 0) {
 				window.clearTimeout(resetTimer);
@@ -1252,9 +1901,21 @@
 	}
 	//#endregion
 	//#region scripts/youtube-transcript-copy/src/ui/app.ts
+	var LABELS = {
+		close: "关闭",
+		settings: "设置",
+		notifications: "通知",
+		dismissNotification: "关闭通知",
+		closeSettings: "关闭设置",
+		scrollHint: "向下滚动查看更多内容",
+		cancel: "取消",
+		confirm: "确定"
+	};
 	function createTranscriptButtonApp(options) {
 		let ui = null;
 		let button = null;
+		let toast = null;
+		let panels = null;
 		let visible = options.isVisible();
 		let busy = false;
 		let autoPosition = options.getSavedPosition() === null;
@@ -1265,18 +1926,102 @@
 			2e3,
 			4e3
 		];
-		const activate = async (target) => {
-			if (busy) return;
+		const ensureUI = () => {
+			if (!ui) ui = mountUI({
+				theme: "system",
+				labels: LABELS
+			});
+			return ui;
+		};
+		/** 抓取并复制；按钮和面板共用，同一时刻只跑一个。 */
+		const copy = async () => {
+			if (busy) return "error";
 			busy = true;
-			target.setState("loading");
 			try {
-				const outcome = await options.activate();
-				target.setState(outcome === "success" ? "success" : "error");
+				return await options.activate();
 			} catch {
-				target.setState("error");
+				return "error";
 			} finally {
 				busy = false;
 			}
+		};
+		const activateFromButton = async (target) => {
+			if (busy) return;
+			target.setState("loading");
+			const outcome = await copy();
+			target.setState(outcome === "success" ? "success" : "error");
+		};
+		/** 回到视口右上角 30px，并清掉位置记忆。 */
+		const resetPosition = () => {
+			autoPosition = false;
+			options.clearSavedPosition();
+			button?.setPosition({
+				right: 30,
+				top: 30
+			});
+		};
+		const ensurePanels = () => {
+			if (panels) return panels;
+			const current = ensureUI();
+			const notify = createToast(current);
+			toast = notify;
+			const actions = createPanel(current, {
+				title: "操作面板",
+				description: "复制本页的转写文稿，或把悬浮按钮放回右上角。",
+				open: false,
+				closeLabel: "关闭操作面板"
+			});
+			const copyButton = createButton(current, {
+				label: "复制当前转写文稿",
+				onClick: () => {
+					copyButton.setLoading(true);
+					copy().then((outcome) => {
+						copyButton.setLoading(false);
+						if (outcome === "success") {
+							notify.success("已复制转写文稿");
+							actions.close();
+						} else if (outcome === "empty") notify.warning("没有找到转写文稿");
+						else notify.error("复制失败，请稍后重试");
+					});
+				}
+			});
+			const resetButton = createButton(current, {
+				label: "重置按钮位置",
+				variant: "secondary",
+				onClick: () => {
+					resetPosition();
+					notify.success("按钮已回到播放器右上角");
+					actions.close();
+				}
+			});
+			const actionSection = createSection(current, { title: "操作" });
+			actionSection.body.append(copyButton.el, resetButton.el);
+			actions.body.append(actionSection.el);
+			const settings = createPanel(current, {
+				title: "功能设置",
+				description: "这里只放会影响脚本行为的开关；改动立即生效。",
+				open: false,
+				closeLabel: "关闭功能设置"
+			});
+			const memorySection = createSection(current, {
+				title: "记忆",
+				description: "脚本会记住上次能用的转写抓取方式，下次优先用它；清空后重新按默认顺序尝试。"
+			});
+			const clearStrategy = createButton(current, {
+				label: "清空策略记忆",
+				variant: "destructive",
+				onClick: () => {
+					options.clearStrategy();
+					notify.success("已清空策略记忆");
+				}
+			});
+			memorySection.body.append(clearStrategy.el);
+			settings.body.append(memorySection.el);
+			panels = {
+				actions,
+				settings
+			};
+			return panels;
 		};
 		function sync() {
 			const current = mount();
@@ -1288,11 +2033,10 @@
 			if (button) return button;
 			const position = options.getSavedPosition() ?? options.getDefaultPosition();
 			if (!position) return null;
-			const mounted = mountUI({ theme: "system" });
 			const created = createTranscriptButton({
-				ui: mounted,
+				ui: ensureUI(),
 				label: "复制当前转写文稿",
-				onClick: () => void activate(created),
+				onClick: () => void activateFromButton(created),
 				onMoveEnd: (next) => {
 					autoPosition = false;
 					options.savePosition(next);
@@ -1300,7 +2044,6 @@
 			});
 			created.setPosition(position);
 			created.setVisible(visible);
-			ui = mounted;
 			button = created;
 			scheduleSettle(0);
 			return created;
@@ -1324,12 +2067,11 @@
 				visible = next;
 				button?.setVisible(next);
 			},
-			resetPosition() {
-				autoPosition = false;
-				button?.setPosition({
-					right: 30,
-					top: 30
-				});
+			openActions() {
+				ensurePanels().actions.open();
+			},
+			openSettings() {
+				ensurePanels().settings.open();
 			},
 			isMounted: () => button !== null,
 			destroy() {
@@ -1338,8 +2080,11 @@
 					settleTimer = void 0;
 				}
 				button?.destroy();
-				ui?.destroy();
+				toast?.destroy();
 				button = null;
+				toast = null;
+				panels = null;
+				ui?.destroy();
 				ui = null;
 			}
 		};
@@ -1351,9 +2096,8 @@
 	*
 	* 只在顶层 frame 运行：转写面板与播放器都在主文档里，iframe 里跑一份只会重复请求。
 	*/
-	var MENU_COPY = "复制当前转写文稿";
-	var MENU_RESET_POSITION = "重置按钮位置";
-	var MENU_CLEAR_STRATEGY = "清空策略记忆";
+	var MENU_ACTIONS = "操作面板";
+	var MENU_SETTINGS = "功能设置";
 	function start() {
 		if (window.top !== window.self) return;
 		const gm = createGmApi();
@@ -1395,22 +2139,15 @@
 				height: window.innerHeight
 			}),
 			isVisible: () => shouldShowButton(readVideoState()),
-			activate: copyTranscript
+			activate: copyTranscript,
+			clearSavedPosition: store.clearPosition,
+			clearStrategy: store.clearStrategy
 		});
 		const register = (label, run) => {
 			if (!gm.registerMenuCommand(label, run)) console.warn(`[youtube-transcript-copy] 菜单命令不可用：${label}`);
 		};
-		register(MENU_COPY, () => {
-			(async () => {
-				const outcome = await copyTranscript();
-				if (outcome !== "success") console.warn(`[youtube-transcript-copy] 复制未成功：${outcome}`);
-			})();
-		});
-		register(MENU_RESET_POSITION, () => {
-			store.clearPosition();
-			app.resetPosition();
-		});
-		register(MENU_CLEAR_STRATEGY, () => store.clearStrategy());
+		register(MENU_ACTIONS, () => app.openActions());
+		register(MENU_SETTINGS, () => app.openSettings());
 		const boot = () => {
 			app.sync();
 			watchVisibility((visible) => app.setVisible(visible));

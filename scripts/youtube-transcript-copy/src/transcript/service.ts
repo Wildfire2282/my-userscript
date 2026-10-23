@@ -66,17 +66,21 @@ export function createTranscriptService(deps: TranscriptServiceDeps): Transcript
         deps.fromInitialTrack,
         () => deps.fromNetworkCache(),
       ]);
+      // 取数是异步的，中途换了视频就不能再用这次的结果：调包比报错更伤人。
+      if (deps.videoId() !== videoId) return [];
       if (fromNetwork) {
         cache = { videoId, segments: fromNetwork };
         return fromNetwork;
       }
 
       if (!(await deps.ensurePanelOpen())) return [];
+      if (deps.videoId() !== videoId) return [];
 
       const fromDom = await runStrategies('dom', [
         () => deps.fromViewModel(),
         () => deps.fromPanelDump(),
       ]);
+      if (deps.videoId() !== videoId) return [];
       if (fromDom) {
         cache = { videoId, segments: fromDom };
         return fromDom;

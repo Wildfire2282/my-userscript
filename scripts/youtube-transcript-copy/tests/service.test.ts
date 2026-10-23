@@ -114,4 +114,24 @@ describe('createTranscriptService', () => {
     await expect(service.fetchTranscript()).resolves.toEqual(C);
     expect(deps.fromNetworkCache).toHaveBeenCalledTimes(2);
   });
+
+  it('取数中途换视频时丢弃旧结果，不写入缓存', async () => {
+    let videoId = 'video-one';
+    let resolveTrack!: (value: Segment[] | null) => void;
+    const pending = new Promise<Segment[] | null>((resolve) => {
+      resolveTrack = resolve;
+    });
+    const { deps, service } = setup({
+      videoId: () => videoId,
+      fromInitialTrack: vi.fn(() => pending),
+    });
+    const fetching = service.fetchTranscript();
+    videoId = 'video-two';
+    resolveTrack(A);
+    await expect(fetching).resolves.toEqual([]);
+    // 旧结果没进缓存：切回来重新取会再次请求，而不是命中脏缓存。
+    videoId = 'video-one';
+    await expect(service.fetchTranscript()).resolves.toEqual(A);
+    expect(deps.fromInitialTrack).toHaveBeenCalledTimes(2);
+  });
 });

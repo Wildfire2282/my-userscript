@@ -169,6 +169,9 @@ export function createLinkPanel(options: LinkPanelOptions): LinkPanelHandle {
     render();
   }
 
+  /** 当前渲染出来的行：批量勾选只影响这些，看不到的不带上。 */
+  const visibleItems = (): LinkItem[] => filteredItems.slice(0, shownCount);
+
   async function copySelected(): Promise<void> {
     const items = pickedItems(selectedIds, filteredItems);
     if (items.length === 0) {
@@ -187,7 +190,7 @@ export function createLinkPanel(options: LinkPanelOptions): LinkPanelHandle {
     label: '全选',
     variant: 'secondary',
     onClick: () => {
-      selectedIds = selectAll(selectedIds, filteredItems);
+      selectedIds = selectAll(selectedIds, visibleItems());
       render();
     },
   });
@@ -195,7 +198,7 @@ export function createLinkPanel(options: LinkPanelOptions): LinkPanelHandle {
     label: '全不选',
     variant: 'secondary',
     onClick: () => {
-      selectedIds = selectNone(selectedIds, filteredItems);
+      selectedIds = selectNone(selectedIds, visibleItems());
       render();
     },
   });
@@ -203,7 +206,7 @@ export function createLinkPanel(options: LinkPanelOptions): LinkPanelHandle {
     label: '反选',
     variant: 'secondary',
     onClick: () => {
-      selectedIds = invertSelection(selectedIds, filteredItems);
+      selectedIds = invertSelection(selectedIds, visibleItems());
       render();
     },
   });

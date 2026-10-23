@@ -103,3 +103,16 @@
   font-size: var(--ds-text-sm);
   text-align: center;
 }
+
+/* "显示更多"按钮：现在和空状态长一样，但类名分开，改空状态样式时不会误伤按钮。
+ * button 自带的边框底色也一起清掉，只留一行可点的灰字。 */
+.cl-more {
+  width: 100%;
+  padding: var(--ds-space-6);
+  border: none;
+  background: none;
+  color: var(--ds-muted-foreground);
+  font-size: var(--ds-text-sm);
+  text-align: center;
+  cursor: pointer;
+}

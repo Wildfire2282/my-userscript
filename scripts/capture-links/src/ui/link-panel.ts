@@ -147,7 +147,7 @@ export function createLinkPanel(options: LinkPanelOptions): LinkPanelHandle {
       if (filteredItems.length > shownCount) {
         const more = document.createElement('button');
         more.type = 'button';
-        more.className = 'cl-empty';
+        more.className = 'cl-more';
         more.textContent = `显示更多（剩余 ${filteredItems.length - shownCount} 条）`;
         more.addEventListener(
           'click',

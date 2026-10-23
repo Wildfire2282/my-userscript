@@ -223,6 +223,34 @@ export const scenarios = [
     },
   },
   {
+    name: '链接超过首屏 200 行时，全选仍覆盖全部筛选结果',
+    async run(ctx) {
+      const state = await ctx.evaluate(async () => {
+        for (let index = 0; index < 210; index += 1) {
+          const link = document.createElement('a');
+          link.href = `https://example.com/bulk/${index}`;
+          link.textContent = `批量链接 ${index}`;
+          document.body.appendChild(link);
+        }
+        window.__page.openMenu('面板');
+        const panel = window.__page.linkPanel();
+        window.__page.clickButton(panel, '全选');
+        const selected = window.__page.selectedCount();
+        window.__page.clickButton(panel, '复制选中');
+        await new Promise((resolve) => setTimeout(resolve, 80));
+        return {
+          selected,
+          total: window.__page.stats().split(' / ')[0],
+          copied: window.__page.lastClipboard().split('\n').length,
+        };
+      });
+      return {
+        expected: '选中 217 / 共 217 / 复制 217 行',
+        actual: `选中 ${state.selected} / ${state.total} / 复制 ${state.copied} 行`,
+      };
+    },
+  },
+  {
     name: '复制选中（纯链接）→ 每行一个地址并提示条数',
     async run(ctx) {
       const state = await ctx.evaluate(async () => {

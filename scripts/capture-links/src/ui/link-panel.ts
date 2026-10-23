@@ -169,9 +169,6 @@ export function createLinkPanel(options: LinkPanelOptions): LinkPanelHandle {
     render();
   }
 
-  /** 当前渲染出来的行：批量勾选只影响这些，看不到的不带上。 */
-  const visibleItems = (): LinkItem[] => filteredItems.slice(0, shownCount);
-
   async function copySelected(): Promise<void> {
     const items = pickedItems(selectedIds, filteredItems);
     if (items.length === 0) {
@@ -190,7 +187,8 @@ export function createLinkPanel(options: LinkPanelOptions): LinkPanelHandle {
     label: '全选',
     variant: 'secondary',
     onClick: () => {
-      selectedIds = selectAll(selectedIds, visibleItems());
+      // 只受当前筛选影响，不受“首屏只渲染 200 行”限制：统计里的“共 N 条”与复制结果要对得上。
+      selectedIds = selectAll(selectedIds, filteredItems);
       render();
     },
   });
@@ -198,7 +196,7 @@ export function createLinkPanel(options: LinkPanelOptions): LinkPanelHandle {
     label: '全不选',
     variant: 'secondary',
     onClick: () => {
-      selectedIds = selectNone(selectedIds, visibleItems());
+      selectedIds = selectNone(selectedIds, filteredItems);
       render();
     },
   });
@@ -206,7 +204,7 @@ export function createLinkPanel(options: LinkPanelOptions): LinkPanelHandle {
     label: '反选',
     variant: 'secondary',
     onClick: () => {
-      selectedIds = invertSelection(selectedIds, visibleItems());
+      selectedIds = invertSelection(selectedIds, filteredItems);
       render();
     },
   });

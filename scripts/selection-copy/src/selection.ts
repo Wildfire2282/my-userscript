@@ -168,7 +168,9 @@ export function isDisabledTarget(
     if (isInsideEditable(elementOf(target))) return true;
     if (isInsideEditable(elementOf(selection?.anchorNode))) return true;
     if (isInsideEditable(elementOf(selection?.focusNode))) return true;
-    if (isInsideEditable(getActiveElement())) return true;
+    // 只在键盘手势（没有鼠标目标）时才查当前焦点：鼠标在正文里拖选时，
+    // 焦点仍留在评论框里是常态，不能因此把正文选区也拦掉。
+    if (target === null && isInsideEditable(getActiveElement())) return true;
   }
   return false;
 }

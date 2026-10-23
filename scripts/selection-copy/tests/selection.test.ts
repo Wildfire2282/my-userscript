@@ -179,6 +179,21 @@ describe('门控', () => {
     expect(isDisabledTarget(null, null, null)).toBe(true);
   });
 
+  it('焦点在编辑器但鼠标选的是正文时允许复制', () => {
+    const editor = document.createElement('div');
+    editor.setAttribute('contenteditable', 'true');
+    editor.textContent = '评论框';
+    document.body.appendChild(editor);
+    editor.focus();
+    const paragraph = document.createElement('p');
+    paragraph.textContent = '普通正文';
+    document.body.appendChild(paragraph);
+    const range = document.createRange();
+    range.selectNodeContents(paragraph);
+    window.getSelection()?.addRange(range);
+    expect(isDisabledTarget(window.getSelection(), paragraph, null)).toBe(false);
+  });
+
   it('自己的界面里的文字永远不复制', () => {
     const host = document.createElement('div');
     host.setAttribute('data-ds-root', '');

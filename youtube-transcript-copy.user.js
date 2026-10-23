@@ -2,7 +2,7 @@
 // @name         YouTube 转写文稿复制
 // @name:en      YouTube Transcript Copy
 // @namespace    https://github.com/Wildfire2282
-// @version      1.2.0
+// @version      1.2.1
 // @description  视频播放页面出现可拖拽悬浮按钮，可一键复制转写文稿（transcript），支持英语等多语言界面
 // @description:en Add a draggable button to copy YouTube transcripts
 // @author       Wildfire2282 (https://github.com/Wildfire2282)
@@ -13,7 +13,6 @@
 // @match        https://www.youtube.com/*
 // @grant        GM_setClipboard
 // @grant        GM_registerMenuCommand
-// @grant        GM_addStyle
 // @grant        GM_setValue
 // @grant        GM_getValue
 // @grant        GM_deleteValue
@@ -204,7 +203,7 @@
 	}
 	function readVideoState(doc = document, fullscreen = void 0) {
 		const video = findVideo(doc);
-		const fullscreenElement = fullscreen === void 0 ? doc.fullscreenElement ?? doc.webkitFullscreenElement ?? null : fullscreen;
+		const fullscreenElement = fullscreen === void 0 ? doc.fullscreenElement : fullscreen;
 		return {
 			exists: video !== null,
 			paused: video?.paused ?? true,
@@ -255,7 +254,6 @@
 		};
 		const onFullscreen = () => emit();
 		doc.addEventListener("fullscreenchange", onFullscreen);
-		doc.addEventListener("webkitfullscreenchange", onFullscreen);
 		const timer = window.setInterval(() => {
 			bind();
 			emit();
@@ -265,7 +263,6 @@
 		return () => {
 			window.clearInterval(timer);
 			doc.removeEventListener("fullscreenchange", onFullscreen);
-			doc.removeEventListener("webkitfullscreenchange", onFullscreen);
 			detach();
 		};
 	}
@@ -373,13 +370,21 @@
 	*/
 	function tsToSec(text) {
 		const parts = text.split(":").map(Number);
-		if (parts.length === 2) return (parts[0] ?? 0) * 60 + (parts[1] ?? 0);
-		if (parts.length === 3) return (parts[0] ?? 0) * 3600 + (parts[1] ?? 0) * 60 + (parts[2] ?? 0);
+		if (parts.length === 2) {
+			const [minutes, seconds] = parts;
+			if (minutes === void 0 || seconds === void 0 || !Number.isFinite(minutes) || !Number.isFinite(seconds)) return 0;
+			return minutes * 60 + seconds;
+		}
+		if (parts.length === 3) {
+			const [hours, minutes, seconds] = parts;
+			if (hours === void 0 || minutes === void 0 || seconds === void 0 || !Number.isFinite(hours) || !Number.isFinite(minutes) || !Number.isFinite(seconds)) return 0;
+			return hours * 3600 + minutes * 60 + seconds;
+		}
 		return 0;
 	}
 	/** 毫秒 → 复制到剪贴板里的 `分:秒`；未知时间戳返回空串。 */
 	function fmtTs(ms) {
-		if (ms === null) return "";
+		if (ms === null || !Number.isFinite(ms)) return "";
 		const total = Math.max(0, Math.floor(ms / 1e3));
 		const minutes = Math.floor(total / 60);
 		const seconds = total % 60;
@@ -454,21 +459,35 @@
 		}
 		return segments.length > 0 ? segments : null;
 	}
+	/** 同一时间戳 + 同一文字的片段只保留一条：面板会同时挂一份隐藏副本，不去重会整篇翻倍。 */
+	function dedupeSegments(segments) {
+		const seen = /* @__PURE__ */ new Set();
+		const unique = [];
+		for (const segment of segments) {
+			const key = `${segment.start}\t${segment.text}`;
+			if (seen.has(key)) continue;
+			seen.add(key);
+			unique.push(segment);
+		}
+		return unique;
+	}
 	/** 面板里新的 view-model 结构：每个片段一个节点，时间戳与文字分开。 */
 	function extractFromViewModel(root) {
 		const segments = [];
 		for (const host of root.querySelectorAll("transcript-segment-view-model, ytd-transcript-segment-renderer")) {
 			const timestamp = (host.querySelector(".ytwTranscriptSegmentViewModelTimestamp, #timestamp, .segment-timestamp, [aria-hidden=\"true\"]")?.textContent ?? "").trim();
-			const text = clean((host.querySelector("span[role=\"text\"], #segment-text, .segment-text") ?? findLeafWithLetters(host))?.textContent);
+			const text = clean((host.querySelector("span[role=\"text\"], #segment-text, .segment-text") ?? findLeafWithText(host))?.textContent);
 			if (text && text !== timestamp) segments.push({
 				start: tsToSec(timestamp) * 1e3,
 				text
 			});
 		}
-		if (segments.length > 0) return segments;
+		const fromNodes = dedupeSegments(segments);
+		if (fromNodes.length > 0) return fromNodes;
+		const scope = scopeRoot(root);
 		const timestampPattern = /^\d{1,2}(:\d{2}){1,2}$/;
 		const seen = /* @__PURE__ */ new WeakSet();
-		const candidates = [...root.querySelectorAll("span, div")].filter((node) => node.children.length === 0 && timestampPattern.test((node.textContent ?? "").trim()));
+		const candidates = [...scope.querySelectorAll("span, div")].filter((node) => node.children.length === 0 && timestampPattern.test((node.textContent ?? "").trim()));
 		for (const node of candidates) {
 			let block = node.closest("[role=\"button\"], button, ytd-transcript-segment-renderer, transcript-segment-view-model") ?? node.parentElement;
 			while (block && seen.has(block)) block = block.parentElement;
@@ -478,18 +497,19 @@
 			const blockText = clean(block.textContent);
 			if (timestampPattern.test(blockText) && blockText.length < 30) continue;
 			const text = blockText.replace(/^\d{1,2}(:\d{2}){1,2}/, "").trim();
-			if (text.length > 1 && /[A-Za-z]/.test(text)) segments.push({
+			if (text.length > 1) segments.push({
 				start: tsToSec(timestamp) * 1e3,
 				text
 			});
 		}
-		return segments.length > 0 ? segments : null;
+		const unique = dedupeSegments(segments);
+		return unique.length > 0 ? unique : null;
 	}
 	/** 最老的结构：每个时间戳与文字在同一行文本里（`0:05 你好`）。 */
 	function extractFromPanelDump(root) {
 		const linePattern = /^\d{1,2}(?::\d{2}){1,2}\s+/;
 		const segments = [];
-		for (const node of root.querySelectorAll("div, span, p")) {
+		for (const node of scopeRoot(root).querySelectorAll("div, span, p")) {
 			if (node.children.length !== 0) continue;
 			const content = node.textContent ?? "";
 			if (!linePattern.test(content)) continue;
@@ -502,8 +522,18 @@
 		}
 		return segments.length > 0 ? segments : null;
 	}
-	function findLeafWithLetters(root) {
-		for (const node of root.querySelectorAll("*")) if (node.children.length === 0 && /[A-Za-z]/.test(node.textContent ?? "")) return node;
+	/** 转写面板容器：兜底扫描只在这里面找，找不到才退回全页。
+	*
+	* 只认转写特有的容器：通用的 engagement-panel 也长这样（评论区、简介区都是），
+	* 写进去的话，改版后兜底会去扫评论区，把“0:05 这里好笑”当成字幕抄回来。 */
+	function scopeRoot(root) {
+		const doc = root;
+		if (typeof doc.querySelector !== "function") return root;
+		return doc.querySelector("ytd-transcript-renderer, [target-id*=\"transcript\"]") ?? root;
+	}
+	/** 片段容器里第一个有文字的叶子节点；不要求英文字母，中文也能命中。 */
+	function findLeafWithText(root) {
+		for (const node of root.querySelectorAll("*")) if (node.children.length === 0 && clean(node.textContent) !== "") return node;
 		return null;
 	}
 	//#endregion
@@ -511,18 +541,28 @@
 	/**
 	* 直接问 YouTube 要转写面板。
 	*
-	* 这是最后一条路：前面的网络缓存与 DOM 都拿不到时才发请求。客户端版本写死会随
-	* YouTube 升级失效，但它在失败队列的最后，失效只影响兜底，不影响主路径。
+	* 这是最后一条路：前面的网络缓存与 DOM 都拿不到时才发请求。客户端版本优先读
+	* 页面自己的配置，读不到才用写死的兜底，这样 YouTube 升级后主路径不受影响。
 	*/
 	var PANEL_URL = "https://www.youtube.com/youtubei/v1/get_panel?prettyPrint=false";
-	var CLIENT_VERSION = "2.20260710.06.00";
+	var FALLBACK_CLIENT_VERSION = "2.20260710.06.00";
+	/** 读页面当前的客户端版本，读不到返回 null（调用方用写死的兜底）。 */
+	function readPageClientVersion(scope = globalThis) {
+		try {
+			const version = scope.ytcfg?.get?.("CLIENT_VERSION");
+			return typeof version === "string" && version !== "" ? version : null;
+		} catch {
+			return null;
+		}
+	}
 	/**
 	* 请求当前视频的转写面板。
 	*
 	* @param videoId 视频 ID；为空时不发请求
 	* @param fetchImpl 便于测试替换的 fetch
+	* @param clientVersion 客户端版本；不传时读页面配置，读不到用写死的兜底
 	*/
-	async function requestPanel(videoId, fetchImpl = fetch) {
+	async function requestPanel(videoId, fetchImpl = fetch, clientVersion = readPageClientVersion() ?? FALLBACK_CLIENT_VERSION) {
 		if (videoId === "") return null;
 		try {
 			return extractFromPanelResponse(await (await fetchImpl(PANEL_URL, {
@@ -531,7 +571,7 @@
 				body: JSON.stringify({
 					context: { client: {
 						clientName: "WEB",
-						clientVersion: CLIENT_VERSION
+						clientVersion
 					} },
 					panelIdentifier: "engagement-panel-searchable-transcript"
 				})
@@ -580,24 +620,39 @@
 	*
 	* 只观察，不改写请求与响应；解析失败静默跳过，不影响页面。
 	*/
-	var PANEL_PATTERN = /youtubei\/v1\/get_panel/i;
+	/**
+	* 需要旁听的地址：
+	*
+	* - `get_panel` / `get_transcript`：转写面板的接口，不同年代的名字；
+	* - `/api/timedtext`：播放器自己拉字幕的地址。2026 起不带 `pot` 的裸字幕地址
+	*   会返回空响应，只有播放器请求里的完整地址（含 `pot`）能拿到内容，所以顺带缓存它。
+	*/
+	var CAPTURE_PATTERN = /(?:youtubei\/v1\/(?:get_panel|get_transcript)|\/api\/timedtext)/i;
+	var TIMEDTEXT_PATTERN = /\/api\/timedtext/i;
+	/** 按地址选择解析方式；解析不出来返回 null。 */
+	function parseCapturedResponse(url, data) {
+		return TIMEDTEXT_PATTERN.test(url) ? extractFromJson3(data) : extractFromPanelResponse(data);
+	}
 	function installNetworkCapture(win = window) {
-		let segments = null;
 		const globals = win;
 		if (globals.__ytTxNetHooked) return {
-			get: () => segments,
-			clear: () => void 0,
+			get: () => globals.__ytTxNetSegments ?? null,
+			clear: () => {
+				globals.__ytTxNetSegments = null;
+			},
 			restore: () => void 0
 		};
 		globals.__ytTxNetHooked = true;
+		globals.__ytTxNetSegments = null;
 		const originalFetch = win.fetch.bind(win);
 		const wrappedFetch = (...args) => {
 			const input = args[0];
 			const url = typeof input === "string" ? input : input instanceof Request ? input.url : input instanceof URL ? input.href : "";
 			const request = originalFetch(...args);
-			if (PANEL_PATTERN.test(url)) request.then(async (response) => {
+			if (CAPTURE_PATTERN.test(url)) request.then(async (response) => {
 				try {
-					segments = extractFromPanelResponse(await response.clone().json()) ?? segments;
+					const data = await response.clone().json();
+					globals.__ytTxNetSegments = parseCapturedResponse(url, data) ?? globals.__ytTxNetSegments ?? null;
 				} catch {}
 			}).catch(() => void 0);
 			return request;
@@ -607,9 +662,10 @@
 		const originalOpen = proto.open;
 		const wrappedOpen = function(method, url, ...rest) {
 			const target = typeof url === "string" ? url : url.href;
-			if (PANEL_PATTERN.test(target)) this.addEventListener("load", () => {
+			if (CAPTURE_PATTERN.test(target)) this.addEventListener("load", () => {
 				try {
-					segments = extractFromPanelResponse(JSON.parse(this.responseText)) ?? segments;
+					const data = this.responseType === "json" ? this.response : JSON.parse(this.responseText);
+					globals.__ytTxNetSegments = parseCapturedResponse(target, data) ?? globals.__ytTxNetSegments ?? null;
 				} catch {}
 			});
 			Reflect.apply(originalOpen, this, [
@@ -620,9 +676,9 @@
 		};
 		proto.open = wrappedOpen;
 		return {
-			get: () => segments,
+			get: () => globals.__ytTxNetSegments ?? null,
 			clear() {
-				segments = null;
+				globals.__ytTxNetSegments = null;
 			},
 			restore() {
 				win.fetch = originalFetch;
@@ -660,21 +716,29 @@
 	function ariaOrText(element) {
 		return clean(element.getAttribute("aria-label")) || clean(element.textContent);
 	}
+	/** 各语言里“显示转写文稿”的说法；英文之外至少覆盖简中、日、韩、俄与拉丁语系。 */
+	var TRANSCRIPT_LABEL = /transcript|转写|转文字|文字起こし|스크립트|транскрип|transcri/i;
 	/** 按 aria-label 优先、按钮文字兜底的顺序找“显示转写文稿”。 */
 	function findTranscriptTrigger(doc = document) {
+		const section = doc.querySelector("ytd-video-description-transcript-section-renderer");
+		if (section && section.getBoundingClientRect().width > 0) {
+			const buttons = [...section.querySelectorAll("button, [role=\"button\"], tp-yt-paper-button, yt-button-shape, button-view-model")];
+			const button = buttons.find((candidate) => candidate.tagName === "BUTTON" || candidate.getAttribute("role") === "button") ?? buttons[0];
+			if (button) return button;
+		}
 		const expander = doc.querySelector("ytd-text-inline-expander");
 		if (expander) {
 			const buttons = [...expander.querySelectorAll("button, [role=\"button\"], yt-button-shape, button-view-model")].filter((button) => clean(button.getAttribute("aria-label")) !== "");
 			const byAriaShow = buttons.find((button) => /show\s+transcript/i.test(clean(button.getAttribute("aria-label"))));
 			if (byAriaShow) return byAriaShow;
-			const byAria = buttons.find((button) => /transcript/i.test(clean(button.getAttribute("aria-label"))));
+			const byAria = buttons.find((button) => TRANSCRIPT_LABEL.test(clean(button.getAttribute("aria-label"))));
 			if (byAria) return byAria;
-			const byText = buttons.find((button) => /transcript/i.test(clean(button.textContent)));
+			const byText = buttons.find((button) => TRANSCRIPT_LABEL.test(clean(button.textContent)));
 			if (byText) return byText;
 		}
 		for (const button of doc.querySelectorAll("button, [role=\"button\"], yt-button-shape, button-view-model")) {
 			if (!(button instanceof HTMLElement) || !button.offsetParent) continue;
-			if (/transcript/i.test(clean(button.getAttribute("aria-label")) + clean(button.textContent))) return button;
+			if (TRANSCRIPT_LABEL.test(clean(button.getAttribute("aria-label")) + clean(button.textContent))) return button;
 		}
 		return null;
 	}
@@ -762,6 +826,7 @@
 			const videoId = deps.videoId();
 			if (cache !== null && cache.videoId === videoId) return cache.segments;
 			const fromNetwork = await runStrategies("net", [deps.fromInitialTrack, () => deps.fromNetworkCache()]);
+			if (deps.videoId() !== videoId) return [];
 			if (fromNetwork) {
 				cache = {
 					videoId,
@@ -770,7 +835,9 @@
 				return fromNetwork;
 			}
 			if (!await deps.ensurePanelOpen()) return [];
+			if (deps.videoId() !== videoId) return [];
 			const fromDom = await runStrategies("dom", [() => deps.fromViewModel(), () => deps.fromPanelDump()]);
+			if (deps.videoId() !== videoId) return [];
 			if (fromDom) {
 				cache = {
 					videoId,
@@ -972,7 +1039,7 @@
 	}
 	//#endregion
 	//#region scripts/youtube-transcript-copy/src/ui/transcript-button.css?inline
-	var transcript_button_default = "/*\n * 悬浮按钮：尺寸、圆角、颜色全部取自 --ds-* Token。\n * 旧版是一个 40px 的红色圆形按钮，就绪时半透明、悬停时变亮，这里保持一致。\n */\n.yt-transcript-wrap {\n  position: fixed;\n  z-index: 1;\n  cursor: grab;\n  touch-action: none;\n  user-select: none;\n}\n\n.yt-transcript-wrap[data-dragging='true'] {\n  cursor: grabbing;\n}\n\n.yt-transcript-button {\n  display: flex;\n  align-items: center;\n  justify-content: center;\n  width: var(--ds-launcher-size);\n  height: var(--ds-launcher-size);\n  padding: 0;\n  border: 0;\n  border-radius: var(--ds-radius-full);\n  color: var(--ds-primary-foreground);\n  font-family: var(--ds-font-sans);\n  font-size: var(--ds-text-lg);\n  font-weight: var(--ds-weight-semibold);\n  line-height: 1;\n  cursor: pointer;\n  opacity: 0.5;\n  transition:\n    opacity var(--ds-duration-slow) var(--ds-ease),\n    background-color var(--ds-duration-slow) var(--ds-ease),\n    filter var(--ds-duration-slow) var(--ds-ease);\n}\n\n.yt-transcript-button[data-state='normal'],\n.yt-transcript-button[data-state='loading'],\n.yt-transcript-button[data-state='error'] {\n  background: var(--ds-destructive);\n}\n\n.yt-transcript-button[data-state='success'] {\n  background: var(--ds-success);\n}\n\n.yt-transcript-button[data-state='loading'],\n.yt-transcript-button[data-state='error'],\n.yt-transcript-button[data-state='success'] {\n  opacity: 0.7;\n}\n\n.yt-transcript-wrap:hover .yt-transcript-button {\n  opacity: 1;\n  filter: brightness(1.08);\n}\n\n.yt-transcript-button:focus-visible {\n  outline: var(--ds-ring-width) solid var(--ds-ring);\n  outline-offset: var(--ds-ring-offset);\n}\n\n.yt-transcript-label {\n  display: block;\n  min-width: 1ch;\n  text-align: center;\n}\n";
+	var transcript_button_default = "/*\n * 悬浮按钮：尺寸、圆角、颜色全部取自 --ds-* Token。\n * 旧版是一个 40px 的红色圆形按钮，就绪时半透明、悬停时变亮，这里保持一致。\n */\n.yt-transcript-wrap {\n  position: fixed;\n  z-index: 1;\n  cursor: grab;\n  user-select: none;\n}\n\n.yt-transcript-wrap[data-dragging='true'] {\n  cursor: grabbing;\n}\n\n.yt-transcript-button {\n  display: flex;\n  align-items: center;\n  justify-content: center;\n  width: var(--ds-launcher-size);\n  height: var(--ds-launcher-size);\n  padding: 0;\n  border: 0;\n  border-radius: var(--ds-radius-full);\n  color: var(--ds-primary-foreground);\n  font-family: var(--ds-font-sans);\n  font-size: var(--ds-text-lg);\n  font-weight: var(--ds-weight-semibold);\n  line-height: 1;\n  cursor: pointer;\n  opacity: 0.5;\n  transition:\n    opacity var(--ds-duration-slow) var(--ds-ease),\n    background-color var(--ds-duration-slow) var(--ds-ease),\n    filter var(--ds-duration-slow) var(--ds-ease);\n}\n\n.yt-transcript-button[data-state='normal'],\n.yt-transcript-button[data-state='loading'],\n.yt-transcript-button[data-state='error'] {\n  background: var(--ds-destructive);\n}\n\n.yt-transcript-button[data-state='success'] {\n  background: var(--ds-success);\n}\n\n.yt-transcript-button[data-state='loading'],\n.yt-transcript-button[data-state='error'],\n.yt-transcript-button[data-state='success'] {\n  opacity: 0.7;\n}\n\n.yt-transcript-wrap:hover .yt-transcript-button {\n  opacity: 1;\n  filter: brightness(1.08);\n}\n\n.yt-transcript-button:focus-visible {\n  outline: var(--ds-ring-width) solid var(--ds-ring);\n  outline-offset: var(--ds-ring-offset);\n}\n\n.yt-transcript-label {\n  display: block;\n  min-width: 1ch;\n  text-align: center;\n}\n";
 	//#endregion
 	//#region scripts/youtube-transcript-copy/src/ui/button.ts
 	var DRAG_THRESHOLD_PX = 3;
@@ -1117,6 +1184,14 @@
 		let button = null;
 		let visible = options.isVisible();
 		let busy = false;
+		let autoPosition = options.getSavedPosition() === null;
+		let settleTimer;
+		const SETTLE_DELAYS_MS = [
+			300,
+			1e3,
+			2e3,
+			4e3
+		];
 		const activate = async (target) => {
 			if (busy) return;
 			busy = true;
@@ -1130,7 +1205,13 @@
 				busy = false;
 			}
 		};
-		const mount = () => {
+		function sync() {
+			const current = mount();
+			if (!current) return;
+			current.setVisible(visible);
+			current.setPosition(autoPosition ? options.getDefaultPosition() ?? current.getPosition() : current.getPosition());
+		}
+		function mount() {
 			if (button) return button;
 			const position = options.getSavedPosition() ?? options.getDefaultPosition();
 			if (!position) return null;
@@ -1142,26 +1223,39 @@
 				ui: mounted,
 				label: "复制当前转写文稿",
 				onClick: () => void activate(created),
-				onMoveEnd: options.savePosition
+				onMoveEnd: (next) => {
+					autoPosition = false;
+					options.savePosition(next);
+				}
 			});
 			created.setPosition(position);
 			created.setVisible(visible);
 			ui = mounted;
 			button = created;
+			scheduleSettle(0);
 			return created;
-		};
+		}
+		/** 首屏布局稳定前按固定节奏再算几次默认位置；用户拖动后 autoPosition 关闭，不再校正。 */
+		function scheduleSettle(index) {
+			const delay = SETTLE_DELAYS_MS[index];
+			if (delay === void 0) {
+				settleTimer = void 0;
+				return;
+			}
+			settleTimer = window.setTimeout(() => {
+				settleTimer = void 0;
+				sync();
+				scheduleSettle(index + 1);
+			}, delay);
+		}
 		return {
-			sync() {
-				const current = mount();
-				if (!current) return;
-				current.setVisible(visible);
-				current.setPosition(current.getPosition());
-			},
+			sync,
 			setVisible(next) {
 				visible = next;
 				button?.setVisible(next);
 			},
 			resetPosition() {
+				autoPosition = false;
 				button?.setPosition({
 					right: 30,
 					top: 30
@@ -1169,6 +1263,10 @@
 			},
 			isMounted: () => button !== null,
 			destroy() {
+				if (settleTimer !== void 0) {
+					window.clearTimeout(settleTimer);
+					settleTimer = void 0;
+				}
 				ui?.destroy();
 				ui = null;
 				button = null;

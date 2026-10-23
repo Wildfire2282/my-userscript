@@ -2,7 +2,7 @@
 // @name         选中复制
 // @name:en      Copy on Select
 // @namespace    https://github.com/Wildfire2282
-// @version      1.3.0
+// @version      1.3.1
 // @description  选中文本后自动纯文本复制到剪贴板，去除首尾空白
 // @description:en Copy selected text as plain text with whitespace trimmed
 // @author       Wildfire2282 (https://github.com/Wildfire2282)
@@ -136,8 +136,7 @@
 		return typeof value === "object" && value !== null && !Array.isArray(value);
 	}
 	function clone(value) {
-		if (typeof structuredClone === "function") return structuredClone(value);
-		return JSON.parse(JSON.stringify(value));
+		return structuredClone(value);
 	}
 	function mergeValue(defaultValue, storedValue) {
 		if (storedValue == null) return isRecord(defaultValue) ? mergeRecords(defaultValue, {}) : clone(defaultValue);
@@ -427,7 +426,7 @@
 			if (isInsideEditable(elementOf(target))) return true;
 			if (isInsideEditable(elementOf(selection?.anchorNode))) return true;
 			if (isInsideEditable(elementOf(selection?.focusNode))) return true;
-			if (isInsideEditable(getActiveElement())) return true;
+			if (target === null && isInsideEditable(getActiveElement())) return true;
 		}
 		return false;
 	}
@@ -625,14 +624,14 @@ dragThresholdPx: 3 };
 		return true;
 	}
 	/**
-	* 松开按键后是否去复制：Shift + 选区扩展键，或 Ctrl+A / Cmd+A（不带 Shift）。
+	* 松开按键后是否去复制：Shift + 选区扩展键，或 Ctrl+A（不带 Shift）。
 	*
 	* Alt 组合交给系统；页面合成的键盘事件一律忽略，避免被脚本反复触发。
 	*/
 	function shouldCopyOnKeyUp(event) {
 		if (!event.isTrusted || event.altKey) return false;
 		const extendsSelection = event.shiftKey && SELECTION_EXTEND_KEYS.has(event.key);
-		const selectsAll = (event.ctrlKey || event.metaKey) && !event.shiftKey && event.key.toLowerCase() === "a";
+		const selectsAll = event.ctrlKey && !event.shiftKey && event.key.toLowerCase() === "a";
 		return extendsSelection || selectsAll;
 	}
 	//#endregion

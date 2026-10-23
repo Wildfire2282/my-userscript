@@ -2,7 +2,7 @@
 // @name         超级拖拽
 // @name:en      Super Drag
 // @namespace    https://github.com/Wildfire2282
-// @version      2.4.1
+// @version      2.5.0
 // @description  拖拽文本搜索，拖拽链接在新标签页打开，拖拽图片查看
 // @description:en Drag text to search, links to open, and images to view
 // @author       Wildfire2282 (https://github.com/Wildfire2282)
@@ -72,8 +72,7 @@
 		return typeof value === "object" && value !== null && !Array.isArray(value);
 	}
 	function clone(value) {
-		if (typeof structuredClone === "function") return structuredClone(value);
-		return JSON.parse(JSON.stringify(value));
+		return structuredClone(value);
 	}
 	function mergeValue(defaultValue, storedValue) {
 		if (storedValue == null) return isRecord(defaultValue) ? mergeRecords(defaultValue, {}) : clone(defaultValue);
@@ -205,11 +204,15 @@
 		baidu: "Baidu"
 	};
 	var GOOGLE_FALLBACK = "https://www.google.com/search?q={keyword}";
+	/** 未知引擎 ID 的显示名：把 `my-engine` 转成 `My Engine`，而不是直接甩出原始 ID。 */
+	function humanizeEngineId(id) {
+		return id.split(/[-_]/).map((part) => part === "" ? part : part.charAt(0).toUpperCase() + part.slice(1)).join(" ");
+	}
 	/** 下拉选项：存储里的引擎 + 自定义。顺序沿用存储顺序，保证旧用户看到的顺序不变。 */
 	function engineOptions(settings) {
 		const options = Object.keys(settings.engines).map((id) => ({
 			value: id,
-			label: ENGINE_LABELS[id] ?? id
+			label: ENGINE_LABELS[id] ?? humanizeEngineId(id)
 		}));
 		options.push({
 			value: CUSTOM_ENGINE_ID,
@@ -247,10 +250,37 @@
 			dragKinds: { ...DEFAULT_SETTINGS.dragKinds }
 		};
 	}
-	var URL_PATTERN = /(ftp|http|https):\/\/(\w+:{0,1}\w*@)?(\S+)(:[0-9]+)?(\/|\/([\w#!:.?+=&%@!-/]))?/;
+	var URL_PATTERN = /(ftp|http|https):\/\/(\w+:{0,1}\w*@)?(\S+)(:[0-9]+)?(\/|\/([\w#!:.?+=&%@!-/]))?/i;
 	/** @param text 任意文本 */
 	function looksLikeUrl(text) {
 		return URL_PATTERN.test(text);
+	}
+	/** 中文标点不可能出现在地址里：第一次出现就截断（`https://a。这是说明` → `https://a`）。 */
+	var CJK_PUNCT = /[。、，．・…？！；：『』「」《》（）【】\u3000]/u;
+	/** 地址结尾不可能是这些符号（句尾的 `。，;!?` 和全角引号括号）；半角 `)]}` 不在这里剥，
+	* Wikipedia 的 `..._(film)` 就是右括号结尾，见 `balanceTrailingParen`。 */
+	var TRAILING_PUNCT = /[。.，,;；:：!！?？'"'""…、〉》」』〕）]+$/u;
+	/** 括号配平：右括号比左括号多时，多出来的只能是句尾混进来的，剥掉一个。
+	*
+	* `（见https://a)` → `https://a`；`..._(film)` 配平，保留。 */
+	function balanceTrailingParen(url) {
+		if (!url.endsWith(")")) return url;
+		let depth = 0;
+		for (const char of url) if (char === "(") depth += 1;
+		else if (char === ")") depth -= 1;
+		return depth < 0 ? url.slice(0, -1) : url;
+	}
+	/**
+	* 从一段无空格的文字里切出地址：从协议头开始，到中文标点结束。
+	*
+	* `见https://example.com/a好` 这种粘在一起的也能切出中间的地址；
+	* 纯 IDN（`https://例子.测试`，半角点）不受影响，只有全角标点会截断。
+	*/
+	function extractUrlCandidate(keyword) {
+		const start = keyword.search(/(ftp|https?):\/\//i);
+		const fromStart = start >= 0 ? keyword.slice(start) : keyword;
+		const cut = fromStart.search(CJK_PUNCT);
+		return balanceTrailingParen((cut >= 0 ? fromStart.slice(0, cut) : fromStart).replace(TRAILING_PUNCT, ""));
 	}
 	/**
 	* 把拖拽的文本转成“直接打开”的地址。
@@ -260,7 +290,9 @@
 	function asDirectUrl(text) {
 		const keyword = typeof text === "string" ? text.trim() : "";
 		if (keyword === "" || keyword.length > 2048 || /\s/.test(keyword)) return "";
-		return looksLikeUrl(keyword) ? keyword : "";
+		const stripped = extractUrlCandidate(keyword);
+		if (stripped === "") return "";
+		return looksLikeUrl(stripped) ? stripped : "";
 	}
 	//#endregion
 	//#region scripts/super-drag/src/features/drop-action.ts
@@ -477,17 +509,6 @@
 	function caretRangeFromPoint(x, y) {
 		try {
 			if (typeof document.caretRangeFromPoint === "function") return document.caretRangeFromPoint(x, y);
-		} catch {}
-		try {
-			if (typeof document.caretPositionFromPoint === "function") {
-				const position = document.caretPositionFromPoint(x, y);
-				if (position) {
-					const range = document.createRange();
-					range.setStart(position.offsetNode, position.offset);
-					range.collapse(true);
-					return range;
-				}
-			}
 		} catch {}
 		return null;
 	}

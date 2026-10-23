@@ -2,7 +2,7 @@
 // @name         捕获链接
 // @name:en      Link Capture
 // @namespace    https://github.com/Wildfire2282
-// @version      1.1.0
+// @version      1.1.1
 // @description  捕获页面中的全部链接，支持关键词筛选与批量复制
 // @description:en Collect, filter, and copy all links on a page
 // @author       Wildfire2282 (https://github.com/Wildfire2282)
@@ -12,7 +12,6 @@
 // @source       https://github.com/Wildfire2282/my-userscript
 // @match        https://*/*
 // @match        http://*/*
-// @grant        GM_addStyle
 // @grant        GM_registerMenuCommand
 // @grant        GM_setClipboard
 // @grant        GM_setValue
@@ -139,8 +138,7 @@
 		return typeof value === "object" && value !== null && !Array.isArray(value);
 	}
 	function clone(value) {
-		if (typeof structuredClone === "function") return structuredClone(value);
-		return JSON.parse(JSON.stringify(value));
+		return structuredClone(value);
 	}
 	function mergeValue(defaultValue, storedValue) {
 		if (storedValue == null) return isRecord(defaultValue) ? mergeRecords(defaultValue, {}) : clone(defaultValue);
@@ -1587,34 +1585,55 @@
 	}
 	//#endregion
 	//#region scripts/capture-links/src/ui/link-list.css?inline
-	var link_list_default = "/**\n * 面板列表的样式。\n *\n * 列表行是可能上千条的数据行，用原生 checkbox + DOM 节点逐行拼，而不是为每一行\n * 创建一套 `@ui` 组件：组件带来的无障碍包装在数据行里没有增量，反而会让每次筛选\n * 都重建大量句柄。颜色与间距全部取自 `--ds-*` Token，不写死取值。\n */\n\n.cl-toolbar {\n  display: flex;\n  flex-wrap: wrap;\n  align-items: center;\n  gap: var(--ds-space-2);\n}\n\n.cl-search {\n  flex: 1 1 220px;\n  min-width: 0;\n}\n\n.cl-toggle {\n  display: inline-flex;\n  align-items: center;\n  gap: var(--ds-space-1-5);\n  color: var(--ds-muted-foreground);\n  font-size: var(--ds-text-xs);\n  white-space: nowrap;\n  cursor: pointer;\n}\n\n.cl-stats {\n  margin-inline-start: auto;\n  color: var(--ds-muted-foreground);\n  font-size: var(--ds-text-xs);\n  font-variant-numeric: tabular-nums;\n  white-space: nowrap;\n}\n\n.cl-list {\n  display: flex;\n  flex-direction: column;\n}\n\n.cl-row {\n  display: flex;\n  align-items: center;\n  gap: var(--ds-space-3);\n  min-width: 0;\n  padding: var(--ds-space-2) var(--ds-space-1);\n  border-radius: var(--ds-radius-md);\n  cursor: pointer;\n}\n\n.cl-row:hover {\n  background: var(--ds-muted);\n}\n\n.cl-check {\n  flex: none;\n  width: var(--ds-checkbox-size);\n  height: var(--ds-checkbox-size);\n  margin: 0;\n  accent-color: var(--ds-primary);\n  cursor: pointer;\n}\n\n.cl-index {\n  flex: none;\n  width: 28px;\n  color: var(--ds-muted-foreground);\n  font-size: var(--ds-text-xs);\n  font-variant-numeric: tabular-nums;\n  text-align: end;\n}\n\n.cl-info {\n  display: flex;\n  flex-direction: column;\n  gap: var(--ds-space-0-5);\n  min-width: 0;\n}\n\n.cl-title {\n  overflow: hidden;\n  color: var(--ds-foreground);\n  font-size: var(--ds-text-sm);\n  font-weight: var(--ds-weight-medium);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n}\n\n.cl-url {\n  overflow: hidden;\n  color: var(--ds-muted-foreground);\n  font-size: var(--ds-text-xs);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n}\n\n.cl-empty {\n  padding: var(--ds-space-6);\n  color: var(--ds-muted-foreground);\n  font-size: var(--ds-text-sm);\n  text-align: center;\n}\n";
+	var link_list_default = "/**\n * 面板列表的样式。\n *\n * 列表行是可能上千条的数据行，用原生 checkbox + DOM 节点逐行拼，而不是为每一行\n * 创建一套 `@ui` 组件：组件带来的无障碍包装在数据行里没有增量，反而会让每次筛选\n * 都重建大量句柄。颜色与间距全部取自 `--ds-*` Token，不写死取值。\n */\n\n.cl-toolbar {\n  display: flex;\n  flex-wrap: wrap;\n  align-items: center;\n  gap: var(--ds-space-2);\n}\n\n.cl-search {\n  flex: 1 1 220px;\n  min-width: 0;\n}\n\n.cl-toggle {\n  display: inline-flex;\n  align-items: center;\n  gap: var(--ds-space-1-5);\n  color: var(--ds-muted-foreground);\n  font-size: var(--ds-text-xs);\n  white-space: nowrap;\n  cursor: pointer;\n}\n\n.cl-stats {\n  margin-inline-start: auto;\n  color: var(--ds-muted-foreground);\n  font-size: var(--ds-text-xs);\n  font-variant-numeric: tabular-nums;\n  white-space: nowrap;\n}\n\n.cl-list {\n  display: flex;\n  flex-direction: column;\n}\n\n.cl-row {\n  display: flex;\n  align-items: center;\n  gap: var(--ds-space-3);\n  min-width: 0;\n  padding: var(--ds-space-2) var(--ds-space-1);\n  border-radius: var(--ds-radius-md);\n  cursor: pointer;\n}\n\n.cl-row:hover {\n  background: var(--ds-muted);\n}\n\n.cl-check {\n  flex: none;\n  width: var(--ds-checkbox-size);\n  height: var(--ds-checkbox-size);\n  margin: 0;\n  accent-color: var(--ds-primary);\n  cursor: pointer;\n}\n\n.cl-index {\n  flex: none;\n  width: 28px;\n  color: var(--ds-muted-foreground);\n  font-size: var(--ds-text-xs);\n  font-variant-numeric: tabular-nums;\n  text-align: end;\n}\n\n.cl-info {\n  display: flex;\n  flex-direction: column;\n  gap: var(--ds-space-0-5);\n  min-width: 0;\n}\n\n.cl-title {\n  overflow: hidden;\n  color: var(--ds-foreground);\n  font-size: var(--ds-text-sm);\n  font-weight: var(--ds-weight-medium);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n}\n\n.cl-url {\n  overflow: hidden;\n  color: var(--ds-muted-foreground);\n  font-size: var(--ds-text-xs);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n}\n\n.cl-empty {\n  padding: var(--ds-space-6);\n  color: var(--ds-muted-foreground);\n  font-size: var(--ds-text-sm);\n  text-align: center;\n}\n\n/* \"显示更多\"按钮：现在和空状态长一样，但类名分开，改空状态样式时不会误伤按钮。\n * button 自带的边框底色也一起清掉，只留一行可点的灰字。 */\n.cl-more {\n  width: 100%;\n  padding: var(--ds-space-6);\n  border: none;\n  background: none;\n  color: var(--ds-muted-foreground);\n  font-size: var(--ds-text-sm);\n  text-align: center;\n  cursor: pointer;\n}\n";
 	//#endregion
 	//#region scripts/capture-links/src/links.ts
-	/** 线上旧版对地址做的实体解码；链接文字与地址都可能来自被转义的页面。 */
+	/** 线上旧版对地址做的实体解码；链接文字与地址都可能来自被转义的页面。
+	*
+	* 一次只解一层：`&amp;lt;` 还原成 `&lt;` 就停，不再往 `<` 解，
+	* 否则页面原文里就写着 `&lt;` 的地方会被多解一层。 */
 	function decodeText(text) {
-		return text.replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, "\"").replace(/&#39;/g, "'");
+		return text.replace(/&(amp|lt|gt|quot|nbsp|#39|#\d+|#x[0-9a-f]+);/gi, (match, name) => {
+			switch (name.toLowerCase()) {
+				case "amp": return "&";
+				case "lt": return "<";
+				case "gt": return ">";
+				case "quot": return "\"";
+				case "nbsp": return " ";
+				case "#39": return "'";
+				default: {
+					const lower = name.toLowerCase();
+					const code = lower.startsWith("#x") ? Number.parseInt(lower.slice(2), 16) : Number(lower.slice(1));
+					return Number.isInteger(code) && code >= 0 && code <= 1114111 ? String.fromCodePoint(code) : match;
+				}
+			}
+		});
 	}
 	function normalizeUrl(url) {
 		return decodeText(url).trim();
 	}
+	/** 不执行的链接协议：不能打开、复制出来也是坏地址，列表里直接不要。 */
+	var BLOCKED_SCHEMES = /^(javascript|data|vbscript):/i;
 	/**
 	* 把 `href` 补成绝对地址。
 	*
 	* @param rawHref 元素上的原始 `href`
 	* @param baseHref 页面地址，用来解析相对地址
 	* @param absoluteHref 浏览器已经解析好的 `a.href`，解析失败时用它兜底
-	* @returns 归一化后的地址；空地址返回 `null`
+	* @returns 归一化后的地址；空地址或不可执行的协议返回 `null`
 	*/
 	function resolveUrl(rawHref, baseHref, absoluteHref = "") {
-		if (rawHref.trim() === "") return null;
+		const raw = rawHref.trim();
+		if (raw === "" || BLOCKED_SCHEMES.test(raw)) return null;
 		let resolved;
 		try {
-			resolved = new URL(rawHref, baseHref).toString();
+			resolved = new URL(raw, baseHref).toString();
 		} catch {
-			resolved = absoluteHref || rawHref;
+			resolved = absoluteHref || raw;
 		}
 		const normalized = normalizeUrl(resolved);
-		return normalized === "" ? null : normalized;
+		if (normalized === "" || BLOCKED_SCHEMES.test(normalized)) return null;
+		return normalized;
 	}
 	/**
 	* 汇总页面链接：忽略空地址，按绝对地址去重，第一条出现的标题优先。
@@ -1689,6 +1708,15 @@
 	}
 	//#endregion
 	//#region scripts/capture-links/src/features/scan-page.ts
+	/** 递归收 `open` 影子节点里的链接：组件化页面常把弹窗、播放器里的 `<a>` 藏在这里。
+	* `closed` 影子节点浏览器不让进，只能放弃。 */
+	function collectAnchors(root) {
+		const scope = root;
+		if (typeof scope.querySelectorAll !== "function") return [];
+		const found = [...scope.querySelectorAll("a[href]")];
+		for (const element of scope.querySelectorAll("*")) if (element.shadowRoot) found.push(...collectAnchors(element.shadowRoot));
+		return found;
+	}
 	/**
 	* 扫描页面里的全部 `<a href>`。
 	*
@@ -1701,7 +1729,7 @@
 	function scanLinks(doc = document, baseHref) {
 		if (!doc.body) return [];
 		const base = baseHref ?? doc.location?.href ?? "";
-		return collectLinks([...doc.querySelectorAll("a[href]")].map((anchor) => ({
+		return collectLinks(collectAnchors(doc).map((anchor) => ({
 			rawHref: anchor.getAttribute("href") ?? "",
 			absoluteHref: anchor.href,
 			title: bestTitle(anchor, "")
@@ -1712,12 +1740,22 @@
 	/**
 	* 把选中的链接拼成剪贴板文本，每行一条。
 	*
-	* 输出目标是剪贴板而不是本页 DOM，所以这里不做 HTML 转义：Markdown / HTML 格式
-	* 要还原用户选中的标题与地址原文，与线上旧版逐字一致。
+	* 输出目标是剪贴板而不是本页 DOM：标题里的括号、引号、尖括号要转义，
+	* 否则粘到别处会得到坏掉的 Markdown / HTML。
 	*/
+	function escapeMarkdownTitle(title) {
+		return title.replace(/\\/g, "\\\\").replace(/\[/g, "\\[").replace(/\]/g, "\\]");
+	}
+	/** Markdown 链接地址里的括号用反斜杠转义：`<>` 包裹法遇到地址自带 `>` 就提前闭合。 */
+	function escapeMarkdownUrl(url) {
+		return url.replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)");
+	}
+	function escapeHtml(text) {
+		return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+	}
 	function formatLinks(items, format) {
-		if (format === "markdown") return items.map((item) => `[${item.title}](${item.url})`).join("\n");
-		if (format === "html") return items.map((item) => `<a href="${item.url}">${item.title}</a>`).join("\n");
+		if (format === "markdown") return items.map((item) => `[${escapeMarkdownTitle(item.title)}](${escapeMarkdownUrl(item.url)})`).join("\n");
+		if (format === "html") return items.map((item) => `<a href="${escapeHtml(item.url)}">${escapeHtml(item.title)}</a>`).join("\n");
 		return items.map((item) => item.url).join("\n");
 	}
 	//#endregion
@@ -1748,6 +1786,8 @@
 	}
 	//#endregion
 	//#region scripts/capture-links/src/ui/link-panel.ts
+	/** 首屏最多建这么多行，剩下的点“显示更多”再加。 */
+	var PAGE_SIZE = 200;
 	function createLinkPanel(options) {
 		const { ui } = options;
 		ui.useStyles(link_list_default);
@@ -1782,6 +1822,7 @@
 		let allItems = [];
 		let filteredItems = [];
 		let selectedIds = /* @__PURE__ */ new Set();
+		let shownCount = PAGE_SIZE;
 		/** 勾选状态按事件委托记在列表上：行会被反复重建，逐行挂监听无法可靠清理。 */
 		list.addEventListener("change", (event) => {
 			const target = event.target;
@@ -1827,11 +1868,25 @@
 				empty.className = "cl-empty";
 				empty.textContent = "无匹配结果";
 				list.appendChild(empty);
-			} else filteredItems.forEach((item, index) => list.appendChild(createRow(item, index)));
+			} else {
+				filteredItems.slice(0, shownCount).forEach((item, index) => list.appendChild(createRow(item, index)));
+				if (filteredItems.length > shownCount) {
+					const more = document.createElement("button");
+					more.type = "button";
+					more.className = "cl-more";
+					more.textContent = `显示更多（剩余 ${filteredItems.length - shownCount} 条）`;
+					more.addEventListener("click", () => {
+						shownCount += PAGE_SIZE;
+						render();
+					}, { signal: ui.signal });
+					list.appendChild(more);
+				}
+			}
 			updateStats();
 		}
 		function applyFilter() {
 			filteredItems = filterLinks(allItems, search.getValue(), magnet.isChecked());
+			shownCount = PAGE_SIZE;
 			render();
 		}
 		async function copySelected() {
@@ -1883,6 +1938,7 @@
 			open() {
 				allItems = scanLinks();
 				selectedIds = /* @__PURE__ */ new Set();
+				shownCount = PAGE_SIZE;
 				search.setValue("");
 				magnet.setChecked(false);
 				applyFilter();
@@ -1986,10 +2042,14 @@
 			}
 			const current = ensure();
 			if (current.launcher) return;
+			const launcherPanel = {
+				...current.linkPanel.panel,
+				open: () => current.linkPanel.open()
+			};
 			current.launcher = createLauncher(current.ui, {
 				label: "打开链接面板",
 				closeLabel: "关闭链接面板",
-				panel: current.linkPanel.panel,
+				panel: launcherPanel,
 				icon: linkIcon()
 			});
 			current.linkPanel.panel.setPosition("center");

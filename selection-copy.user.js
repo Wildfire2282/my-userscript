@@ -2,7 +2,7 @@
 // @name         选中复制
 // @name:en      Copy on Select
 // @namespace    https://github.com/Wildfire2282
-// @version      1.4.2
+// @version      1.4.3
 // @description  选中文本后自动纯文本复制到剪贴板，去除首尾空白
 // @description:en Copy selected text as plain text with whitespace trimmed
 // @author       Wildfire2282 (https://github.com/Wildfire2282)
@@ -589,7 +589,7 @@
 	function createCopyAction(options) {
 		const doc = options.doc ?? document;
 		let requestId = 0;
-		return async (target = null) => {
+		return async (target = null, point = null) => {
 			const settings = options.getSettings();
 			if (!isEnabledOn(settings, options.site)) return "skipped";
 			const source = resolveCopySource(target, settings, doc);
@@ -605,7 +605,8 @@
 			}
 			options.showFeedback({
 				variant: written ? "success" : "failure",
-				rect: source.rect
+				rect: source.rect,
+				point: point ?? null
 			});
 			return written ? "copied" : "failed";
 		};
@@ -700,11 +701,14 @@ dragThresholdPx: 3 };
 			const current = gesture;
 			gesture = null;
 			if (!shouldCopyOnMouseUp(current, event, snapshotSelection(doc.getSelection()))) return;
-			options.onCopy(current.target);
+			options.onCopy(current.target, {
+				x: event.clientX,
+				y: event.clientY
+			});
 		};
 		const onKeyUp = (event) => {
 			if (!shouldCopyOnKeyUp(event)) return;
-			options.onCopy(null);
+			options.onCopy(null, null);
 		};
 		const onMouseLeave = (event) => {
 			if (event.relatedTarget === null) gesture = null;
@@ -1568,14 +1572,16 @@ dragThresholdPx: 3 };
 	/**
 	* 计算标签左上角坐标。
 	*
-	* 默认贴在焦点正上方并水平居中；上方放不下时翻到下一行，避免挡住刚选中的文字。
-	* 选区贴边或已滚出视口时退回视口中央：标签不能跟着跑到视口外。
+	* 有鼠标松开坐标时贴住鼠标正上方并水平居中；没有（键盘选区）时退回贴住选区焦点。
+	* 上方放不下时翻到下一行，避免挡住刚选中的文字。选区贴边或已滚出视口时退回
+	* 视口中央：标签不能跟着跑到视口外。
 	*
+	* @param point 鼠标松开时的视口坐标；null 表示键盘选区，用选区焦点定位
 	* @param rect 选区焦点或控件锚点；没有可用位置时传 null
 	* @param viewport 视口尺寸
 	* @param variant 成功 / 失败两种标签宽度不同，贴边时要分别计算
 	*/
-	function indicatorPosition(rect, viewport, variant = "success") {
+	function indicatorPosition(point, rect, viewport, variant = "success") {
 		const width = INDICATOR.widthPx[variant];
 		const height = INDICATOR.heightPx;
 		const margin = INDICATOR.marginPx;
@@ -1585,6 +1591,23 @@ dragThresholdPx: 3 };
 			left: clamp((viewport.width - width) / 2, margin, maxLeft),
 			top: clamp((viewport.height - height) / 2, margin, maxTop)
 		});
+		if (point) {
+			const left = clamp(point.x - width / 2, margin, maxLeft);
+			const above = point.y - height - INDICATOR.gapPx;
+			if (above >= margin) return {
+				left,
+				top: clamp(above, margin, maxTop)
+			};
+			const below = (rect ? Math.max(point.y, rect.bottom) : point.y) + INDICATOR.gapPx;
+			if (below + height <= viewport.height - margin) return {
+				left,
+				top: clamp(below, margin, maxTop)
+			};
+			return {
+				left,
+				top: clamp(above, margin, maxTop)
+			};
+		}
 		if (rect === null) return centered();
 		if (!((rect.width > 0 || rect.height > 0) && rect.bottom > 0 && rect.top < viewport.height && rect.left < viewport.width && rect.right >= 0)) return centered();
 		const left = clamp(rect.right - width / 2, margin, maxLeft);
@@ -1638,8 +1661,8 @@ dragThresholdPx: 3 };
 			holdTimer = void 0;
 			fadeTimer = void 0;
 		};
-		const show = ({ variant, rect }) => {
-			const point = indicatorPosition(rect, {
+		const show = ({ variant, rect, point: cursor }) => {
+			const at = indicatorPosition(cursor, rect, {
 				width: window.innerWidth,
 				height: window.innerHeight
 			}, variant);
@@ -1650,8 +1673,8 @@ dragThresholdPx: 3 };
 			pill.dataset.variant = variant;
 			pill.style.width = `${INDICATOR.widthPx[variant]}px`;
 			if (!pill.isConnected) ui.layers.base.appendChild(pill);
-			pill.style.left = `${point.left}px`;
-			pill.style.top = `${point.top}px`;
+			pill.style.left = `${at.left}px`;
+			pill.style.top = `${at.top}px`;
 			pill.dataset.visible = "true";
 			holdTimer = window.setTimeout(() => {
 				if (current !== token) return;
@@ -1851,7 +1874,7 @@ dragThresholdPx: 3 };
 			site,
 			showFeedback: app.showFeedback
 		});
-		installCopySensor({ onCopy: (target) => void copy(target) });
+		installCopySensor({ onCopy: (target, point) => void copy(target, point) });
 		let panel = null;
 		const openSettings = () => {
 			try {

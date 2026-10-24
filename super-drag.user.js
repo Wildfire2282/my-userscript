@@ -2,7 +2,7 @@
 // @name         拖拽打开
 // @name:en      Drag to Open
 // @namespace    https://github.com/Wildfire2282
-// @version      2.8.2
+// @version      2.8.3
 // @description  拖拽文本搜索，拖拽链接在新标签页打开，拖拽图片查看
 // @description:en Drag text to search, links to open, and images to view
 // @author       Wildfire2282 (https://github.com/Wildfire2282)
@@ -632,18 +632,12 @@
 		let data = "";
 		let swallowClickUntil = 0;
 		let dragSource = null;
-		let ghost = null;
+		const ghost = document.createElement("img");
+		ghost.src = GHOST_PIXEL_SRC;
 		const reset = () => {
 			dragStart = null;
 			kind = "text";
 			data = "";
-		};
-		const ghostPixel = () => {
-			if (!ghost) {
-				ghost = document.createElement("img");
-				ghost.src = GHOST_PIXEL_SRC;
-			}
-			return ghost;
 		};
 		const claim = (transfer, text) => {
 			try {
@@ -682,7 +676,7 @@
 			if (!payload || !claim(transfer, payload.data)) return;
 			try {
 				transfer.effectAllowed = "copy";
-				transfer.setDragImage(ghostPixel(), 0, 0);
+				if (ghost.complete && ghost.naturalWidth > 0) transfer.setDragImage(ghost, 0, 0);
 			} catch {}
 			dragStart = event;
 			kind = payload.kind;
@@ -762,7 +756,6 @@
 		document.addEventListener("mousedown", handlePressStart, listenerOptions);
 		return { destroy() {
 			controller.abort();
-			ghost = null;
 			reset();
 			swallowClickUntil = 0;
 		} };

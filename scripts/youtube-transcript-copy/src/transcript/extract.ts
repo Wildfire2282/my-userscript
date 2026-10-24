@@ -42,12 +42,37 @@ function hasCueGroup(value: unknown, depth = 0): boolean {
   return Object.values(record).some((entry) => hasCueGroup(entry, depth + 1));
 }
 
-/** `engagementPanels[*]...cueGroups` 里的转写；返回 null 表示这份响应没有文稿。 */
+/** 面板与 get_transcript actions 里的转写；没有文稿时返回 null。 */
 export function extractFromPanelResponse(data: unknown): Segment[] | null {
   const root = asRecord(data);
   if (!root) return null;
 
   const segments: Segment[] = [];
+  for (const entry of asArray(root.actions)) {
+    const content = asRecord(asRecord(asRecord(entry)?.updateEngagementPanelAction)?.content);
+    const renderer = asRecord(content?.transcriptRenderer);
+    const search = asRecord(asRecord(renderer?.content)?.transcriptSearchPanelRenderer);
+    const list = asRecord(asRecord(search?.body)?.transcriptSegmentListRenderer);
+    for (const segment of asArray(list?.initialSegments)) {
+      const item = asRecord(asRecord(segment)?.transcriptSegmentRenderer);
+      const text = clean(
+        asArray(asRecord(item?.snippet)?.runs)
+          .map((run) => asString(asRecord(run)?.text))
+          .join(''),
+      );
+      if (!text) continue;
+      const start = item?.startMs;
+      const startMs =
+        numberOr(start) ??
+        (typeof start === 'string' && start.trim() !== '' ? numberOr(Number(start)) : null);
+      const seconds =
+        startMs === null ? tsToSec(asString(asRecord(item?.startTimeText)?.simpleText)) : null;
+      segments.push({
+        start: startMs ?? (seconds === null ? null : seconds * 1000),
+        text,
+      });
+    }
+  }
   for (const entry of asArray(root.engagementPanels)) {
     const wrapper = asRecord(entry);
     if (!wrapper) continue;

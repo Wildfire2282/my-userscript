@@ -9,14 +9,6 @@ function fetchOk() {
   );
 }
 
-function sentVersion(fetchImpl: ReturnType<typeof fetchOk>): string {
-  const init = fetchImpl.mock.calls[0]?.[1];
-  const body = JSON.parse((init?.body ?? '{}') as string) as {
-    context: { client: { clientVersion: string } };
-  };
-  return body.context.client.clientVersion;
-}
-
 describe('readPageClientVersion', () => {
   it('没有页面配置时返回 null', () => {
     expect(readPageClientVersion({})).toBeNull();
@@ -50,15 +42,75 @@ describe('requestPanel', () => {
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
-  it('优先用页面配置的版本，读不到用写死兜底', async () => {
-    (globalThis as Record<string, unknown>)['ytcfg'] = { get: () => 'page-version' };
-    const fetchImpl = fetchOk();
-    await requestPanel('vid', fetchImpl as unknown as typeof fetch);
-    expect(sentVersion(fetchImpl)).toBe('page-version');
+  it('从目标视频取得令牌后请求文稿，不发送无法定位视频的面板请求', async () => {
+    const fetchImpl = vi.fn<FetchLike>((url, init) => {
+      const body = JSON.parse(init?.body as string) as Record<string, unknown>;
+      if (url.includes('/next?') && body.videoId === 'vid') {
+        return Promise.resolve({
+          json: () =>
+            Promise.resolve({
+              engagementPanels: [
+                {
+                  engagementPanelSectionListRenderer: {
+                    panelIdentifier: 'engagement-panel-searchable-transcript',
+                    content: {
+                      continuationItemRenderer: {
+                        continuationEndpoint: {
+                          getTranscriptEndpoint: { params: 'token-for-vid' },
+                        },
+                      },
+                    },
+                  },
+                },
+              ],
+            }),
+        });
+      }
+      if (url.includes('/get_transcript?') && body.params === 'token-for-vid') {
+        return Promise.resolve({
+          json: () =>
+            Promise.resolve({
+              actions: [
+                {
+                  updateEngagementPanelAction: {
+                    content: {
+                      transcriptRenderer: {
+                        content: {
+                          transcriptSearchPanelRenderer: {
+                            body: {
+                              transcriptSegmentListRenderer: {
+                                initialSegments: [
+                                  {
+                                    transcriptSegmentRenderer: {
+                                      startMs: '1000',
+                                      snippet: { runs: [{ text: '目标视频文稿' }] },
+                                    },
+                                  },
+                                ],
+                              },
+                            },
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+              ],
+            }),
+        });
+      }
+      return Promise.reject(new Error('请求未绑定目标视频'));
+    });
+    await expect(requestPanel('vid', fetchImpl as unknown as typeof fetch)).resolves.toEqual([
+      { start: 1000, text: '目标视频文稿' },
+    ]);
+  });
 
-    delete (globalThis as Record<string, unknown>)['ytcfg'];
-    const fetchFallback = fetchOk();
-    await requestPanel('vid', fetchFallback as unknown as typeof fetch);
-    expect(sentVersion(fetchFallback)).toBe('2.20260710.06.00');
+  it('视频没有转写令牌时不请求转写接口', async () => {
+    const fetchImpl = fetchOk();
+    await expect(
+      requestPanel('no-transcript', fetchImpl as unknown as typeof fetch),
+    ).resolves.toBeNull();
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 });

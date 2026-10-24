@@ -84,18 +84,13 @@ export function nextCapture(
   // 翻译字幕只是同一篇文稿的另一种语言，不是视频原本的文稿。
   if (!fromPanel && translated) return null;
   // 面板数据更完整，别让播放器的字幕把它换成半份。
-  if (state?.fromPanel && !fromPanel) return null;
+  if (state?.videoId === currentVideoId && state.fromPanel && !fromPanel) return null;
   return { videoId: currentVideoId, fromPanel, segments };
-}
-
-interface HookGlobals {
-  __ytTxNetHooked?: boolean;
-  // 捕获到的内容存在 window 上：同一窗口装两次时第二个实例也能读到同一份。
-  __ytTxNetSegments?: NetworkCaptureState | null;
 }
 
 /** `Window` 接口本身不含 XMLHttpRequest，`window` 的类型是它与全局对象的交叉。 */
 type WindowScope = Window & typeof globalThis;
+const captures = new WeakMap<WindowScope, NetworkCapture>();
 
 export interface NetworkCaptureOptions {
   /** 当前视频 ID；用来丢掉其它视频的响应。默认读地址栏的 `v=`。 */
@@ -115,43 +110,29 @@ export function installNetworkCapture(
   win: WindowScope = window,
   options: NetworkCaptureOptions = {},
 ): NetworkCapture {
-  const globals = win as unknown as HookGlobals;
+  const existing = captures.get(win);
+  if (existing) return existing;
+  let state: NetworkCaptureState | null = null;
+  let active = true;
   const currentVideoId =
     options.currentVideoId ?? (() => readVideoId(win.location.search, win.location.pathname));
 
   const read = (): Segment[] | null => {
-    const state = globals.__ytTxNetSegments ?? null;
     return state !== null && state.videoId === currentVideoId() ? state.segments : null;
   };
 
   // 视频 ID 在**发起请求时**读取：响应回来时地址栏可能已经换台，
   // 按响应时的 ID 收下就会把上一个视频的字幕送给新视频。
   const accept = (url: string, data: unknown, videoIdAtRequest: string): void => {
-    const next = nextCapture(
-      globals.__ytTxNetSegments ?? null,
-      videoIdAtRequest,
-      url,
-      parseCapturedResponse(url, data),
-    );
-    if (next) globals.__ytTxNetSegments = next;
+    if (!active) return;
+    const next = nextCapture(state, videoIdAtRequest, url, parseCapturedResponse(url, data));
+    if (next) state = next;
   };
 
-  if (globals.__ytTxNetHooked) {
-    // 同一窗口已经钩过一次：共用 window 上的缓存，避免包装两层，也避免新闭包拿不到旧数据。
-    return {
-      get: read,
-      clear: () => {
-        globals.__ytTxNetSegments = null;
-      },
-      restore: () => undefined,
-    };
-  }
-  globals.__ytTxNetHooked = true;
-  globals.__ytTxNetSegments = null;
-
-  // bind 到 window：原生 fetch 依赖 this，直接引用会被 lint 视为“unbound method”。
-  const originalFetch = win.fetch.bind(win);
-  const wrappedFetch = (...args: Parameters<typeof fetch>): ReturnType<typeof fetch> => {
+  // 调用时保留 window 作为 this，并保留原函数以供 restore 精确还原。
+  // eslint-disable-next-line @typescript-eslint/unbound-method -- Reflect.apply 显式绑定 window，restore 保留原函数身份
+  const originalFetch = win.fetch;
+  const wrappedFetch = (...args: Parameters<typeof fetch>): Promise<Response> => {
     const input = args[0];
     const url =
       typeof input === 'string'
@@ -161,7 +142,7 @@ export function installNetworkCapture(
           : input instanceof URL
             ? input.href
             : '';
-    const request = originalFetch(...args);
+    const request = Reflect.apply(originalFetch, win, args);
     if (CAPTURE_PATTERN.test(url)) {
       const videoIdAtRequest = currentVideoId();
       void request
@@ -182,43 +163,52 @@ export function installNetworkCapture(
   // 必须保留原始方法的 this（XHR 实例），所以不能 bind 到原型；这一处规则需要逐行放行。
   // eslint-disable-next-line @typescript-eslint/unbound-method -- open 依赖调用时的 XHR 实例
   const originalOpen = proto.open;
+  const listeners = new WeakMap<XMLHttpRequest, EventListener>();
   const wrappedOpen = function (
     this: XMLHttpRequest,
     method: string,
     url: string | URL,
     ...rest: unknown[]
   ): void {
+    const previous = listeners.get(this);
+    if (previous) {
+      this.removeEventListener('load', previous);
+      listeners.delete(this);
+    }
     const target = typeof url === 'string' ? url : url.href;
     if (CAPTURE_PATTERN.test(target)) {
       const videoIdAtRequest = currentVideoId();
-      // `once`：同一个 XHR 被复用时（open 多次）监听器不会叠加、重复收取同一份响应。
-      this.addEventListener(
-        'load',
-        () => {
-          try {
-            const data: unknown =
-              this.responseType === 'json' ? this.response : JSON.parse(this.responseText);
-            accept(target, data, videoIdAtRequest);
-          } catch {
-            // 响应不是 JSON：忽略。
-          }
-        },
-        { once: true },
-      );
+      const listener: EventListener = () => {
+        listeners.delete(this);
+        try {
+          const data: unknown =
+            this.responseType === 'json' ? this.response : JSON.parse(this.responseText);
+          accept(target, data, videoIdAtRequest);
+        } catch {
+          // 响应不是 JSON：忽略。
+        }
+      };
+      listeners.set(this, listener);
+      this.addEventListener('load', listener, { once: true });
     }
     Reflect.apply(originalOpen, this, [method, url, ...rest]);
   };
   proto.open = wrappedOpen;
 
-  return {
+  const capture: NetworkCapture = {
     get: read,
     clear() {
-      globals.__ytTxNetSegments = null;
+      state = null;
     },
     restore() {
+      if (!active) return;
+      active = false;
+      state = null;
       win.fetch = originalFetch;
       proto.open = originalOpen;
-      globals.__ytTxNetHooked = false;
+      captures.delete(win);
     },
   };
+  captures.set(win, capture);
+  return capture;
 }

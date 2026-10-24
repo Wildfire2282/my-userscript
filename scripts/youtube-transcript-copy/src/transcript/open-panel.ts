@@ -143,11 +143,12 @@ export async function openTranscriptPanel(options: OpenPanelOptions = {}): Promi
     const waits = attempt === 0 ? 12 : 4;
     expandDescription(doc);
     await sleep(400);
-    const trigger = findTranscriptTrigger(doc);
-    if (!trigger) continue;
+    const candidate = findTranscriptTrigger(doc);
+    if (!candidate) continue;
+    const trigger =
+      candidate.querySelector('button, [role="button"], tp-yt-paper-button') ?? candidate;
 
-    // 管理器把按钮包在 Shadow DOM / 自定义元素里时 click() 可能不触发内部行为，
-    // 才补一个冒泡的 MouseEvent；clicked 为 true 时只用一种，避免开关被拨两次。
+    // 只有 click() 抛错才尝试事件方式；普通自定义包装元素应点击其内部按钮。
     let clicked = false;
     try {
       (trigger as HTMLElement).click();

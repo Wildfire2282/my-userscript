@@ -1,5 +1,10 @@
-import { describe, expect, it } from 'vitest';
-import { nextCapture, parseCapturedResponse, readVideoId } from '../src/transcript/network';
+import { describe, expect, it, vi } from 'vitest';
+import {
+  installNetworkCapture,
+  nextCapture,
+  parseCapturedResponse,
+  readVideoId,
+} from '../src/transcript/network';
 
 const TIMEDTEXT = {
   events: [
@@ -35,6 +40,123 @@ const PANEL = {
     },
   ],
 };
+
+function captureHarness() {
+  class FakeXHR extends EventTarget {
+    responseType = 'json';
+    response: unknown = TIMEDTEXT;
+    responseText = '';
+    open(method: string, url: string | URL) {
+      void method;
+      void url;
+    }
+    abort() {
+      this.dispatchEvent(new Event('abort'));
+    }
+    load(data: unknown = TIMEDTEXT) {
+      this.response = data;
+      this.dispatchEvent(new Event('load'));
+    }
+  }
+  const fetch = vi.fn(() => Promise.resolve(new Response(JSON.stringify(TIMEDTEXT))));
+  const scope = {
+    fetch,
+    XMLHttpRequest: FakeXHR,
+    location: { search: '?v=abc', pathname: '/watch' },
+  };
+  const win = scope as unknown as Window & typeof globalThis;
+  return { win, scope, FakeXHR, fetch };
+}
+
+describe('installNetworkCapture consumption', () => {
+  it('fetch 捕获结果由两次安装的消费者共享，响应仍可正常消费', async () => {
+    const { win } = captureHarness();
+    const first = installNetworkCapture(win);
+    const second = installNetworkCapture(win);
+    try {
+      const response = await win.fetch('/api/timedtext?v=abc');
+      expect(await response.json()).toEqual(TIMEDTEXT);
+      await vi.waitFor(() => expect(second.get()?.[0]?.text).toBe('hello'));
+      expect(first.get()).toEqual(second.get());
+    } finally {
+      first.restore();
+    }
+  });
+
+  it('两次安装共用缓存，clear 与 restore 后重装都有效且不写宿主全局', () => {
+    const { win, scope, FakeXHR, fetch } = captureHarness();
+    const originalOpen = FakeXHR.prototype.open;
+    const keys = Object.keys(scope);
+    const first = installNetworkCapture(win);
+    const wrappedFetch = win.fetch;
+    const second = installNetworkCapture(win);
+    expect(win.fetch).toBe(wrappedFetch);
+    const xhr = new FakeXHR();
+    xhr.open('GET', '/api/timedtext?v=abc');
+    xhr.load();
+    expect(first.get()).toEqual([
+      { start: 0, text: 'hello' },
+      { start: 2000, text: 'world' },
+    ]);
+    expect(second.get()).toEqual(first.get());
+    second.clear();
+    expect(first.get()).toBeNull();
+    expect(Object.keys(scope)).toEqual(keys);
+    second.restore();
+    expect(win.fetch).toBe(fetch);
+    expect(FakeXHR.prototype.open).toBe(originalOpen);
+    const third = installNetworkCapture(win);
+    first.restore();
+    xhr.open('GET', '/api/timedtext?v=abc');
+    xhr.load();
+    expect(third.get()).not.toBeNull();
+    expect(first.get()).toBeNull();
+    third.restore();
+  });
+
+  it('abort 后 open 非捕获 URL 不让旧 listener 接收新响应', () => {
+    const { win, FakeXHR } = captureHarness();
+    const capture = installNetworkCapture(win);
+    try {
+      const xhr = new FakeXHR();
+      xhr.open('GET', '/api/timedtext?v=abc');
+      xhr.abort();
+      xhr.open('GET', '/unrelated');
+      xhr.load();
+      expect(capture.get()).toBeNull();
+      xhr.open('GET', '/youtubei/v1/get_transcript');
+      xhr.abort();
+      xhr.open('GET', '/api/timedtext?v=abc&tlang=zh');
+      xhr.load(PANEL);
+      expect(capture.get()).toBeNull();
+    } finally {
+      capture.restore();
+    }
+  });
+
+  it('切视频后不消费旧响应，也不让旧视频面板阻止新视频字幕', () => {
+    const { win, scope, FakeXHR } = captureHarness();
+    const capture = installNetworkCapture(win);
+    try {
+      const old = new FakeXHR();
+      old.open('POST', '/youtubei/v1/get_transcript');
+      old.load(PANEL);
+      expect(capture.get()).toEqual([{ start: 1000, text: '台词' }]);
+      const pending = new FakeXHR();
+      pending.open('POST', '/youtubei/v1/get_transcript');
+      scope.location.search = '?v=xyz';
+      expect(capture.get()).toBeNull();
+      pending.load(PANEL);
+      expect(capture.get()).toBeNull();
+      const current = new FakeXHR();
+      current.open('GET', '/api/timedtext?v=xyz');
+      current.load();
+      expect(capture.get()?.[0]?.text).toBe('hello');
+    } finally {
+      capture.restore();
+    }
+  });
+});
 
 describe('parseCapturedResponse', () => {
   it('播放器的 timedtext 响应按 json3 解析', () => {

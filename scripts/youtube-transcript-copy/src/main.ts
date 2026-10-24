@@ -38,18 +38,18 @@ function start(): void {
 
   // `document-start` 时播放器响应还没有挂到 window 上，等 DOMContentLoaded 再读一次。
   // 记下它属于哪个视频：SPA 换视频后不能再拿旧视频的字幕轨。
-  let initialTrack: { videoId: string; track: CaptionTrack } | null = null;
+  let initialTrack: CaptionTrack | null = null;
   const captureInitialTrack = (): void => {
     const track = readInitialTrack((window as YtWindow).ytInitialPlayerResponse);
     // 新视频没有字幕时也要清空，否则策略记忆会让旧视频的轨一直占着第一位。
-    initialTrack = track ? { videoId: currentVideoId(), track } : null;
+    initialTrack = track;
   };
 
   const service = createTranscriptService({
     videoId: currentVideoId,
     fromInitialTrack: () =>
       initialTrack && initialTrack.videoId === currentVideoId()
-        ? fetchInitialTrack(initialTrack.track)
+        ? fetchInitialTrack(initialTrack)
         : Promise.resolve(null),
     fromNetworkCache: () => network.get(),
     ensurePanelOpen: () => openTranscriptPanel(),

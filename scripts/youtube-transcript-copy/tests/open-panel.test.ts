@@ -144,4 +144,25 @@ describe('openTranscriptPanel', () => {
     const sleep = vi.fn(() => Promise.resolve());
     await expect(openTranscriptPanel({ sleep, attempts: 2 })).resolves.toBe(false);
   });
+
+  it('匹配到自定义包装元素时点击内部按钮且只点击一次', async () => {
+    const expander = document.createElement('ytd-text-inline-expander');
+    const wrapper = document.createElement('yt-button-shape');
+    wrapper.setAttribute('aria-label', 'Show transcript');
+    const button = document.createElement('button');
+    wrapper.appendChild(button);
+    expander.appendChild(wrapper);
+    document.body.appendChild(expander);
+    const host = document.createElement('transcript-segment-view-model');
+    const clicked = vi.fn(() => {
+      document.body.appendChild(host);
+      stubRect(host, 300);
+    });
+    button.addEventListener('click', clicked);
+
+    await expect(
+      openTranscriptPanel({ sleep: () => Promise.resolve(), attempts: 1 }),
+    ).resolves.toBe(true);
+    expect(clicked).toHaveBeenCalledTimes(1);
+  });
 });

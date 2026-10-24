@@ -117,6 +117,33 @@ const EXPECTED = '[0:00] 你好，世界\n[0:02] 第二句台词\n[0:05] Third l
 
 export const scenarios = [
   {
+    name: 'SPA 换到 B 时播放器响应仍属于 A → 不复制 A 的字幕轨',
+    async run(ctx) {
+      await ctx.evaluate(() => {
+        window.ytInitialPlayerResponse = {
+          videoDetails: { videoId: 'first' },
+          captions: {
+            playerCaptionsTracklistRenderer: {
+              captionTracks: [{ baseUrl: 'https://www.youtube.com/api/timedtext?v=first' }],
+            },
+          },
+        };
+        history.replaceState(null, '', '?v=second');
+        window.dispatchEvent(new Event('yt-navigate-finish'));
+      });
+      await ctx.wait(120);
+      await ctx.evaluate(() => window.__page.capturePanel());
+      await ctx.wait(80);
+      const point = await ctx.evaluate(() => window.__page.center());
+      await ctx.input.click(point);
+      await ctx.wait(200);
+      return {
+        expected: EXPECTED,
+        actual: await ctx.evaluate(() => window.__page.lastClipboard()),
+      };
+    },
+  },
+  {
     name: '油猴菜单只有「操作面板」和「功能设置」两项',
     async run(ctx) {
       const items = await ctx.evaluate(() => window.__page.menuItems());
@@ -159,23 +186,34 @@ export const scenarios = [
   {
     name: '播放器预取了别的视频的字幕 → 网络缓存不会留下它',
     async run(ctx) {
-      const state = await ctx.evaluate(async () => {
-        const mine = new URLSearchParams(location.search).get('v');
+      await ctx.evaluate(async () => {
+        await window.__page.capturePanel();
         await window.fetch('https://www.youtube.com/api/timedtext?v=other&fmt=json3');
-        await new Promise((resolve) => setTimeout(resolve, 150));
-        const foreign = window.__ytTxNetSegments ?? null;
-        await window.fetch(`https://www.youtube.com/api/timedtext?v=${mine}&fmt=json3`);
-        await new Promise((resolve) => setTimeout(resolve, 150));
-        const current = window.__ytTxNetSegments ?? null;
-        return { mine, foreign, current };
       });
+      await ctx.wait(150);
+      const point = await ctx.evaluate(() => window.__page.center());
+      await ctx.input.click(point);
+      await ctx.wait(200);
       return {
-        expected: `别人的响应不留下 / 当前视频 ${state.mine} 留下`,
-        actual: `${state.foreign === null ? '别人的响应不留下' : `留下了 ${state.foreign.videoId}`} / ${
-          state.current?.videoId === state.mine
-            ? `当前视频 ${state.current.videoId} 留下`
-            : '当前视频的字幕没留下'
-        }`,
+        expected: EXPECTED,
+        actual: await ctx.evaluate(() => window.__page.lastClipboard()),
+      };
+    },
+  },
+  {
+    name: '播放器请求当前视频的字幕 → 复制网络捕获结果',
+    async run(ctx) {
+      await ctx.evaluate(() => {
+        const mine = new URLSearchParams(location.search).get('v');
+        return window.fetch(`https://www.youtube.com/api/timedtext?v=${mine}&fmt=json3`);
+      });
+      await ctx.wait(150);
+      const point = await ctx.evaluate(() => window.__page.center());
+      await ctx.input.click(point);
+      await ctx.wait(200);
+      return {
+        expected: '[0:00] 别人的台词',
+        actual: await ctx.evaluate(() => window.__page.lastClipboard()),
       };
     },
   },

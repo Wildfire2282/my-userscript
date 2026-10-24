@@ -118,6 +118,27 @@ describe('createTranscriptService', () => {
     expect(deps.fromNetworkCache).toHaveBeenCalledTimes(2);
   });
 
+  it('打开面板期间抓到完整响应时优先于局部 DOM', async () => {
+    let captured: Segment[] | null = null;
+    const { service } = setup({
+      fromNetworkCache: () => captured,
+      ensurePanelOpen: () => {
+        captured = B;
+        return Promise.resolve(true);
+      },
+      fromViewModel: () => C,
+    });
+    await expect(service.fetchTranscript()).resolves.toEqual(B);
+  });
+
+  it('局部 DOM 不阻止下一次取得完整网络文稿', async () => {
+    let captured: Segment[] | null = null;
+    const { service } = setup({ fromNetworkCache: () => captured, fromViewModel: () => C });
+    await expect(service.fetchTranscript()).resolves.toEqual(C);
+    captured = B;
+    await expect(service.fetchTranscript()).resolves.toEqual(B);
+  });
+
   it('取数中途换视频时丢弃旧结果，不写入缓存', async () => {
     let videoId = 'video-one';
     let resolveTrack!: (value: Segment[] | null) => void;

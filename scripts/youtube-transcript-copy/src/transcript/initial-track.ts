@@ -10,6 +10,7 @@ import type { Segment } from './types';
 
 export interface CaptionTrack {
   baseUrl: string;
+  videoId: string;
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -30,7 +31,16 @@ export function readInitialTrack(response: unknown): CaptionTrack | null {
   const tracks = Array.isArray(tracklist?.captionTracks) ? tracklist.captionTracks : [];
   const first = asRecord(tracks[0]);
   const baseUrl = typeof first?.baseUrl === 'string' ? first.baseUrl : '';
-  return baseUrl === '' ? null : { baseUrl };
+  const details = asRecord(root?.videoDetails);
+  let videoId = typeof details?.videoId === 'string' ? details.videoId : '';
+  if (!videoId && baseUrl) {
+    try {
+      videoId = new URL(baseUrl).searchParams.get('v') ?? '';
+    } catch {
+      // 无法从字幕地址确认视频归属时，不使用这条轨道。
+    }
+  }
+  return baseUrl && videoId ? { baseUrl, videoId } : null;
 }
 
 /**

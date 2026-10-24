@@ -8,7 +8,7 @@ import type { Segment } from './types';
  * 页面自己的配置，读不到才用写死的兜底，这样 YouTube 升级后主路径不受影响。
  */
 
-const PANEL_URL = 'https://www.youtube.com/youtubei/v1/get_panel?prettyPrint=false';
+const API_ROOT = 'https://www.youtube.com/youtubei/v1/';
 const FALLBACK_CLIENT_VERSION = '2.20260710.06.00';
 
 /** 页面自带的配置对象；YouTube 改版挪位置也不怕，读不到就回退写死的版本。 */
@@ -42,15 +42,42 @@ export async function requestPanel(
 ): Promise<Segment[] | null> {
   if (videoId === '') return null;
   try {
-    const response = await fetchImpl(PANEL_URL, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        context: { client: { clientName: 'WEB', clientVersion } },
-        panelIdentifier: 'engagement-panel-searchable-transcript',
-      }),
-    });
-    const data: unknown = await response.json();
+    const context = { client: { clientName: 'WEB', clientVersion } };
+    const request = async (
+      endpoint: string,
+      payload: Record<string, unknown>,
+    ): Promise<unknown> => {
+      const response = await fetchImpl(`${API_ROOT}${endpoint}?prettyPrint=false`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ context, ...payload }),
+      });
+      return response.json();
+    };
+    // params 是页面给当前视频的转写令牌，不能靠面板名定位视频，也不能复用旧页面令牌。
+    const next = (await request('next', { videoId })) as {
+      engagementPanels?: Array<{
+        engagementPanelSectionListRenderer?: {
+          panelIdentifier?: string;
+          content?: {
+            continuationItemRenderer?: {
+              continuationEndpoint?: { getTranscriptEndpoint?: { params?: unknown } };
+            };
+          };
+        };
+      }>;
+    } | null;
+    const panels = next?.engagementPanels;
+    if (!Array.isArray(panels)) return null;
+    const panel = panels.find(
+      (entry) =>
+        entry?.engagementPanelSectionListRenderer?.panelIdentifier ===
+        'engagement-panel-searchable-transcript',
+    )?.engagementPanelSectionListRenderer;
+    const params =
+      panel?.content?.continuationItemRenderer?.continuationEndpoint?.getTranscriptEndpoint?.params;
+    if (typeof params !== 'string' || params === '') return null;
+    const data = await request('get_transcript', { params });
     return extractFromPanelResponse(data);
   } catch {
     return null;

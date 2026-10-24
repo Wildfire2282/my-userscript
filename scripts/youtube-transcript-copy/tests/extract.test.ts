@@ -47,6 +47,96 @@ const PANEL_RESPONSE = {
 };
 
 describe('extractFromPanelResponse', () => {
+  it('读取上游 get-video-transcript 示例中的 startTimeText 时间', () => {
+    const response = {
+      actions: [
+        {
+          updateEngagementPanelAction: {
+            content: {
+              transcriptRenderer: {
+                content: {
+                  transcriptSearchPanelRenderer: {
+                    body: {
+                      transcriptSegmentListRenderer: {
+                        initialSegments: [
+                          {
+                            transcriptSegmentRenderer: {
+                              startTimeText: { simpleText: '1:05' },
+                              snippet: { runs: [{ text: 'Example transcript' }] },
+                            },
+                          },
+                        ],
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      ],
+    };
+    expect(extractFromPanelResponse(response)).toEqual([
+      { start: 65_000, text: 'Example transcript' },
+    ]);
+  });
+
+  it('读取 get_transcript actions，拼接 runs 并保留毫秒时间', () => {
+    expect(
+      extractFromPanelResponse({
+        actions: [
+          {
+            updateEngagementPanelAction: {
+              content: {
+                transcriptRenderer: {
+                  content: {
+                    transcriptSearchPanelRenderer: {
+                      body: {
+                        transcriptSegmentListRenderer: {
+                          initialSegments: [
+                            {
+                              transcriptSegmentRenderer: {
+                                startMs: '1250',
+                                snippet: { runs: [{ text: ' Hello' }, { text: ' world ' }] },
+                              },
+                            },
+                            {
+                              transcriptSegmentRenderer: {
+                                startMs: 2500,
+                                snippet: { runs: [{ text: '你好' }] },
+                              },
+                            },
+                            {
+                              transcriptSegmentRenderer: {
+                                startMs: 'invalid',
+                                snippet: { runs: [{ text: '无时间' }] },
+                              },
+                            },
+                            {
+                              transcriptSegmentRenderer: {
+                                startMs: '3000',
+                                snippet: { runs: [{ text: ' ' }] },
+                              },
+                            },
+                            { transcriptSectionHeaderRenderer: {} },
+                          ],
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        ],
+      }),
+    ).toEqual([
+      { start: 1250, text: 'Hello world' },
+      { start: 2500, text: '你好' },
+      { start: null, text: '无时间' },
+    ]);
+  });
+
   it('从 get_panel 响应里取片段，清洗文字并分开两种文字字段', () => {
     expect(extractFromPanelResponse(PANEL_RESPONSE)).toEqual([
       { start: 0, text: '第一句 台词' },

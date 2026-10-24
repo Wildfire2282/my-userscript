@@ -60,6 +60,7 @@ export function createTranscriptService(deps: TranscriptServiceDeps): Transcript
   return {
     async fetchTranscript() {
       const videoId = deps.videoId();
+      if (videoId === '') return [];
       if (cache !== null && cache.videoId === videoId) return cache.segments;
 
       const fromNetwork = await runStrategies('net', [
@@ -77,6 +78,13 @@ export function createTranscriptService(deps: TranscriptServiceDeps): Transcript
       const panelOpen = await deps.ensurePanelOpen();
       if (deps.videoId() !== videoId) return [];
 
+      // 打开面板本身会触发网络请求，完整响应优先于此刻只渲染了一部分的 DOM。
+      const captured = deps.fromNetworkCache();
+      if (captured && captured.length > 0) {
+        cache = { videoId, segments: captured };
+        return captured;
+      }
+
       if (panelOpen) {
         const fromDom = await runStrategies('dom', [
           () => deps.fromViewModel(),
@@ -84,7 +92,7 @@ export function createTranscriptService(deps: TranscriptServiceDeps): Transcript
         ]);
         if (deps.videoId() !== videoId) return [];
         if (fromDom) {
-          cache = { videoId, segments: fromDom };
+          // DOM 可能只包含当前渲染部分，不永久缓存，下一次仍允许网络结果补全。
           return fromDom;
         }
       }

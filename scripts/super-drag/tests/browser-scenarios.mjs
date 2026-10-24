@@ -172,6 +172,41 @@ export const scenarios = [
     },
   },
   {
+    name: '拖动选用已渲染的透明标记做残影，不回退到原生缩略图',
+    async run(ctx) {
+      const state = await ctx.evaluate(() => {
+        const calls = [];
+        const original = DataTransfer.prototype.setDragImage;
+        DataTransfer.prototype.setDragImage = function (element, x, y) {
+          const rect = element?.getBoundingClientRect?.();
+          calls.push({
+            attached: element?.isConnected === true,
+            rendered: Boolean(rect && rect.width > 0 && rect.height > 0),
+          });
+          return original.call(this, element, x, y);
+        };
+        try {
+          window.__page.select(document.querySelector('#text'));
+          window.__page.drag(document.querySelector('#text'));
+        } finally {
+          DataTransfer.prototype.setDragImage = original;
+        }
+        const last = calls.at(-1) ?? null;
+        const leftover = document.documentElement.lastElementChild;
+        return {
+          usesGhost: Boolean(last?.attached && last?.rendered),
+          cleaned: !leftover?.hasAttribute('aria-hidden'),
+        };
+      });
+      return {
+        expected: '残影是已渲染元素 / 拖拽后不留在页面上',
+        actual: `${state.usesGhost ? '残影是已渲染元素' : '残影不是已渲染元素'} / ${
+          state.cleaned ? '拖拽后不留在页面上' : '拖拽后残影仍留在页面上'
+        }`,
+      };
+    },
+  },
+  {
     name: '拖链接 → 在后台打开链接地址',
     async run(ctx) {
       await dragElement(ctx, '#link');

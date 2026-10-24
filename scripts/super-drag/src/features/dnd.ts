@@ -30,10 +30,6 @@ export interface DragSensor {
 // 否则用户事后点开关、按钮也会被误吞（原生补发的 click 紧跟在 dragend 后面）。
 const CLICK_SWALLOW_MS = 400;
 
-// 1×1 透明 GIF：用空图片顶掉浏览器自带的拖拽残影。
-const GHOST_PIXEL_SRC =
-  'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
-
 /** 事件发生处最里层的元素；Shadow DOM 内的拖拽要拿到内部节点而不是宿主。 */
 function targetOf(event: Event): Element | null {
   const target = realTarget(event);
@@ -53,15 +49,21 @@ export function installDragSensor(deps: DragSensorDeps): DragSensor {
   let swallowClickUntil = 0;
   // 浏览器补发的 click 落在拖拽起点上；只有这一次该吞，用户点别处是真实操作。
   let dragSource: Element | null = null;
-  // 残影图必须在第一次拖拽前解码完：dragstart 里现建现用时图片还没好，
-  // 浏览器回退到原生文字残影，看着就是发虚。
-  const ghost: HTMLImageElement = document.createElement('img');
-  ghost.src = GHOST_PIXEL_SRC;
+  // 顶掉浏览器自带的拖拽残影（文字 / 元素的低分辨率缩略图）。
+  // Chromium 只对“已渲染”的元素做快照：游离的图片或未布局的节点会被忽略，
+  // 于是回退到原生缩略图，鼠标旁边就一直是那张模糊的图。
+  const ghost = document.createElement('div');
+  ghost.setAttribute('aria-hidden', 'true');
+  ghost.style.cssText =
+    'position:fixed;top:0;left:0;width:1px;height:1px;margin:0;padding:0;border:0;' +
+    'opacity:0;pointer-events:none;contain:strict;';
 
   const reset = () => {
     dragStart = null;
     kind = 'text';
     data = '';
+    // 快照只在拖拽期间需要：结束后不再给页面留任何节点。
+    if (ghost.isConnected) ghost.remove();
   };
 
   const claim = (transfer: DataTransfer, text: string): boolean => {
@@ -121,9 +123,10 @@ export function installDragSensor(deps: DragSensorDeps): DragSensor {
 
     try {
       transfer.effectAllowed = 'copy';
-      // 图片没解码完时不硬设：此时设了也等于没设，还不如留着原生残影，
-      // 预加载保证正常情况下这里总是 complete。
-      if (ghost.complete && ghost.naturalWidth > 0) transfer.setDragImage(ghost, 0, 0);
+      // 必须先挂进文档并触发一次布局，浏览器才会把它当成可快照的元素。
+      if (!ghost.isConnected) document.documentElement.appendChild(ghost);
+      ghost.getBoundingClientRect();
+      transfer.setDragImage(ghost, 0, 0);
     } catch {
       // setDragImage 不支持时保留原生残影
     }

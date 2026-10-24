@@ -131,7 +131,10 @@ export function installDragSensor(deps: DragSensorDeps): DragSensor {
     if (!payload || !claim(transfer, payload.data)) return;
 
     try {
-      transfer.effectAllowed = 'copy';
+      // 用中性的「移动」效果：'copy' 会让光标带一个 + 号，与链接图标重复。
+      // 不能留空——dropEffect 回落到 'none' 时浏览器显示禁止符号，并且不再派发 drop，
+      // 拖拽会彻底失效。
+      transfer.effectAllowed = 'move';
       // 必须先挂进文档并触发一次布局，浏览器才会把它当成可快照的元素。
       if (!ghost.isConnected) document.documentElement.appendChild(ghost);
       ghost.getBoundingClientRect();
@@ -163,7 +166,7 @@ export function installDragSensor(deps: DragSensorDeps): DragSensor {
     // 拖拽期间没有 mousemove，dragover 是唯一能拿到指针位置的事件。
     deps.feedback?.move({ x: event.clientX, y: event.clientY });
     try {
-      if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
+      if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
     } catch {
       // 某些引擎的 dataTransfer 只读，忽略
     }

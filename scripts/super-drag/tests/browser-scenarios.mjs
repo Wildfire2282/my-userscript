@@ -271,6 +271,36 @@ export const scenarios = [
     },
   },
   {
+    name: '拖拽不带复制加号，松手仍照常打开',
+    async run(ctx) {
+      const state = await ctx.evaluate(() => {
+        const link = document.querySelector('#link');
+        const point = window.__page.point(link);
+        const dataTransfer = new DataTransfer();
+        const init = {
+          bubbles: true,
+          cancelable: true,
+          composed: true,
+          dataTransfer,
+          clientX: point.x,
+          clientY: point.y,
+        };
+        link.dispatchEvent(new DragEvent('dragstart', init));
+        const allowed = dataTransfer.effectAllowed;
+        link.dispatchEvent(new DragEvent('dragover', init));
+        const effect = dataTransfer.dropEffect;
+        link.dispatchEvent(new DragEvent('drop', init));
+        link.dispatchEvent(new DragEvent('dragend', init));
+        return { allowed, effect, opened: window.__page.openedCount() };
+      });
+      const noPlus = state.allowed !== 'copy' && state.effect !== 'copy';
+      return {
+        expected: '不是复制效果 / 松手打开 1 个页面',
+        actual: `${noPlus ? '不是复制效果' : `仍是复制效果（${state.allowed} / ${state.effect}）`} / 松手打开 ${state.opened} 个页面`,
+      };
+    },
+  },
+  {
     name: '拖链接 → 在后台打开链接地址',
     async run(ctx) {
       await dragElement(ctx, '#link');

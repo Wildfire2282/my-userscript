@@ -410,8 +410,6 @@ def sync(*, check_only: bool, force: bool) -> int:
         return 2
     print(f"共发现 {len(discovered)} 个脚本。\n")
 
-    SCRIPTS_DIR.mkdir(parents=True, exist_ok=True)
-
     previous_manifest: dict | None = None
     if MANIFEST_PATH.exists():
         try:
@@ -421,6 +419,7 @@ def sync(*, check_only: bool, force: bool) -> int:
 
     entries: list[dict] = []
     changes: list[str] = []
+    pending_writes: list[tuple[str, int, str, dict[str, list[str]]]] = []
 
     for index, script_id in enumerate(sorted(discovered), start=1):
         listing_name, page_slug = discovered[script_id]
@@ -451,8 +450,7 @@ def sync(*, check_only: bool, force: bool) -> int:
                 f"{slug}/legacy/{path.name}: {old_version or '(新增)'} -> {version or '(未知版本)'}"
             )
             if not check_only:
-                ensure_package(slug, script_id, text, metadata)
-                path.write_bytes(text.encode("utf-8"))
+                pending_writes.append((slug, script_id, text, metadata))
 
         entries.append(
             {
@@ -484,6 +482,11 @@ def sync(*, check_only: bool, force: bool) -> int:
         for line in changes:
             print(f"  {line}")
         return 1
+
+    # 全部下载与内容校验成功后再覆盖快照，避免后一个脚本下载失败留下半批更新。
+    for slug, script_id, text, metadata in pending_writes:
+        ensure_package(slug, script_id, text, metadata)
+        legacy_path(slug, script_id).write_bytes(text.encode("utf-8"))
 
     manifest_changed = write_manifest(entries, previous_manifest)
     readme_changed = update_readme(entries)

@@ -180,6 +180,14 @@ async function buildPackage(pkg) {
 
 const all = await loadPackages();
 const selected = all.filter((pkg) => only.length === 0 || only.includes(pkg.slug));
+const unknown = only.filter(
+  (slug) =>
+    !all.some((pkg) => pkg.slug === slug) && !manifestFailures.some((pkg) => pkg.slug === slug),
+);
+if (unknown.length > 0) {
+  console.error(`没有找到这些脚本包：${unknown.join('、')}`);
+  process.exit(1);
+}
 
 if (selected.length === 0) {
   console.error(`没有找到要构建的包：${only.join(', ') || '(全部)'}`);

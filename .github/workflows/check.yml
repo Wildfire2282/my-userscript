@@ -10,10 +10,11 @@ on:
       - 'packages/**'
       - 'tools/**'
       - 'tests/**'
+      - 'scripts/*/tests/**'
       - '*.json'
       - '*.mjs'
       - '*.ts'
-      - '.github/workflows/check.yml'
+      - '.github/workflows/**'
 
 permissions:
   contents: read

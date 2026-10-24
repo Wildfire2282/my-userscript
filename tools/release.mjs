@@ -177,7 +177,13 @@ async function findArtifact(dir, slug) {
       'userscript.meta.ts',
       'userscript.meta.js',
     ]);
-    const newest = Math.max(newestInput ?? 0, newestMeta ?? 0) || null;
+    const newestShared = await Promise.all(
+      ['shared', 'userscript-ui'].map((name) =>
+        newestSourceTime(path.join(ROOT, 'packages', name, 'src')),
+      ),
+    );
+    const newest =
+      Math.max(newestInput ?? 0, newestMeta ?? 0, ...newestShared.map((time) => time ?? 0)) || null;
     if (newest !== null && distStat.mtimeMs < newest) {
       return { file: dist, kind: '构建产物', stale: true };
     }
@@ -226,7 +232,13 @@ const expected = new Set(packages.map((pkg) => `${pkg.slug}.user.js`));
 for (const pkg of packages) {
   const artifact = await findArtifact(pkg.dir, pkg.slug);
   if (!artifact) {
-    skipped.push(`${pkg.slug}（没有构建产物，也没有 legacy 原版）`);
+    if (await newestSourceTime(path.join(pkg.dir, 'src'))) {
+      problems.push(
+        `${pkg.slug}：有 src 源码却没有构建产物，先运行 npm run build ${pkg.slug} 再发布`,
+      );
+    } else {
+      skipped.push(`${pkg.slug}（没有构建产物，也没有 legacy 原版）`);
+    }
     continue;
   }
 

@@ -187,6 +187,16 @@ class CdpClient {
 /** 脚本自行声明场景，UI 包作为固定 suite 使用同一驱动。 */
 async function discoverSlugs() {
   const entries = await readdir(SCRIPTS_DIR, { withFileTypes: true });
+  for (const entry of entries) {
+    if (!entry.isDirectory() || (only.length > 0 && !only.includes(entry.name))) continue;
+    const dir = path.join(SCRIPTS_DIR, entry.name);
+    const migrated = ['src/main.ts', 'src/main.js', 'src/index.ts', 'src/index.js'].some((name) =>
+      existsSync(path.join(dir, name)),
+    );
+    if (migrated && !existsSync(scenarioPath(entry.name))) {
+      throw new Error(`${entry.name} 没有 tests/browser-scenarios.mjs，无法验证`);
+    }
+  }
   const slugs = entries
     .filter((entry) => entry.isDirectory())
     .map((entry) => entry.name)
@@ -603,6 +613,10 @@ try {
       // 版本号与元数据也进产物（banner），只改它们而不重新构建同样是旧产物。
       const inputTime = Math.max(
         existsSync(srcDir) ? newestTime(srcDir) : 0,
+        ...['shared', 'userscript-ui'].map((name) => {
+          const sharedDir = path.join(ROOT, 'packages', name, 'src');
+          return existsSync(sharedDir) ? newestTime(sharedDir) : 0;
+        }),
         ['package.json', 'userscript.meta.ts', 'userscript.meta.js']
           .map((name) => {
             try {

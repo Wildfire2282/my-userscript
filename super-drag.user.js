@@ -2,7 +2,7 @@
 // @name         拖拽打开
 // @name:en      Drag to Open
 // @namespace    https://github.com/Wildfire2282
-// @version      2.9.0
+// @version      2.9.1
 // @description  拖拽文本搜索，拖拽链接在新标签页打开，拖拽图片查看
 // @description:en Drag text to search, links to open, and images to view
 // @author       Wildfire2282 (https://github.com/Wildfire2282)
@@ -677,7 +677,7 @@
 			}, settings.dragKinds);
 			if (!payload || !claim(transfer, payload.data)) return;
 			try {
-				transfer.effectAllowed = "copy";
+				transfer.effectAllowed = "move";
 				if (!ghost.isConnected) document.documentElement.appendChild(ghost);
 				ghost.getBoundingClientRect();
 				transfer.setDragImage(ghost, 0, 0);
@@ -708,7 +708,7 @@
 				y: event.clientY
 			});
 			try {
-				if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
+				if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
 			} catch {}
 		};
 		const handleDrop = (event) => {

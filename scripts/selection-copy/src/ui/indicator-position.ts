@@ -27,14 +27,17 @@ function clamp(value: number, min: number, max: number): number {
 /**
  * 计算标签左上角坐标。
  *
- * 默认贴在焦点正上方并水平居中；上方放不下时翻到下一行，避免挡住刚选中的文字。
- * 选区贴边或已滚出视口时退回视口中央：标签不能跟着跑到视口外。
+ * 有鼠标松开坐标时贴住鼠标正上方并水平居中；没有（键盘选区）时退回贴住选区焦点。
+ * 上方放不下时翻到下一行，避免挡住刚选中的文字。选区贴边或已滚出视口时退回
+ * 视口中央：标签不能跟着跑到视口外。
  *
+ * @param point 鼠标松开时的视口坐标；null 表示键盘选区，用选区焦点定位
  * @param rect 选区焦点或控件锚点；没有可用位置时传 null
  * @param viewport 视口尺寸
  * @param variant 成功 / 失败两种标签宽度不同，贴边时要分别计算
  */
 export function indicatorPosition(
+  point: { x: number; y: number } | null,
   rect: AnchorBox | null,
   viewport: Viewport,
   variant: CopyFeedbackVariant = 'success',
@@ -49,6 +52,18 @@ export function indicatorPosition(
     left: clamp((viewport.width - width) / 2, margin, maxLeft),
     top: clamp((viewport.height - height) / 2, margin, maxTop),
   });
+
+  // 鼠标提示贴住光标：以松开点为中心水平居中，上方放不下翻到下方。
+  if (point) {
+    const left = clamp(point.x - width / 2, margin, maxLeft);
+    const above = point.y - height - INDICATOR.gapPx;
+    if (above >= margin) return { left, top: clamp(above, margin, maxTop) };
+    // 翻到下方时从光标与选区底边较低者算起，避免压住刚选中的文字。
+    const below = (rect ? Math.max(point.y, rect.bottom) : point.y) + INDICATOR.gapPx;
+    if (below + height <= viewport.height - margin)
+      return { left, top: clamp(below, margin, maxTop) };
+    return { left, top: clamp(above, margin, maxTop) };
+  }
 
   if (rect === null) return centered();
 

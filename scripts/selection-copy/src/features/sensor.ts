@@ -9,8 +9,8 @@ import { snapshotSelection } from '../selection';
  */
 
 export interface CopySensorOptions {
-  /** 判定为一次“新的选择”后调用；参数是按下鼠标时的目标。 */
-  onCopy: (target: EventTarget | null) => void;
+  /** 判定为一次“新的选择”后调用；参数是按下鼠标时的目标与松开时的视口坐标。 */
+  onCopy: (target: EventTarget | null, point: { x: number; y: number } | null) => void;
   doc?: Document;
   win?: Window;
 }
@@ -38,12 +38,12 @@ export function installCopySensor(options: CopySensorOptions): () => void {
     const current = gesture;
     gesture = null;
     if (!shouldCopyOnMouseUp(current, event, snapshotSelection(doc.getSelection()))) return;
-    options.onCopy(current.target);
+    options.onCopy(current.target, { x: event.clientX, y: event.clientY });
   };
 
   const onKeyUp = (event: KeyboardEvent): void => {
     if (!shouldCopyOnKeyUp(event)) return;
-    options.onCopy(null);
+    options.onCopy(null, null);
   };
 
   // body 外边距仍属于本文档；只有没有下一个命中目标时才算真正离开窗口。

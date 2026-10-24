@@ -39,7 +39,7 @@ function start(): void {
     showFeedback: app.showFeedback,
   });
 
-  installCopySensor({ onCopy: (target) => void copy(target) });
+  installCopySensor({ onCopy: (target, point) => void copy(target, point) });
 
   let panel: SettingsPanelHandle | null = null;
   const openSettings = (): void => {

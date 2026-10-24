@@ -51,8 +51,9 @@ export function createIndicator(ui: UI): IndicatorHandle {
     fadeTimer = undefined;
   };
 
-  const show = ({ variant, rect }: CopyFeedback): void => {
-    const point = indicatorPosition(
+  const show = ({ variant, rect, point: cursor }: CopyFeedback): void => {
+    const at = indicatorPosition(
+      cursor,
       rect,
       { width: window.innerWidth, height: window.innerHeight },
       variant,
@@ -66,8 +67,8 @@ export function createIndicator(ui: UI): IndicatorHandle {
     pill.style.width = `${INDICATOR.widthPx[variant]}px`;
 
     if (!pill.isConnected) ui.layers.base.appendChild(pill);
-    pill.style.left = `${point.left}px`;
-    pill.style.top = `${point.top}px`;
+    pill.style.left = `${at.left}px`;
+    pill.style.top = `${at.top}px`;
     pill.dataset.visible = 'true';
 
     holdTimer = window.setTimeout(() => {

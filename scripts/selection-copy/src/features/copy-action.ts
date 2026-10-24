@@ -72,11 +72,11 @@ export type CopyOutcome = 'copied' | 'failed' | 'skipped';
 
 export function createCopyAction(
   options: CopyActionOptions,
-): (target?: EventTarget | null) => Promise<CopyOutcome> {
+): (target?: EventTarget | null, point?: { x: number; y: number } | null) => Promise<CopyOutcome> {
   const doc = options.doc ?? document;
   let requestId = 0;
 
-  return async (target = null) => {
+  return async (target = null, point = null) => {
     const settings = options.getSettings();
     // 开关检查放在读选区之前：关掉后连文字都不碰，也不会创建提示界面。
     if (!isEnabledOn(settings, options.site)) return 'skipped';
@@ -96,7 +96,11 @@ export function createCopyAction(
       // 写入器按约定不抛错；自定义实现抛错时仍要给用户一个明确结果。
       if (current !== requestId) return 'skipped';
     }
-    options.showFeedback({ variant: written ? 'success' : 'failure', rect: source.rect });
+    options.showFeedback({
+      variant: written ? 'success' : 'failure',
+      rect: source.rect,
+      point: point ?? null,
+    });
     return written ? 'copied' : 'failed';
   };
 }

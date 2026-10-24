@@ -45,6 +45,8 @@ export function helpers() {
             visible: node.dataset.visible === 'true',
             variant: node.dataset.variant ?? '',
             text: node.textContent?.trim() ?? '',
+            left: Number.parseFloat(node.style.left || '0'),
+            top: Number.parseFloat(node.style.top || '0'),
           }
         : null;
     },
@@ -115,6 +117,23 @@ export const scenarios = [
         actual: `${state.selected === '' ? '选中为空' : '选中非空'} / ${
           same ? '剪贴板与选中的文字一致' : `剪贴板是「${state.clipboard}」`
         } / ${state.pill?.visible && state.pill.variant === 'success' && state.pill.text.includes('已复制') ? '标签显示「已复制」' : `标签是${JSON.stringify(state.pill)}`}`,
+      };
+    },
+  },
+  {
+    name: '复制标签显示在鼠标松开点附近',
+    async run(ctx) {
+      const points = await ctx.evaluate(() => window.__page.linePoints('#text', 2, 200));
+      await ctx.input.drag(points.start, points.end);
+      await ctx.wait(80);
+      const state = await ctx.evaluate((end) => ({ end, pill: window.__page.pill() }), points.end);
+      const dx = state.pill ? Math.abs(state.pill.left + 34 - state.end.x) : -1;
+      const near = state.pill?.visible && dx <= 60 && Math.abs(state.pill.top - state.end.y) <= 80;
+      return {
+        expected: '标签在鼠标附近',
+        actual: near
+          ? '标签在鼠标附近'
+          : `标签不在鼠标附近：标签${JSON.stringify(state.pill)}，松开点${JSON.stringify(state.end)}`,
       };
     },
   },

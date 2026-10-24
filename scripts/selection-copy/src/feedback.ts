@@ -11,4 +11,6 @@ export interface CopyFeedback {
   variant: CopyFeedbackVariant;
   /** 选区终点的锚点；null 表示没有可用位置，由界面放到视口中央。 */
   rect: AnchorBox | null;
+  /** 鼠标松开时的视口坐标；有它时提示贴住鼠标，没有（键盘选区）时贴住选区。 */
+  point: { x: number; y: number } | null;
 }

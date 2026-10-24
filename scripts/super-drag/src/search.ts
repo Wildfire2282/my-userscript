@@ -48,7 +48,8 @@ export function resolveSearchTemplate(settings: Settings): string {
 
 /** 把关键词编码后填进模板，得到最终搜索地址。 */
 export function buildSearchUrl(settings: Settings, keyword: string): string {
-  return resolveSearchTemplate(settings).replace('{keyword}', encodeURIComponent(keyword));
+  // 用户可以在自定义地址里写多个 {keyword}（例如同时带进 query 与 hash）。
+  return resolveSearchTemplate(settings).replaceAll('{keyword}', encodeURIComponent(keyword));
 }
 
 /**
@@ -60,7 +61,16 @@ export function validateCustomEngineUrl(url: string): string | null {
   const value = url.trim();
   if (value === '') return '请填写自定义搜索 URL';
   if (!value.includes('{keyword}')) return '自定义搜索 URL 必须包含 {keyword} 占位符';
-  if (!/^https?:\/\/[^/\s]+/i.test(value)) return '自定义搜索 URL 必须以 http:// 或 https:// 开头';
+  if (!/^https?:\/\//i.test(value)) return '自定义搜索 URL 必须以 http:// 或 https:// 开头';
+  // 交给 URL 解析：前缀正则会放过 `https://?q=` 与带空格的地址，保存后打开是错误页。
+  let parsed: URL;
+  try {
+    parsed = new URL(value.replaceAll('{keyword}', 'x'));
+  } catch {
+    return '自定义搜索 URL 不是有效地址';
+  }
+  if (parsed.hostname === '') return '自定义搜索 URL 缺少域名';
+  if (/\s/.test(value)) return '自定义搜索 URL 不能包含空格';
   return null;
 }
 

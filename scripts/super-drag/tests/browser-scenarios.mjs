@@ -449,11 +449,17 @@ export const scenarios = [
     name: '拖页面自己的 draggable 卡片 → 不接管',
     async run(ctx) {
       const claimed = await ctx.evaluate(() => {
-        window.__page.clearSelection();
+        // 页面上已有文字选区时也要留给页面：只清选区测不出真正的劫持分支。
+        window.__page.select(document.querySelector('#text'));
         const card = document.querySelector('#card');
         return window.__page.drag(card, card);
       });
-      return { expected: '没有拖拽数据', actual: claimed === '' ? '没有拖拽数据' : claimed };
+      return {
+        expected: '有选区时不接管 / 没有拖拽数据',
+        actual: `${claimed === '' ? '有选区时不接管' : `有选区时接管了`} / ${
+          claimed === '' ? '没有拖拽数据' : claimed
+        }`,
+      };
     },
   },
   {

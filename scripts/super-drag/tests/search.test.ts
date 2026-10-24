@@ -55,6 +55,14 @@ describe('buildSearchUrl', () => {
     expect(buildSearchUrl(broken, 'x')).toBe('https://www.google.com/search?q=x');
   });
 
+  it('模板里多个 {keyword} 全部替换', () => {
+    const custom = settings({
+      defaultEngine: CUSTOM_ENGINE_ID,
+      customEngineUrl: 'https://example.com/s?q={keyword}#{keyword}',
+    });
+    expect(buildSearchUrl(custom, 'x')).toBe('https://example.com/s?q=x#x');
+  });
+
   it('引擎 ID 不存在时回退 Google', () => {
     expect(buildSearchUrl(settings({ defaultEngine: 'gone' }), 'x')).toBe(
       'https://www.google.com/search?q=x',
@@ -70,6 +78,11 @@ describe('validateCustomEngineUrl', () => {
   it('缺少占位符或协议时报错', () => {
     expect(validateCustomEngineUrl('https://example.com/s?q=')).toContain('{keyword}');
     expect(validateCustomEngineUrl('example.com/?q={keyword}')).toContain('http://');
+  });
+
+  it('没有域名的地址与带空格的地址都报错', () => {
+    expect(validateCustomEngineUrl('https://?q={keyword}')).not.toBeNull();
+    expect(validateCustomEngineUrl('https://exa mple.com/?q={keyword}')).not.toBeNull();
   });
 
   it('空地址提示填写', () => {

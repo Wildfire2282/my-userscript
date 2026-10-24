@@ -5,7 +5,7 @@ import {
   shouldOpenInForeground,
   type DragKind,
 } from './drop-action';
-import { isInputElement, realTarget } from './editable';
+import { isDraggableHost, isInputElement, realTarget } from './editable';
 import { hitTest } from './hit-test';
 import { getSelectionText, isPointInSelection } from './selection';
 
@@ -105,6 +105,12 @@ export function installDragSensor(deps: DragSensorDeps): DragSensor {
     // “选区优先”只在 decideDrag 里判断一次，这里只提供结果。
     const selectionHit =
       selected !== '' && isPointInSelection(event.clientX, event.clientY, event.composedPath());
+
+    // 页面用 draggable="true" 自己实现的拖拽（卡片排序、上传区）留给页面：
+    // 页面上任意一段文字选区都会让后文的文字兜底抢走它。按在选区里时例外，
+    // 那是用户明确要拖的文字。
+    if (!selectionHit && isDraggableHost(targetOf(event))) return;
+
     const hit = selectionHit ? { link: '', image: '' } : hitTestAt(event);
     const payload = decideDrag(
       {

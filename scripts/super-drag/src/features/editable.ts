@@ -17,6 +17,16 @@ export function isEditableField(node: Element | null): boolean {
 }
 
 /**
+ * 事件是否发生在页面自己声明的可拖动元素里（`draggable="true"`）。
+ *
+ * 卡片排序、上传区、看板列都用它实现原生拖拽；页面上只要存在一段文字选区，
+ * 脚本的文字兜底就会把这类拖拽抢过来，用户原本的拖拽动作变成“搜索选中文字”。
+ */
+export function isDraggableHost(node: Element | null): boolean {
+  return node?.closest('[draggable="true"]') != null;
+}
+
+/**
  * 取真实的事件目标。
  *
  * 在 window 捕获阶段监听时，Shadow DOM 内的事件会被重定向到宿主；

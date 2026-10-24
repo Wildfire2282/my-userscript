@@ -68,15 +68,10 @@ export function createOpeners(scope: OpenScope = defaultScope()): Openers {
         // 管理器拒绝时退回 window.open
       }
     }
-    const win = scope.open?.(url, '_blank', 'noopener') ?? null;
-    if (win && !active) {
-      try {
-        win.blur();
-      } catch {
-        // 忽略：某些浏览器禁止脚本移焦
-      }
-      scope.focus?.();
-    }
+    // 带 noopener 时 window.open 恒返回 null，后台打开拿不到子窗口句柄：
+    // 只需要把焦点留在当前页，不需要（也无法）操作新标签页。
+    scope.open?.(url, '_blank', 'noopener');
+    if (!active) scope.focus?.();
   };
 
   const openImage = (imageUrl: string, active: boolean) => {

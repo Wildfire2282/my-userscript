@@ -28,10 +28,7 @@ export interface ButtonHandle {
 }
 
 export function createButton(ui: UI, options: ButtonOptions = {}): ButtonHandle {
-  ui.useStyles(buttonCss);
-
   assertAlive(ui, 'button');
-  const scope = createScope(ui);
   const iconOnly = options.size === 'icon' || options.iconOnly === true;
   const variant = options.variant ?? 'primary';
   const size = options.size ?? 'md';
@@ -45,6 +42,10 @@ export function createButton(ui: UI, options: ButtonOptions = {}): ButtonHandle 
   ) {
     throw new Error('Buttons require a label.');
   }
+
+  // 校验放在注册 scope 与挂样式之前：非法调用不该留下一个永不使用的清理回调。
+  const scope = createScope(ui);
+  ui.useStyles(buttonCss);
 
   const el = document.createElement('button');
   el.type = options.type ?? 'button';

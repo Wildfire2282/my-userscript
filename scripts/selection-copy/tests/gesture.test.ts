@@ -90,6 +90,10 @@ describe('shouldCopyOnKeyUp', () => {
     expect(shouldCopyOnKeyUp({ ...base, ctrlKey: true, shiftKey: true })).toBe(false);
   });
 
+  it('非拉丁键盘布局按 Ctrl+A 也触发（认物理键位）', () => {
+    expect(shouldCopyOnKeyUp({ ...base, ctrlKey: true, key: 'ф', code: 'KeyA' })).toBe(true);
+  });
+
   it('Alt 组合、普通按键与不可信事件都不触发', () => {
     expect(shouldCopyOnKeyUp({ ...base, altKey: true })).toBe(false);
     expect(shouldCopyOnKeyUp(base)).toBe(false);

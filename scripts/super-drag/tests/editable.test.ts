@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { beforeEach, describe, expect, it } from 'vitest';
-import { isEditableField, isInputElement } from '../src/features/editable';
+import { isDraggableHost, isEditableField, isInputElement } from '../src/features/editable';
 
 beforeEach(() => {
   document.body.replaceChildren();
@@ -84,5 +84,29 @@ describe('isInputElement', () => {
     editable.appendChild(readonly);
     document.body.appendChild(editable);
     expect(dispatchedOn(readonly)).toBe(false);
+  });
+});
+
+describe('isDraggableHost', () => {
+  it('页面自己声明 draggable="true" 的元素与其子节点都算', () => {
+    const card = document.createElement('div');
+    card.setAttribute('draggable', 'true');
+    const label = document.createElement('span');
+    card.appendChild(label);
+    document.body.appendChild(card);
+
+    expect(isDraggableHost(card)).toBe(true);
+    expect(isDraggableHost(label)).toBe(true);
+  });
+
+  it('普通元素与 draggable="false" 不算', () => {
+    const plain = document.createElement('div');
+    const fixed = document.createElement('div');
+    fixed.setAttribute('draggable', 'false');
+    document.body.append(plain, fixed);
+
+    expect(isDraggableHost(plain)).toBe(false);
+    expect(isDraggableHost(fixed)).toBe(false);
+    expect(isDraggableHost(null)).toBe(false);
   });
 });

@@ -38,6 +38,8 @@ export interface KeyUpLike {
   shiftKey: boolean;
   ctrlKey: boolean;
   key: string;
+  /** 物理按键；非拉丁键盘布局下 `key` 不是 'a'，只有它可靠。 */
+  code?: string;
 }
 
 export function isSameSelection(
@@ -82,6 +84,8 @@ export function shouldCopyOnMouseUp(
 export function shouldCopyOnKeyUp(event: KeyUpLike): boolean {
   if (!event.isTrusted || event.altKey) return false;
   const extendsSelection = event.shiftKey && SELECTION_EXTEND_KEYS.has(event.key);
-  const selectsAll = event.ctrlKey && !event.shiftKey && event.key.toLowerCase() === 'a';
+  // 认物理键位：俄语等布局下按 Ctrl+A 得到的 key 是 'ф'，只看 key 会漏掉全选。
+  const isA = event.code === 'KeyA' || event.key.toLowerCase() === 'a';
+  const selectsAll = event.ctrlKey && !event.shiftKey && isA;
   return extendsSelection || selectsAll;
 }

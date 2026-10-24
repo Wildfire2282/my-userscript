@@ -56,7 +56,8 @@ describe('normalizeSettings', () => {
       engines: { google: '', baidu: 3 },
     });
     expect(normalized.linkOpenMode).toBe('background');
-    expect(normalized.defaultEngine).toBe('google');
+    // google 已被丢弃，默认引擎只能落在表里真实存在的引擎上。
+    expect(Object.hasOwn(normalized.engines, normalized.defaultEngine)).toBe(true);
     expect(normalized.customEngineUrl).toBe('');
     expect(normalized.urlTextAction).toBe('open');
     expect(normalized.imageAction).toBe('viewer');
@@ -79,13 +80,29 @@ describe('normalizeSettings', () => {
     expect(engines.google).toContain('google.com');
   });
 
-  it('默认引擎指向已被丢弃的引擎时收敛到内置默认值', () => {
+  it('默认引擎指向已被丢弃的引擎时收敛到表里真实存在的引擎', () => {
     const normalized = normalizeSettings({
       defaultEngine: 'duckduckgo',
       engines: { duckduckgo: '' },
     });
-    expect(normalized.defaultEngine).toBe(DEFAULT_SETTINGS.defaultEngine);
+    // 不能再写死 google：它可能也已被丢弃，那样面板显示的与真实搜索的又不一致。
+    expect(Object.hasOwn(normalized.engines, normalized.defaultEngine)).toBe(true);
     expect(normalized.engines.duckduckgo).toBeUndefined();
+  });
+
+  it('模板里没有 {keyword} 的引擎整条丢弃', () => {
+    const engines = normalizeSettings({
+      engines: { duckduckgo: 'https://duckduckgo.com/' },
+    }).engines;
+    expect(engines.duckduckgo).toBeUndefined();
+    expect(engines.google).toContain('{keyword}');
+  });
+
+  it('存储里叫 custom 的引擎被丢弃，避免与「自定义」选项撞 value', () => {
+    const engines = normalizeSettings({
+      engines: { custom: 'https://example.com/?q={keyword}' },
+    }).engines;
+    expect(engines.custom).toBeUndefined();
   });
 
   it('拖动类型可以单独关闭，坏值按开启处理', () => {

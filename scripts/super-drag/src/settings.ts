@@ -70,7 +70,10 @@ function sanitizeEngines(value: unknown): Record<string, string> {
   if (typeof value !== 'object' || value === null) return { ...DEFAULT_SETTINGS.engines };
   const engines: Record<string, string> = {};
   for (const [id, template] of Object.entries(value)) {
-    if (typeof template === 'string' && template !== '') engines[id] = template;
+    // `custom` 是面板里“自定义”选项的保留 ID：同名引擎会让下拉出现两个相同 value。
+    if (id === CUSTOM_ENGINE_ID) continue;
+    // 没有 {keyword} 的模板永远搜不出东西（解析时会被静默换成 Google）。
+    if (typeof template === 'string' && template.includes('{keyword}')) engines[id] = template;
   }
   // 全是坏值时回退内置引擎，避免“一个引擎都没有”的界面。
   return Object.keys(engines).length > 0 ? engines : { ...DEFAULT_SETTINGS.engines };
@@ -107,10 +110,11 @@ export function normalizeSettings(stored: unknown): Settings {
       : DEFAULT_SETTINGS.defaultEngine;
   return {
     // 引擎表里没有的 ID 会让面板显示第一个引擎、实际却按 Google 搜索，收敛成默认值。
+    // 回退到表里真实存在的第一个引擎，而不是写死的 google（它可能已被上一步丢弃）。
     defaultEngine:
       engine === CUSTOM_ENGINE_ID || Object.hasOwn(engines, engine)
         ? engine
-        : DEFAULT_SETTINGS.defaultEngine,
+        : (Object.keys(engines)[0] ?? DEFAULT_SETTINGS.defaultEngine),
     customEngineUrl: typeof merged.customEngineUrl === 'string' ? merged.customEngineUrl : '',
     engines,
     linkOpenMode: merged.linkOpenMode === 'foreground' ? 'foreground' : 'background',

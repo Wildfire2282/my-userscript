@@ -14,7 +14,6 @@
  * 用法：
  *   node tools/build.mjs                 # 构建所有已迁移的脚本
  *   node tools/build.mjs capture-links   # 只构建指定包（可传多个）
- *   node tools/build.mjs --minify        # 压缩产物
  */
 
 import { access, readdir, readFile } from 'node:fs/promises';
@@ -38,7 +37,6 @@ const META_CANDIDATES = ['userscript.meta.ts', 'userscript.meta.js'];
 const manifestFailures = [];
 
 const args = process.argv.slice(2);
-const minify = args.includes('--minify');
 const only = args.filter((arg) => !arg.startsWith('-'));
 
 async function exists(target) {
@@ -156,7 +154,7 @@ async function buildPackage(pkg) {
       cssTarget: 'chrome111',
       outDir: 'dist',
       emptyOutDir: true,
-      minify: minify ? 'esbuild' : false,
+      minify: false,
       sourcemap: false,
       lib: {
         entry,

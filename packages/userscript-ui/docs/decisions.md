@@ -25,7 +25,7 @@
 
 - **React / Vue**：运行时体积和挂载成本不符合用户脚本场景。
 - **Tailwind**：构建链和生成 CSS 体积不可控，且本项目的组件数量固定，手写 CSS 更小更直接。
-- **vite-plugin-monkey**：功能完整，但当前 CSS 已经以字符串形式进入 JS，IIFE 产物本身即可自包含，只需 Rollup banner 写 metadata，少一个依赖。
+- **额外的 userscript 构建插件**：CSS 已经以字符串形式进入 JS，根目录 `tools/build.mjs` 负责单文件 IIFE 与 metadata，无需另加一套构建链。
 - **自定义 Dialog 遮罩**：原生 `<dialog>.showModal()` 已提供 top layer、焦点圈定、Escape、背景 inert，自己实现只会增加可访问性风险。
 
 ## 关键决策
@@ -72,7 +72,7 @@ Dialog 基于 `<dialog>` + `showModal()`，保留浏览器提供的焦点管理�
 
 ### 8. 单文件构建
 
-Vite lib 模式输出 ESM 与 IIFE；demo 入口构建为 IIFE，Rollup banner 写入 userscript metadata。CSS 已在 JS 字符串内，产物不依赖 CDN、远程字体或网络请求。
+仓库内脚本通过 `@ui` 按需直引 UI 源码，由根目录 `tools/build.mjs` 统一构建为单文件 IIFE，并写入各脚本的 userscript metadata。不再单独输出 UI 库。CSS 已在 JS 字符串内，产物不依赖 CDN、远程字体或网络请求。
 
 ### 9. Launcher 不做拖拽
 
@@ -127,13 +127,12 @@ Dialog 打开时临时设置 `documentElement.style.overflow`，关闭后恢复�
 
 `check-safety.mjs` 先去掉注释，再匹配能力：`innerHTML`/`setHTML`/`srcdoc`、`eval`/`new Function`/动态 `import()`、`fetch`/`XHR`/`WebSocket`/`sendBeacon`、远程 `@import`/`url(http…)`。它不再因为注释里出现 `fetch(` 或占位符里有 `https://example.com/api` 而误报，也补上了旧白名单漏掉的 `setHTMLUnsafe`、`srcdoc` 等入口。
 
-## 验证结果
+## 验证入口
 
-- `npm run check` 全绿：安全扫描、TypeScript、单元测试、构建、真实浏览器 E2E、体积报告；CI 在 GitHub Actions 上跑同一套命令。
-- 120 个 happy-dom 单元测试；51 个真实 Chrome/Edge E2E（样式隔离、键盘/焦点、Dialog、Toast、Launcher、Tooltip、重复开关、浅色/深色对比度、原生 color-scheme、modal 内 Toast/Tooltip、按需产物、两档面板尺寸）。
-- 13 个核心组件：Panel、Section、Field、Button、Input、Select、Switch、Checkbox、Toast、Alert、Dialog、Tooltip、Floating Launcher；Panel 提供设置面板与操作面板两档规格，另提供 `createTextarea` 原生长文本辅助。
-- 真实宿主压力页面验证：全局 `!important` 字体、颜色、字号、按钮样式不会破坏组件；UI 样式不泄漏；宿主按钮仍可点击。
-- 体积、按需裁剪与 userscript metadata 由 `npm run size` / `npm run check:userscript` 输出，文档不再记录具体数字。
+- 根目录 `npm run check` 统一执行静态检查、happy-dom 单元测试、脚本构建、metadata、安全与 Token 检查，以及浏览器场景；本文不记录易过期的通过状态或测试数量。
+- `npm run test:browser -- userscript-ui` 通过 `tools/browser-check.mjs` 的 CDP 驱动执行 UI 场景，入口是 `tests/browser-entry.ts`，场景是 `tests/browser-scenarios.mjs`，宿主页面在 `tests/fixtures/`。
+- 浏览器场景覆盖样式隔离、键盘/焦点、Dialog、Toast、Launcher、Tooltip、主题与面板尺寸等真实 DOM 行为；happy-dom 单元测试负责无需布局的组件状态与生命周期。
+- 构建使用根目录 `npm run build`，userscript metadata 使用 `npm run check:meta` 检查，不维护独立 UI 发布或体积检查链。
 
 ### 19. ESLint 负责语法与规则，自定义脚本负责能力与 Token
 
@@ -148,7 +147,7 @@ ESLint 只对 tsconfig 覆盖的文件开类型感知；`scripts/*.mjs` 与配�
 
 格式化与规则分开：`npm run format` 用 Prettier 统一代码风格（单引号、100 列、尾逗号、LF），`eslint-config-prettier` 放在 flat config 最后，关掉所有与 Prettier 重叠的 ESLint 规则，两个工具不会为同一行吵架。
 
-`format:check` 进 `npm run check` 与 CI，所以风格不再靠 review 提醒。Markdown 不在范围内（`.prettierignore`）：中文正文和表格会被重排成不可读的换行。
+`format:check` 进入根目录 `npm run check`，所以风格不再靠 review 提醒。Markdown 不在范围内（`.prettierignore`）：中文正文和表格会被重排成不可读的换行。
 
 ### 21. Toast 的可视元素与播报分离
 
@@ -172,12 +171,12 @@ ESLint 只对 tsconfig 覆盖的文件开类型感知；`scripts/*.mjs` 与配�
 
 ## 已知限制
 
-- 第一版以 Chrome / Edge + Tampermonkey 为验证目标；Firefox 未纳入当前 E2E。
-- E2E 使用系统安装的当前 Chrome/Edge，CI 不固定 Chrome 111；111 是构建目标，不是每次测试实际运行的版本。最低版本兼容性改动需在本地用 111 复验。
+- 以 Chrome / Edge + Tampermonkey 为验证目标；Firefox 未纳入当前浏览器场景。
+- 浏览器场景使用系统安装的当前 Chrome/Edge；111 是构建目标，不是每次测试实际运行的版本。最低版本兼容性改动需在本地用 111 复验。
 - 宿主页面若用 `!important` 设置祖先的 `transform` / `filter`，仍可能影响 fixed 定位；Host 挂到 `document.documentElement` 已规避常见的 body transform。
 - 宿主页面若强制 `opacity: 0 !important` 于 host 自身，内部无法完全恢复；当前已对 host 的关键属性做内联 important。
 - 页面进入全屏时，宿主外的 UI 可能不可见；第一版未处理 fullscreen 迁移。
 - 主题切换默认瞬时完成，不播放全局颜色过渡，避免整页 UI 闪动。
 - Chrome 111 没有 popover API，浮层要盖过模态就只能出现在 top layer 的 Dialog 内部，所以 Toast 视口仍会在 Dialog 开关时迁移父节点；实际是否打断读屏播报取决于浏览器。
-- 单元测试跑在 happy-dom 上，它不实现布局、top layer，也不实现“已中止的 signal 不再注册监听”；这类语义只由浏览器 E2E 覆盖。
+- 单元测试跑在 happy-dom 上，它不实现布局、top layer，也不实现“已中止的 signal 不再注册监听”；这类语义只由真实浏览器场景覆盖。
 - 滚动锁只处理 `documentElement`，并按滚动条宽度补 `padding-right`；滚动条落在 body（怪癖模式）的页面可能仍有轻微偏移。

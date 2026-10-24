@@ -1,23 +1,8 @@
 # Userscript UI 集成指南
 
-## 产物形态
-
-```text
-dist/
-  lib/
-    userscript-ui.js       ESM，适合被其他 Vite 项目引入
-    userscript-ui.iife.js  IIFE，暴露 UserscriptUI 全局
-  showcase.user.js         完整示例，单文件可直接注入
-  minimal.user.js          最小按需示例
-```
-
-单文件产物不包含外部 CSS、字体或网络请求；CSS 在构建时已经变成 JS 字符串。
-
 ## 接入方式
 
-### 方式一：源码复用（推荐，当前默认）
-
-把本仓库作为同仓依赖、Git submodule 或本地包引入，在自己的 Vite 入口中按需导入：
+本目录不单独安装或分发。仓库内脚本通过根目录配置的 `@ui` 别名按需直引 `packages/userscript-ui/src/index.ts`：
 
 ```ts
 import {
@@ -28,7 +13,7 @@ import {
   createSwitch,
   createButton,
   createToast,
-} from '../userscript/src/index';
+} from '@ui';
 
 const ui = mountUI({ theme: 'light' });
 const toast = createToast(ui);
@@ -56,66 +41,19 @@ const save = createButton(ui, {
 panel.setFooter(save.el);
 ```
 
-未导入的组件会被 tree-shake；`minimal.user.js` 就是只导入 Panel/Field/Switch/Button 的产物。
-
-### 方式二：复制 `src/`
-
-适合不想引入包管理的单脚本项目。复制 `src/` 到脚本目录，保持目录结构，然后按方式一导入。代价是设计系统升级需要手动同步。
-
-### 方式三：发布 npm 包
-
-当前 `package.json` 是 `private: true`。需要发布时：
-
-1. 去掉 `private`，确定包名。
-2. 增加 `exports` 与类型声明构建（`tsc --emitDeclarationOnly`）。
-3. 保留 `sideEffects: false`，确保按需 tree-shaking。
-4. 在脚本项目中 `npm install <package>`。
+未导入的组件可被 tree-shake；CSS 通过 `?inline` 进入 JS，无需加载外部样式。
 
 ## 构建单文件 userscript
 
-参考 `vite.demo.config.ts`：
+在仓库根目录执行：
 
-```ts
-import { defineConfig } from 'vite';
-
-export default defineConfig({
-  build: {
-    target: 'chrome111',
-    cssTarget: 'chrome111',
-    outDir: 'dist',
-    lib: {
-      entry: 'src/main.ts',
-      formats: ['iife'],
-      name: 'MyUserscript',
-      fileName: () => 'my.user.js',
-    },
-    rollupOptions: {
-      output: {
-        banner: `// ==UserScript==
-// @name         My Userscript
-// @namespace    https://example.com
-// @version      0.1.0
-// @description  ...
-// @match        https://example.com/*
-// @run-at       document-idle
-// @grant        none
-// @noframes
-// ==/UserScript==
-`,
-      },
-    },
-  },
-});
+```bash
+npm run build
 ```
 
-要点：
+根目录 `tools/build.mjs` 将脚本及其引用的 UI 源码打包为单文件 IIFE，输出到 `scripts/<slug>/dist/<slug>.user.js`。metadata 从各脚本配置生成并置于文件顶部，版本由各脚本 `package.json` 注入；`@match` 和权限须与脚本真实需求一致。
 
-- `@match` 改成脚本真正需要的站点，不要直接分发示例的 `example.com`。
-- 只有使用 GM API 时才加 `@grant`；纯 DOM UI 用 `@grant none`。
-- `banner` 必须位于文件最顶部；Rollup 会保证这一点。
-- 不要引入 `vite-plugin-monkey`：CSS 已是字符串，IIFE 已经自包含。
-- `target: 'chrome111'` 避免 Lightning CSS 为旧浏览器生成大量 RTL/兼容回退；构建目标是 Chrome/Edge 111+，但 E2E 使用系统当前 Chrome/Edge，最低版本未固定复现。
-- 构建后用 `npm run size` 查看 raw / gzip / brotli 体积。
+构建目标为 Chrome/Edge 111+；浏览器场景使用系统当前版本，不能代替最低版本兼容性验证。产物不依赖 CDN、远程字体或外部 CSS。
 
 ## Shadow DOM 结构
 
@@ -226,7 +164,7 @@ const ui = mountUI({
 - 全部文本通过 `textContent` / `createTextNode`；源码中没有 `innerHTML`、`outerHTML`、`insertAdjacentHTML`、`document.write`。
 - 没有 `eval`、`new Function`、`fetch`、`XMLHttpRequest` 或远程 CSS。
 - 不注册页面级快捷键；Escape 只在 Panel/Dialog/Tooltip 自己的范围内处理。
-- `npm run check:safety` 会扫描 `src/` 和 `demo/` 中的危险模式。
+- 根目录 `npm run check:ui-safety` 检查 UI 的危险能力使用。
 - `adoptedStyleSheets` 优先，严格 CSP 页面比 `<style>` 更稳；不支持时自动回退 `<style data-ds-style>`。
 - Host 的关键样式通过 CSSOM 内联设置，不写 `<style>` 到宿主 `<head>`。
 
@@ -261,50 +199,24 @@ button {
 - 原生 `<select>` 的展开样式由浏览器/OS 决定，无法完全跨平台统一。
 - Tooltip 内容为纯文本，不支持 HTML；不要用它承载核心信息。
 
-## 构建与体积
-
-```bash
-npm run build
-npm run size
-```
-
-体积不写死在文档里，用 `npm run size` 看当前构建的实际数字：
-
-```text
-file                                  raw       gzip     brotli
-dist/lib/userscript-ui.js  ...        —— 体积报告同时做一次按需检查，
-dist/showcase.user.js      ...        断言 minimal 产物不含未导入组件的 CSS
-dist/minimal.user.js       ...        （类名与 `data-ds-*` 在 CSS 字符串里，不会被压缩改名）
-```
-
-CSS 在 JS 内，gzip/brotli 后的体积更能代表网络传输成本。
-
 ## 验证
+
+所有命令从仓库根目录执行：
 
 ```bash
 npm run check
+npm run test:browser -- userscript-ui
 ```
 
-包含：
+`check` 包含 lint、格式校验、类型检查、happy-dom 单元测试、脚本构建、`check:meta`、`check:ui-safety`、`check:ui-tokens` 和统一浏览器场景。
 
-1. `check:safety` — 源码能力扫描（HTML 字符串注入、动态执行、网络）。
-2. `check:tokens` — 组件 CSS 的颜色与尺寸是否都来自 `--ds-*` Token。
-3. `lint` — ESLint flat config + typescript-eslint 类型感知规则（在 tsconfig 范围内）；同时把 `innerHTML`、`insertAdjacentHTML`、`document.write`、`new Function`、`==` 等硬规则变成错误。
-4. `format:check` — Prettier 校验（单引号、100 列、尾逗号、LF）；Markdown 不在范围内。
-5. `typecheck` — TypeScript 严格检查。
-6. `test` — happy-dom 单元测试（挂载、主题、生命周期、表单、反馈、Launcher、Tooltip）。
-7. `build` — 库 + 两个单文件 userscript。
-8. `check:userscript` — 检查 metadata 名称、namespace 与 banner 是否位于文件顶部。
-9. `test:e2e` — 真实 Chrome/Edge：样式隔离、键盘/焦点、Dialog、浅色/深色对比度、modal 内 Toast/Tooltip、Toast、Launcher、Tooltip、按需产物。
-10. `size` — 体积与 “minimal 不包含未导入组件” 检查。
+UI 浏览器行为由 `tools/browser-check.mjs` 通过 CDP 执行：入口是 `packages/userscript-ui/tests/browser-entry.ts`，场景是 `tests/browser-scenarios.mjs`，宿主测试页面在 `tests/fixtures/`。浏览器场景负责真实布局、键盘/焦点、Dialog top layer、主题、反馈及宿主样式隔离；单元测试保留在 `tests/unit/`。
 
-同样的命令跑在 `.github/workflows/ci.yml` 里：一个 job 跑类型/单测/构建/体积，另一个 job 用 runner 自带的 Chrome 跑 E2E。
-
-E2E 使用系统浏览器，不下载 Playwright 浏览器。默认查找 Chrome/Edge；可用 `CHROME_PATH` 指定：
+默认查找系统 Chrome/Edge，可用 `CHROME_PATH` 指定：
 
 ```powershell
 $env:CHROME_PATH = 'C:\Program Files\Google\Chrome\Application\chrome.exe'
-npm run test:e2e
+npm run test:browser -- userscript-ui
 ```
 
-CI 同样使用 runner 自带的当前 Chrome，不会固定到 Chrome 111。最低版本兼容性改动（尤其是 CSS 特性）仍应在本地用 111 单独复验。
+涉及最低版本兼容性的改动（尤其是 CSS 特性）仍应在 Chrome/Edge 111 单独验证。

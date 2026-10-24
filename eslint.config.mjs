@@ -100,7 +100,6 @@ export default [
       'scripts/*/src/**/*.ts',
       'packages/shared/src/**/*.ts',
       'packages/userscript-ui/src/**/*.ts',
-      'packages/userscript-ui/demo/**/*.ts',
     ],
     languageOptions: {
       globals: globals.browser,
@@ -115,7 +114,7 @@ export default [
   },
   {
     // 浏览器场景脚本：跑在页面里，也会用 Node 的 import 写法。
-    files: ['scripts/*/tests/**/*.mjs'],
+    files: ['scripts/*/tests/**/*.mjs', 'packages/userscript-ui/tests/**/*.mjs'],
     languageOptions: {
       globals: { ...globals.node, ...globals.browser },
     },

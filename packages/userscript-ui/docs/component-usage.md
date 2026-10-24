@@ -70,7 +70,7 @@ const operations = createPanel(ui, {
 - 不传 `size` 时保持原有设置面板行为；`panel.setSize('operation')` 可以在运行时切换，不重建 DOM 或控件。
 - `position: 'center'` 只改变位置：视口正中、仍非模态；设置面板居中时放宽到 440px，操作面板保持 560px。
 - 设置面板只放参数；操作面板承载页面功能。不要把大量常规设置塞进操作面板，也不要把密集操作塞进设置面板。
-- 操作面板不会自动分栏。需要两栏时，在 `panel.body` 中放一个容器，用 `display: grid` 组合两个 `Section`；建议最小列宽约 220px，窄视口自动降为单列。示例见 `demo/showcase.ts`。
+- 操作面板不会自动分栏。需要两栏时，在 `panel.body` 中放一个容器，用 `display: grid` 组合两个 `Section`；建议最小列宽约 220px，窄视口自动降为单列。
 - 两种面板都是非模态浮层；同一角落同时打开会重叠。切换时由入口先关闭另一个，例如：
   ```ts
   const openOperations = createButton(ui, {

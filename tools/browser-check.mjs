@@ -3,7 +3,7 @@
  * 真实浏览器场景检查。
  *
  * 用系统里的 Chrome / Edge（headless）打开本地夹具页，注入 GM 打桩与构建好的产物，
- * 由脚本自己的场景模块驱动交互并断言结果。不依赖 Playwright：
+ * 由各 suite 的场景模块驱动交互并断言结果，无额外浏览器测试框架：
  * 只用 Chrome DevTools Protocol，Node 内置 WebSocket 即可，所以离线也能跑。
  *
  * 场景模块契约（scripts/<slug>/tests/browser-scenarios.mjs）：
@@ -32,7 +32,8 @@
  * 指向最后一次注册），clipboard 记录 GM_setClipboard 写入的文字。
  *
  * 用法：
- *   node tools/browser-check.mjs                      # 跑所有带场景的脚本
+ *   node tools/browser-check.mjs                      # 跑所有脚本场景与 UI suite
+ *   node tools/browser-check.mjs userscript-ui        # 只跑 UI 消费者场景
  *   node tools/browser-check.mjs super-drag           # 只跑指定脚本（可传多个）
  *   node tools/browser-check.mjs --keep-browser       # 保留浏览器与配置目录，便于排查
  *   CHROME_PATH=... node tools/browser-check.mjs      # 指定浏览器可执行文件
@@ -46,6 +47,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SCRIPTS_DIR = path.join(ROOT, 'scripts');
+const UI_DIR = path.join(ROOT, 'packages', 'userscript-ui');
 
 const args = process.argv.slice(2);
 const keepBrowser = args.includes('--keep-browser');
@@ -57,11 +59,20 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const REQUEST_TIMEOUT_MS = 30_000;
 
 function scenarioPath(slug) {
-  return path.join(SCRIPTS_DIR, slug, 'tests', 'browser-scenarios.mjs');
+  return path.join(
+    slug === 'userscript-ui' ? UI_DIR : path.join(SCRIPTS_DIR, slug),
+    'tests',
+    'browser-scenarios.mjs',
+  );
 }
 
 function fixturePath(slug, fixture) {
-  return path.join(SCRIPTS_DIR, slug, 'tests', 'fixtures', fixture);
+  return path.join(
+    slug === 'userscript-ui' ? UI_DIR : path.join(SCRIPTS_DIR, slug),
+    'tests',
+    'fixtures',
+    fixture,
+  );
 }
 
 /**
@@ -173,18 +184,19 @@ class CdpClient {
   }
 }
 
-/** 场景列表来自脚本自己的 tests/browser-scenarios.mjs，工具本身不认识任何脚本。 */
+/** 脚本自行声明场景，UI 包作为固定 suite 使用同一驱动。 */
 async function discoverSlugs() {
   const entries = await readdir(SCRIPTS_DIR, { withFileTypes: true });
   const slugs = entries
     .filter((entry) => entry.isDirectory())
     .map((entry) => entry.name)
+    .concat('userscript-ui')
     .filter((slug) => existsSync(scenarioPath(slug)))
     .filter((slug) => only.length === 0 || only.includes(slug))
     .sort();
   const unknown = only.filter((slug) => !slugs.includes(slug));
   for (const slug of unknown) {
-    if (!existsSync(path.join(SCRIPTS_DIR, slug))) {
+    if (slug !== 'userscript-ui' && !existsSync(path.join(SCRIPTS_DIR, slug))) {
       throw new Error(`没有这个脚本：${slug}`);
     }
     // 点名要跑的脚本没有场景，说明场景文件被改名或删了：不能静默通过。
@@ -270,6 +282,8 @@ const chrome = spawn(
     '--window-size=1280,900',
     '--remote-debugging-port=0',
     `--user-data-dir=${profileDir}`,
+    // 提权终端下禁止 Chrome 脱离父进程降权重启，否则调试端口与清理句柄丢失。
+    ...(process.platform === 'win32' ? ['--noerrdialogs', '--do-not-de-elevate'] : []),
     ...(process.env.CI || process.getuid?.() === 0
       ? ['--no-sandbox', '--disable-dev-shm-usage']
       : []),
@@ -358,11 +372,21 @@ try {
     PageDown: 34,
     Backspace: 8,
     Enter: 13,
+    Tab: 9,
+    Escape: 27,
   };
   const modifierValue = (names = []) =>
     names.reduce((sum, name) => sum | (INPUT_MODIFIERS[name] ?? 0), 0);
 
   const input = {
+    async setViewport(width, height) {
+      await cdp.send('Emulation.setDeviceMetricsOverride', {
+        width,
+        height,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
+    },
     async mouseMove(point, buttons = 0) {
       await cdp.send('Input.dispatchMouseEvent', {
         type: 'mouseMoved',
@@ -529,41 +553,73 @@ try {
     const setupCall =
       typeof scenarioModule.setup === 'function' ? `(${scenarioModule.setup.toString()})()` : '';
 
-    // fixture 可以带查询串（例如 `watch.html?v=abc`）：脚本靠地址判断视频时要用到。
-    // 只按第一个 `?` 切：查询串里再出现 `?` 时（`?next=/a?b`）不能被截断。
-    const queryStart = fixture.indexOf('?');
-    const fixtureName = queryStart === -1 ? fixture : fixture.slice(0, queryStart);
-    const query = queryStart === -1 ? '' : fixture.slice(queryStart + 1);
-    const fixtureFile = fixturePath(slug, fixtureName);
-    if (!existsSync(fixtureFile)) {
-      throw new Error(`${slug} 的夹具页不存在：${fixture}`);
+    function resolveFixture(fixture) {
+      // fixture 可以带查询串（例如 `watch.html?v=abc`）：脚本靠地址判断视频时要用到。
+      // 只按第一个 `?` 切：查询串里再出现 `?` 时（`?next=/a?b`）不能被截断。
+      const queryStart = fixture.indexOf('?');
+      const fixtureName = queryStart === -1 ? fixture : fixture.slice(0, queryStart);
+      const query = queryStart === -1 ? '' : fixture.slice(queryStart + 1);
+      const fixtureFile = fixturePath(slug, fixtureName);
+      if (!existsSync(fixtureFile)) {
+        throw new Error(`${slug} 的夹具页不存在：${fixture}`);
+      }
+      return `${pathToFileURL(fixtureFile).href}${query === '' ? '' : `?${query}`}`;
     }
-    const fixtureUrl = `${pathToFileURL(fixtureFile).href}${query === '' ? '' : `?${query}`}`;
-    const distFile = path.join(SCRIPTS_DIR, slug, 'dist', `${slug}.user.js`);
-    if (!existsSync(distFile)) {
-      throw new Error(`缺少产物 ${path.relative(ROOT, distFile)}，先运行 npm run build ${slug}。`);
+    let bundle;
+    if (slug === 'userscript-ui') {
+      const { build } = await import('vite');
+      const result = await build({
+        configFile: false,
+        root: UI_DIR,
+        logLevel: 'warn',
+        build: {
+          write: false,
+          emptyOutDir: false,
+          target: 'chrome111',
+          cssTarget: 'chrome111',
+          lib: {
+            entry: path.join(UI_DIR, 'tests', 'browser-entry.ts'),
+            formats: ['iife'],
+            name: 'UserscriptUITest',
+          },
+        },
+      });
+      const outputs = Array.isArray(result) ? result : [result];
+      bundle = outputs
+        .flatMap((output) => output.output)
+        .find((output) => output.type === 'chunk')?.code;
+      if (!bundle) throw new Error('userscript-ui 内存构建未生成 JavaScript');
+    } else {
+      const distFile = path.join(SCRIPTS_DIR, slug, 'dist', `${slug}.user.js`);
+      if (!existsSync(distFile)) {
+        throw new Error(
+          `缺少产物 ${path.relative(ROOT, distFile)}，先运行 npm run build ${slug}。`,
+        );
+      }
+      // 产物比源码旧时场景测的是旧代码，结果没有意义：直接判失败，别让它看起来“通过”。
+      const distTime = statSync(distFile).mtimeMs;
+      const srcDir = path.join(SCRIPTS_DIR, slug, 'src');
+      const pkgDir = path.join(SCRIPTS_DIR, slug);
+      // 版本号与元数据也进产物（banner），只改它们而不重新构建同样是旧产物。
+      const inputTime = Math.max(
+        existsSync(srcDir) ? newestTime(srcDir) : 0,
+        ['package.json', 'userscript.meta.ts', 'userscript.meta.js']
+          .map((name) => {
+            try {
+              return statSync(path.join(pkgDir, name)).mtimeMs;
+            } catch {
+              return 0;
+            }
+          })
+          .reduce((a, b) => Math.max(a, b), 0),
+      );
+      if (inputTime > distTime) {
+        throw new Error(
+          `${path.relative(ROOT, distFile)} 比 src 旧，先运行 npm run build ${slug}。`,
+        );
+      }
+      bundle = await readFile(distFile, 'utf8');
     }
-    // 产物比源码旧时场景测的是旧代码，结果没有意义：直接判失败，别让它看起来“通过”。
-    const distTime = statSync(distFile).mtimeMs;
-    const srcDir = path.join(SCRIPTS_DIR, slug, 'src');
-    const pkgDir = path.join(SCRIPTS_DIR, slug);
-    // 版本号与元数据也进产物（banner），只改它们而不重新构建同样是旧产物。
-    const inputTime = Math.max(
-      existsSync(srcDir) ? newestTime(srcDir) : 0,
-      ['package.json', 'userscript.meta.ts', 'userscript.meta.js']
-        .map((name) => {
-          try {
-            return statSync(path.join(pkgDir, name)).mtimeMs;
-          } catch {
-            return 0;
-          }
-        })
-        .reduce((a, b) => Math.max(a, b), 0),
-    );
-    if (inputTime > distTime) {
-      throw new Error(`${path.relative(ROOT, distFile)} 比 src 旧，先运行 npm run build ${slug}。`);
-    }
-    const bundle = await readFile(distFile, 'utf8');
     const ctx = createContext(slug);
     const startedAt = Date.now();
 
@@ -574,7 +630,13 @@ try {
       let expected = '';
       let actual = '';
       try {
-        await openFreshPage(fixtureUrl, bundle, setupCall, helpersCall);
+        if (slug === 'userscript-ui') await input.setViewport(1000, 800);
+        await openFreshPage(
+          resolveFixture(scenario.fixture ?? fixture),
+          bundle,
+          setupCall,
+          helpersCall,
+        );
         const result = await scenario.run(ctx);
         if (result == null || typeof result !== 'object' || !('expected' in result)) {
           throw new Error('场景必须返回 { expected, actual }');

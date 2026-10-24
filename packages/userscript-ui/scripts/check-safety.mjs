@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 
 const projectRoot = fileURLToPath(new URL('..', import.meta.url));
 
-const roots = ['../src', '../demo'].map((path) => fileURLToPath(new URL(path, import.meta.url)));
+const roots = ['../src'].map((path) => fileURLToPath(new URL(path, import.meta.url)));
 
 /**
  * The rules check capabilities, not text: a URL in a placeholder string is

@@ -151,7 +151,7 @@ createLauncher(ui, {
 - Dialog 打开时会临时锁住页面滚动，关闭后恢复原值；这是唯一会触碰宿主全局样式的地方。
 - 多个脚本同时运行时各自有 Shadow Root；协调 Launcher 的角标位置，避免重叠。
 - SPA 路由变化不要重复 `mountUI`；保留实例并重新打开 Panel，或者在销毁后重建。
-- 构建：根目录 `npm run build:ui-demo` 产出 demo 产物；修改 metadata 的 `@match` 后再分发。
+- 脚本通过 `@ui` 直引源码；根目录 `npm run build` 使用 `tools/build.mjs` 将 UI 打入各脚本产物，metadata 由脚本自身配置维护。
 - 不需要远程资源；CSS 已以字符串形式进入 JS。
 
 ## 7. 新增组件
@@ -177,17 +177,17 @@ createLauncher(ui, {
 npm run check           # lint + format + typecheck + unit + build + metadata + UI safety/tokens + 浏览器场景
 npm run lint            # ESLint (typescript-eslint, type-aware)
 npm run format          # Prettier，写入
-npm run test:ui-e2e     # 需要先 build:ui-demo；使用系统 Chrome/Edge
+npm run test:browser -- userscript-ui # 统一 CDP 驱动的 UI 浏览器场景
 npm run check:ui-tokens # 单独检查组件 CSS 是否用了 --ds-* Token
 ```
 
 `lint` 用 ESLint flat config + typescript-eslint 类型感知规则，除了通用最佳实践，还把本项目的硬规则变成错误：`innerHTML`/`outerHTML`/`insertAdjacentHTML`、`document.write`、`new Function`、`==`（`!= null` 除外）、`prefer-const`。`eslint-config-prettier` 在最后关掉所有与格式化重叠的规则。
 
-`format` 用 Prettier 统一代码风格（单引号、100 列、尾逗号、LF）；`format:check` 在 `npm run check` 和 CI 里跑。Markdown 不在范围内（中文正文和表格会被重排），见 `.prettierignore`。
+`format` 用 Prettier 统一代码风格（单引号、100 列、尾逗号、LF）；`format:check` 在 `npm run check` 里跑。Markdown 不在范围内（中文正文和表格会被重排），见 `.prettierignore`。
 
 `check:ui-safety` 检查危险能力（HTML 字符串注入、动态执行、网络请求），`check:ui-tokens` 检查组件 CSS 里的颜色和尺寸是否都来自 Token。
 
-E2E 默认查找系统 Chrome/Edge；可用 `CHROME_PATH` 指定。提交前必须让 `npm run check` 全绿。
+`tools/browser-check.mjs` 通过 CDP 使用系统 Chrome/Edge；可用 `CHROME_PATH` 指定。UI 入口是 `tests/browser-entry.ts`，场景是 `tests/browser-scenarios.mjs`，宿主页面位于 `tests/fixtures/`。提交前必须让根目录 `npm run check` 全绿。
 
 根 `tsconfig.json` 覆盖 `scripts` 与 `packages` 的源码与测试；构建脚本（`tools/*.mjs`）不在类型检查范围内，改动后靠 `npm run check` 的 lint 与浏览器场景验证。
 

@@ -27,10 +27,8 @@
     "packages/shared/src",
     "packages/shared/tests",
     "packages/userscript-ui/src",
-    "packages/userscript-ui/demo",
     "packages/userscript-ui/tests",
-    "vitest.config.ts",
-    "packages/userscript-ui/*.config.ts"
+    "vitest.config.ts"
   ],
   "exclude": ["node_modules", "**/dist"]
 }

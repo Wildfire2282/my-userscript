@@ -53,20 +53,15 @@ export function installDragSensor(deps: DragSensorDeps): DragSensor {
   let swallowClickUntil = 0;
   // 浏览器补发的 click 落在拖拽起点上；只有这一次该吞，用户点别处是真实操作。
   let dragSource: Element | null = null;
-  let ghost: HTMLImageElement | null = null;
+  // 残影图必须在第一次拖拽前解码完：dragstart 里现建现用时图片还没好，
+  // 浏览器回退到原生文字残影，看着就是发虚。
+  const ghost: HTMLImageElement = document.createElement('img');
+  ghost.src = GHOST_PIXEL_SRC;
 
   const reset = () => {
     dragStart = null;
     kind = 'text';
     data = '';
-  };
-
-  const ghostPixel = (): HTMLImageElement => {
-    if (!ghost) {
-      ghost = document.createElement('img');
-      ghost.src = GHOST_PIXEL_SRC;
-    }
-    return ghost;
   };
 
   const claim = (transfer: DataTransfer, text: string): boolean => {
@@ -126,7 +121,9 @@ export function installDragSensor(deps: DragSensorDeps): DragSensor {
 
     try {
       transfer.effectAllowed = 'copy';
-      transfer.setDragImage(ghostPixel(), 0, 0);
+      // 图片没解码完时不硬设：此时设了也等于没设，还不如留着原生残影，
+      // 预加载保证正常情况下这里总是 complete。
+      if (ghost.complete && ghost.naturalWidth > 0) transfer.setDragImage(ghost, 0, 0);
     } catch {
       // setDragImage 不支持时保留原生残影
     }
@@ -234,7 +231,6 @@ export function installDragSensor(deps: DragSensorDeps): DragSensor {
   return {
     destroy() {
       controller.abort();
-      ghost = null;
       reset();
       swallowClickUntil = 0;
     },

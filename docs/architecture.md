@@ -9,6 +9,7 @@
 硬约束：
 
 - 运行时零依赖，不加载 CDN、远程字体或远程脚本；
+- 工程环境使用 Node `^22.13.0 || ^24.0.0 || >=26.0.0`，与 ESLint / Vitest 的支持范围及内置 WebSocket 对齐；CI 使用 Node 22。
 - 自有 UI 挂载在 `@ui` 创建的 Shadow Root 内，不向宿主注入全局 CSS；
 - 构建与自动化以 Chromium 111+ 为基线；Firefox 只做手工冒烟，不纳入 E2E；
 - 不采集、不上报用户数据，日志不含页面内容或个人信息；
@@ -88,7 +89,7 @@ npm run build super-drag    # 单个
 
 `tools/build.mjs` 的流程：
 
-1. 扫描 `scripts/*/package.json`；
+1. 扫描 `scripts/*/package.json`；指定多个包时，任一名称不存在即失败，不构建已匹配的部分；
 2. 没有 `src/main.ts`（或 `.js` / `index.ts` / `index.js`）的包直接跳过，这样新增脚本在迁移前不会阻塞构建；
 3. 读 `userscript.meta.ts`（兼容 `.js`），把包版本注入成 `@version`；
 4. 用 Vite lib 模式打成 IIFE，`@ui` / `@shared` 指向各自源码入口；
@@ -110,6 +111,8 @@ npm run check           # 交付前全量：静态检查 + 单测 + 构建 + 元
 ```
 
 `check` 的最后一步就是浏览器场景，所以本地一条命令与 CI 的 `npm run check` 都会覆盖真实交互，不存在「记得在本地点一遍」的手工环节。
+
+`check.yml` 对 PR 全量执行；main 上工具、根配置、共享包、脚本 `tests/` 与任一 workflow 的修改也会触发检查，单改场景或发布流程不会漏检。工程回归在 `tools/pipeline.test.mjs` 中使用临时仓库与模拟下载，不访问 Greasy Fork、不启动发布。
 
 | 检查 | 失败意味着 |
 | --- | --- |
@@ -137,11 +140,17 @@ npm run check           # 交付前全量：静态检查 + 单测 + 构建 + 元
 - 每个场景都在新页面里跑：重新加载夹具、重新注入 GM 打桩与产物。场景自己写前置条件，不依赖执行顺序，也不需要「收尾复位」；
 - 页面里的未捕获异常直接判该场景失败，控制台错误单独列出。
 
+全量浏览器检查要求每个已有源码入口的脚本提供场景，不能删除场景文件后静默跳过。脚本产物须不早于自身源码、版本、元数据以及 `packages/shared/src/`、`packages/userscript-ui/src/`；共享代码修改后必须重新构建，不能用旧产物得到假通过。
+
 UI 组件浏览器场景统一放在 `packages/userscript-ui/tests/browser-scenarios.mjs`，同一驱动执行；测试入口只在内存中构建，不分发展示页或独立 UI 库产物。可用 `npm run test:browser -- userscript-ui` 单独验证。
 
 Windows 提权终端启动测试浏览器时禁用降权重启，避免 Chrome 脱离父进程导致调试端口等待超时；只影响自动检查，不改变用户浏览器配置。
 
 没有实际执行的检查不得写成「已通过」；无法验证时明确写「未验证」及原因。
+
+浏览器场景覆盖带 `<base>` 的链接复制、取消拖拽后的外来文件放行、复制失败后选区/焦点恢复、旧字幕轨与 SPA 新视频隔离、新版 actions 转写提取、UI 销毁及滚动补偿。场景使用 GM 打桩，不等同于 Tampermonkey / ScriptCat 扩展实装；真实 YouTube 会话、跨脚本沙箱滚动锁、Chrome 111 最低版本与系统文件真实拖入仍需实装验收。仅 DOM 可读而没有完整网络响应时，长视频文稿仍可能不完整；未证实当前站点滚动加载契约前，不增加自动滚动采集与固定等待。
+
+兼容契约依据：[Tampermonkey 授权](https://www.tampermonkey.net/documentation.php?q=grant)、[Tampermonkey 剪贴板](https://www.tampermonkey.net/documentation.php?q=GM_setClipboard)、[ScriptCat API](https://docs.scriptcat.org/docs/dev/api/)。ScriptCat 的同步 `GM_setValue` 返回不代表磁盘完成，但当前脚本不在写入后立即关闭页面；不为此引入第二套异步授权。YouTube 兜底请求及 actions 结构参照 [InnerTube 示例](https://github.com/tombulled/innertube/blob/main/examples/get-video-transcript.py)，这是非公开接口，仍可能随网站调整。
 
 ## 7. 关键决策
 
@@ -165,6 +174,8 @@ Windows 提权终端启动测试浏览器时禁用降权重启，避免 Chrome �
 | 设置入口 | 选中复制只在脚本管理器菜单里提供设置，不建悬浮按钮；菜单只在顶层页面注册 | 这是高频旁路脚本，页面上多一个常驻按钮会打扰阅读；菜单入口零占位，关掉后仍能重新打开；只在顶层注册避免每个 iframe 各加一项 |
 | 复制反馈 | 中性卡片底 + 彩色图标；成功停留 1.2s、失败 1.8s | 12px 文字在整块绿色 / 红色底上对比度不足；失败信息需要更长的阅读时间 |
 | 剪贴板 | `@shared` 的 `createClipboard` 在每次写入时解析可用通道 | 页面或管理器可能替换写入能力，固定引用会让降级顺序与实际能力不一致 |
+| 设置合并 | 数组与对象独立复制，特殊键使用数据属性保留，不触发原型 setter | 防止修改读取结果污染存储对象；兼容旧键而不让异常数据改变对象原型 |
+| 管理器兼容 | 使用两者共有的同步 `GM_*` 授权，不依赖剪贴板回调；textarea 降级恢复焦点、选区和方向 | ScriptCat 尚不支持 `GM_setClipboard` 回调；不因兼容分支增加权限，失败降级不应清空用户选区 |
 | 主题 | `light` / `dark` / `system` 显式传入 | 不跟随宿主页面，避免被站点主题带偏 |
 | 目标平台 | 只认 Windows 11 上的 Chromium 系（Chrome / Edge 111+，桌面端鼠标操作）；触屏手势、macOS 按键、Safari / Firefox 私有 API 的 fallback 一律不写 | 用户群就是 Windows 11 桌面浏览器，每条兼容分支都要人读、要测、要修，不写就是最省 |
 

@@ -1,5 +1,3 @@
-import type { GmApi } from './gm';
-
 /**
  * 设置读写：默认值合并 + 异常兜底。
  *
@@ -53,11 +51,4 @@ export function mergeDefaults<T>(defaults: T, stored: unknown): T {
   if (!isRecord(defaults)) throw new TypeError('mergeDefaults 需要一个对象作为默认值');
   if (!isRecord(stored)) return mergeRecords(defaults, {}) as T;
   return mergeRecords(defaults, stored) as T;
-}
-
-/**
- * 写入设置；失败时返回 false，由调用方决定是否保留内存副本。
- */
-export function saveStoredSettings(api: GmApi, key: string, value: unknown): boolean {
-  return api.setValue(key, value);
 }

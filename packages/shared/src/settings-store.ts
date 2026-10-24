@@ -1,5 +1,4 @@
 import type { GmApi } from './gm';
-import { saveStoredSettings } from './storage';
 
 /**
  * 设置的读取与保存。
@@ -70,9 +69,7 @@ export function createSettingsStore<T>(options: SettingsStoreOptions<T>): Settin
     update(patch) {
       const raw = options.api.getValue(options.key, null);
       const next = options.normalize({ ...get(), ...patch });
-      pending = saveStoredSettings(options.api, options.key, next)
-        ? null
-        : { value: next, base: raw };
+      pending = options.api.setValue(options.key, next) ? null : { value: next, base: raw };
       return next;
     },
   };

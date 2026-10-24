@@ -1,6 +1,5 @@
-import { describe, expect, it, vi } from 'vitest';
-import type { GmApi } from '../src/gm';
-import { mergeDefaults, saveStoredSettings } from '../src/storage';
+import { describe, expect, it } from 'vitest';
+import { mergeDefaults } from '../src/storage';
 
 const defaults = {
   enabled: true,
@@ -69,19 +68,5 @@ describe('mergeDefaults', () => {
 
   it('数组整体覆盖而不是逐项合并', () => {
     expect(mergeDefaults(defaults, { tags: ['x'] }).tags).toEqual(['x']);
-  });
-});
-
-describe('存储读写', () => {
-  const api = (): GmApi => ({
-    getValue: vi.fn((_key: string, fallback: unknown) => fallback),
-    setValue: vi.fn(() => true),
-    registerMenuCommand: vi.fn(() => true),
-  });
-
-  it('写入失败时返回 false 而不是抛错', () => {
-    const gm = api();
-    vi.mocked(gm.setValue).mockReturnValue(false);
-    expect(saveStoredSettings(gm, 'settings', defaults)).toBe(false);
   });
 });

@@ -63,6 +63,20 @@ export function helpers() {
     },
     lastOpened: () => window.__gm.opened.at(-1) ?? null,
     openedCount: () => window.__gm.opened.length,
+    /** 拖拽反馈图标：读真实布局矩形，验证的是屏幕上看到的位置与显隐。 */
+    cursorMark: () => {
+      const node = root()?.querySelector('.drag-cursor-mark');
+      if (!node) return null;
+      const rect = node.getBoundingClientRect();
+      return {
+        visible: node.dataset.visible === 'true',
+        text: node.textContent ?? '',
+        opacity: Number(getComputedStyle(node).opacity),
+        x: Math.round(rect.x),
+        y: Math.round(rect.y),
+        size: Math.round(rect.width),
+      };
+    },
     /** 模拟一次真实点击：先按下再松开，最后才是 click（页面会据此判断新交互）。 */
     press: (el) => {
       const init = { bubbles: true, cancelable: true, composed: true };
@@ -203,6 +217,56 @@ export const scenarios = [
         actual: `${state.usesGhost ? '残影是已渲染元素' : '残影不是已渲染元素'} / ${
           state.cleaned ? '拖拽后不留在页面上' : '拖拽后残影仍留在页面上'
         }`,
+      };
+    },
+  },
+  {
+    name: '拖拽时指针左上方显示链接图标，并跟着指针移动',
+    async run(ctx) {
+      const point = await ctx.evaluate(() => {
+        const source = document.querySelector('#text');
+        const at = window.__page.select(source);
+        const init = {
+          bubbles: true,
+          cancelable: true,
+          composed: true,
+          dataTransfer: new DataTransfer(),
+          clientX: at.x,
+          clientY: at.y,
+        };
+        window.__dragInit = init;
+        source.dispatchEvent(new DragEvent('dragstart', init));
+        return at;
+      });
+      // 淡入有过渡，等它结束再量真实布局。
+      await ctx.wait(200);
+      const start = await ctx.evaluate(() => window.__page.cursorMark());
+      const moved = await ctx.evaluate(() => {
+        const source = document.querySelector('#text');
+        source.dispatchEvent(
+          new DragEvent('dragover', {
+            ...window.__dragInit,
+            clientX: window.__dragInit.clientX + 100,
+          }),
+        );
+        return window.__page.cursorMark();
+      });
+      await ctx.evaluate(() => {
+        document.querySelector('#text').dispatchEvent(new DragEvent('dragend', window.__dragInit));
+      });
+      await ctx.wait(200);
+      const after = await ctx.evaluate(() => window.__page.cursorMark());
+
+      // 图标右下角应在指针左上方：整体位于指针左侧与上方。
+      const aboveLeft = start.x + start.size <= point.x && start.y + start.size <= point.y;
+      const shown = start.visible && start.opacity > 0.9 && start.text.includes('\u{1F517}');
+      const followed = moved.x === start.x + 100;
+      const hidden = after.visible === false;
+      return {
+        expected: '指针左上方显示链接图标 / 跟随移动 / 松手后隐藏',
+        actual: `${shown && aboveLeft ? '指针左上方显示链接图标' : `图标不在指针左上方：${JSON.stringify(start)}，指针在 ${JSON.stringify(point)}`} / ${
+          followed ? '跟随移动' : `没有跟随移动：${JSON.stringify(moved)}`
+        } / ${hidden ? '松手后隐藏' : '松手后仍在显示'}`,
       };
     },
   },

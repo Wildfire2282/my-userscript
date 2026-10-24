@@ -6,7 +6,6 @@ import {
   createSection,
   createSelect,
   createSwitch,
-  mountUI,
   type UI,
 } from '@ui';
 import {
@@ -26,6 +25,8 @@ import { CUSTOM_ENGINE_ID, type Settings } from '../settings';
  */
 
 export interface SettingsPanelOptions {
+  /** 与拖拽图标共用的界面宿主；同一页面只建一次。 */
+  ui: UI;
   getSettings: () => Settings;
   save: (patch: Partial<Settings>) => void;
 }
@@ -37,19 +38,8 @@ export interface SettingsPanelHandle {
   destroy(): void;
 }
 
-const LABELS = {
-  close: '关闭',
-  settings: '设置',
-  notifications: '通知',
-  dismissNotification: '关闭通知',
-  closeSettings: '关闭设置',
-  scrollHint: '向下滚动查看更多内容',
-  cancel: '取消',
-  confirm: '确定',
-};
-
 export function createSettingsPanel(options: SettingsPanelOptions): SettingsPanelHandle {
-  const ui: UI = mountUI({ theme: 'system', labels: LABELS });
+  const { ui } = options;
   const initial = options.getSettings();
 
   const panel = createPanel(ui, {

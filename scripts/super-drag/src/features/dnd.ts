@@ -20,10 +20,18 @@ export interface DragSensorDeps {
   getSettings: () => Settings;
   openUrl: (url: string, active: boolean) => void;
   openImage: (url: string, active: boolean) => void;
+  /** 拖拽图标；不传时不显示任何反馈（单测只关心接管判断）。 */
+  feedback?: DragFeedback;
 }
 
 export interface DragSensor {
   destroy(): void;
+}
+
+/** 拖拽期间的指针反馈；坐标是视口坐标。 */
+export interface DragFeedback {
+  move: (point: { x: number; y: number }) => void;
+  hide: () => void;
 }
 
 // 拖拽结束后浏览器可能补发一次 click；只在这段时间内吞掉它，
@@ -64,6 +72,7 @@ export function installDragSensor(deps: DragSensorDeps): DragSensor {
     data = '';
     // 快照只在拖拽期间需要：结束后不再给页面留任何节点。
     if (ghost.isConnected) ghost.remove();
+    deps.feedback?.hide();
   };
 
   const claim = (transfer: DataTransfer, text: string): boolean => {
@@ -134,6 +143,7 @@ export function installDragSensor(deps: DragSensorDeps): DragSensor {
     kind = payload.kind;
     data = payload.data;
     dragSource = targetOf(event);
+    deps.feedback?.move({ x: event.clientX, y: event.clientY });
   };
 
   const isActiveDrag = (event: DragEvent): boolean => {
@@ -150,6 +160,8 @@ export function installDragSensor(deps: DragSensorDeps): DragSensor {
     if (!isActiveDrag(event)) return;
     event.preventDefault();
     event.stopPropagation();
+    // 拖拽期间没有 mousemove，dragover 是唯一能拿到指针位置的事件。
+    deps.feedback?.move({ x: event.clientX, y: event.clientY });
     try {
       if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
     } catch {

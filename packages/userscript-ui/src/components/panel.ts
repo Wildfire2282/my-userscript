@@ -1,4 +1,4 @@
-import { append, type Content } from '../core/dom';
+import { append, syncDescribedBy, type Content } from '../core/dom';
 import { focusFirst, focusIfConnected } from '../core/focus';
 import { uid } from '../core/id';
 import { assertAlive, createScope } from '../core/lifecycle';
@@ -158,11 +158,7 @@ export function createPanel(ui: UI, options: PanelOptions = {}): PanelHandle {
     description.textContent = next ?? '';
     description.hidden = !next;
     heading.hidden = title.hidden && description.hidden;
-    const ids = new Set((el.getAttribute('aria-describedby') ?? '').split(/\s+/).filter(Boolean));
-    if (next) ids.add(descriptionId);
-    else ids.delete(descriptionId);
-    if (ids.size) el.setAttribute('aria-describedby', [...ids].join(' '));
-    else el.removeAttribute('aria-describedby');
+    syncDescribedBy(el, [descriptionId], next ? [descriptionId] : []);
   };
 
   const setFooter = (next?: Content | Content[]) => {

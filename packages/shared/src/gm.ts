@@ -19,7 +19,7 @@ export interface GmApi {
 }
 
 /** 由脚本管理器注入到页面的全局函数。用可选属性表达“可能没有”。 */
-export interface GmGlobals {
+interface GmGlobals {
   GM_getValue?: (key: string, fallback?: unknown) => unknown;
   GM_setValue?: (key: string, value: unknown) => void;
   GM_registerMenuCommand?: (label: string, run: () => void) => void;

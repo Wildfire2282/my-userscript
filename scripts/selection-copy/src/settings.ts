@@ -3,6 +3,7 @@ import {
   createSettingsStore as createSharedStore,
   mergeDefaults,
   type GmApi,
+  type SettingsStore as SharedStore,
 } from '@shared';
 
 /**
@@ -158,10 +159,7 @@ export function topSiteKey(win: Window): string {
 }
 
 /** 设置的读取与保存：每次读取都看存储，iframe 与其它标签页的改动立即生效。 */
-export interface SettingsStore {
-  get: () => Settings;
-  update: (patch: Partial<Settings>) => Settings;
-}
+export type SettingsStore = SharedStore<Settings>;
 
 /**
  * 创建设置仓库；读取与写回的通用逻辑在 `@shared`。

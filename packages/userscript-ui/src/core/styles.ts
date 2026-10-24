@@ -1,22 +1,27 @@
-const seenByRoot = new WeakMap<ShadowRoot, Set<string>>();
-const sheetCache = new Map<string, CSSStyleSheet>();
+interface RootStyles {
+  seen: Set<string>;
+  sheets: Map<string, CSSStyleSheet>;
+}
+
+// 每个 ShadowRoot 一份：页面级 Map 会让动态 CSS 在页面生命周期内一直驻留。
+const stylesByRoot = new WeakMap<ShadowRoot, RootStyles>();
 
 export function useStyles(root: ShadowRoot, css: string): void {
-  let seen = seenByRoot.get(root);
-  if (!seen) {
-    seen = new Set();
-    seenByRoot.set(root, seen);
+  let entry = stylesByRoot.get(root);
+  if (!entry) {
+    entry = { seen: new Set(), sheets: new Map() };
+    stylesByRoot.set(root, entry);
   }
-  if (seen.has(css)) return;
-  seen.add(css);
+  if (entry.seen.has(css)) return;
+  entry.seen.add(css);
 
   if (canAdopt(root)) {
     try {
-      let sheet = sheetCache.get(css);
+      let sheet = entry.sheets.get(css);
       if (!sheet) {
         sheet = new CSSStyleSheet();
         sheet.replaceSync(css);
-        sheetCache.set(css, sheet);
+        entry.sheets.set(css, sheet);
       }
       if (!root.adoptedStyleSheets.includes(sheet)) {
         root.adoptedStyleSheets = [...root.adoptedStyleSheets, sheet];

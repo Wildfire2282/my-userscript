@@ -1,4 +1,5 @@
 import { setFieldInvalid, type FormControl } from '../core/form';
+import { syncDescribedBy } from '../core/dom';
 import { assertAlive, createScope } from '../core/lifecycle';
 import { uid } from '../core/id';
 import type { UI } from '../core/mount';
@@ -67,16 +68,9 @@ export function createField(ui: UI, options: FieldOptions): FieldHandle {
   error.hidden = true;
   root.appendChild(error);
 
-  const syncDescribedBy = () => {
-    const ids = new Set(
-      (input.getAttribute('aria-describedby') ?? '').split(/\s+/).filter(Boolean),
-    );
-    ids.delete(descriptionId);
-    ids.delete(errorId);
-    if (!description.hidden) ids.add(descriptionId);
-    if (!error.hidden) ids.add(errorId);
-    if (ids.size) input.setAttribute('aria-describedby', [...ids].join(' '));
-    else input.removeAttribute('aria-describedby');
+  const syncFieldDescribedBy = (): void => {
+    const active = [description, error].filter((node) => !node.hidden).map((node) => node.id);
+    syncDescribedBy(input, [descriptionId, errorId], active);
   };
 
   // The control owns its invalid state; the field only adds its error flag on
@@ -89,14 +83,14 @@ export function createField(ui: UI, options: FieldOptions): FieldHandle {
     error.hidden = !hasError;
     root.toggleAttribute('data-invalid', hasError);
     syncInvalid();
-    syncDescribedBy();
+    syncFieldDescribedBy();
   };
 
   const setDescription = (message?: string) => {
     description.textContent = message ?? '';
     description.hidden = !message;
     text.hidden = label.hidden && description.hidden;
-    syncDescribedBy();
+    syncFieldDescribedBy();
   };
 
   // Adopt an invalid state that was set before the field existed, then make it
@@ -107,7 +101,7 @@ export function createField(ui: UI, options: FieldOptions): FieldHandle {
   if (options.error) setError(options.error);
   else {
     syncInvalid();
-    syncDescribedBy();
+    syncFieldDescribedBy();
   }
 
   return {
@@ -120,7 +114,7 @@ export function createField(ui: UI, options: FieldOptions): FieldHandle {
       // own invalid state and any external aria-describedby references.
       description.hidden = true;
       error.hidden = true;
-      syncDescribedBy();
+      syncFieldDescribedBy();
       setFieldInvalid(input, false);
       scope.destroy();
       root.remove();

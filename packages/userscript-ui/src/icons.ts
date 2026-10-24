@@ -23,7 +23,6 @@ export function icon(paths: string[], size = 16): SVGSVGElement {
 }
 
 export const closeIcon = (): SVGSVGElement => icon(['M18 6 6 18', 'm6 6 12 12']);
-export const checkIcon = (): SVGSVGElement => icon(['M20 6 9 17l-5-5']);
 export const chevronDownIcon = (): SVGSVGElement => icon(['m6 9 6 6 6-6']);
 export const slidersIcon = (): SVGSVGElement =>
   icon([

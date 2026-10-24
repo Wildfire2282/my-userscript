@@ -18,7 +18,7 @@ export interface SettingsStore<T> {
   update: (patch: Partial<T>) => T;
 }
 
-export interface SettingsStoreOptions<T> {
+interface SettingsStoreOptions<T> {
   api: GmApi;
   /** 存储键；沿用各脚本自己的旧键，见 AGENTS.md 6.4。 */
   key: string;

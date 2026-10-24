@@ -1,3 +1,4 @@
+import { syncDescribedBy } from '../core/dom';
 import { uid } from '../core/id';
 import { assertAlive, createScope } from '../core/lifecycle';
 import type { UI } from '../core/mount';
@@ -56,21 +57,9 @@ export function createTooltip(ui: UI, target: HTMLElement, options: TooltipOptio
     hideTimer = null;
   };
 
-  const applyDescribedBy = () => {
-    const ids = new Set(
-      (target.getAttribute('aria-describedby') ?? '').split(/\s+/).filter(Boolean),
-    );
-    ids.add(id);
-    target.setAttribute('aria-describedby', [...ids].join(' '));
-  };
+  const applyDescribedBy = (): void => syncDescribedBy(target, [id], [id]);
 
-  const restoreDescribedBy = () => {
-    const ids = (target.getAttribute('aria-describedby') ?? '')
-      .split(/\s+/)
-      .filter((value) => value && value !== id);
-    if (ids.length) target.setAttribute('aria-describedby', ids.join(' '));
-    else target.removeAttribute('aria-describedby');
-  };
+  const restoreDescribedBy = (): void => syncDescribedBy(target, [id], []);
 
   const position = () => {
     const targetRect = target.getBoundingClientRect();

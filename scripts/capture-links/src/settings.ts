@@ -3,6 +3,7 @@ import {
   createSettingsStore as createSharedStore,
   mergeDefaults,
   type GmApi,
+  type SettingsStore as SharedStore,
 } from '@shared';
 
 /** 复制到剪贴板的格式；线上旧键 `copyFormat` 的取值。 */
@@ -46,10 +47,7 @@ export function normalizeSettings(stored: unknown): Settings {
 }
 
 /** 设置的读取与保存入口；读取结果缓存到内存，打开面板时不重复访问 GM。 */
-export interface SettingsStore {
-  get: () => Settings;
-  update: (patch: Partial<Settings>) => Settings;
-}
+export type SettingsStore = SharedStore<Settings>;
 
 /**
  * 创建设置仓库；读取与写回的通用逻辑在 `@shared`。

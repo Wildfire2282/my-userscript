@@ -79,24 +79,16 @@ See the [component usage guide](docs/component-usage.md) for the complete API. U
 ### Commands
 
 ```bash
-npm install
-npm run check        # safety + tokens + lint + format + types + unit + build + metadata + E2E + size
-npm run lint         # ESLint flat config with type-aware rules
-npm run format       # Prettier (write)
-npm run build        # library + single-file userscripts
-npm run test:e2e     # build first; uses system Chrome/Edge
-npm run size         # bundle report and on-demand check
-npm run check:tokens # component CSS must use --ds-* tokens
+# from the repo root, not inside this folder (this package is imported via @ui):
+npm run lint            # ESLint flat config with type-aware rules
+npm run format          # Prettier (write)
+npm run build:ui-demo   # library + demo single-file userscripts
+npm run test:ui-e2e     # build:ui-demo first; uses system Chrome/Edge
+npm run check:ui-tokens # component CSS must use --ds-* tokens
 ```
 
-- `dist/showcase.user.js` — all core components + settings and operation panel examples.
-- `dist/minimal.user.js` — minimal Panel/Field/Switch/Button build.
 - `dist/lib/userscript-ui.js` — ESM library.
 - `dist/lib/userscript-ui.iife.js` — IIFE library.
-
-### Bundle sizes
-
-`npm run size` prints raw / gzip / brotli for every artifact and fails the build when the minimal bundle contains a component it never imported. The numbers are not repeated here: they change with every commit.
 
 ### Documentation
 
@@ -207,30 +199,22 @@ createLauncher(ui, {
 ### 命令
 
 ```bash
-npm install
-npm run check        # 安全 + Token + Lint + 格式 + 类型 + 单测 + 构建 + metadata + E2E + 体积
-npm run lint         # ESLint flat config（含类型感知规则）
-npm run format       # Prettier 格式化
-npm run build        # 库 + 单文件 userscript
-npm run test:e2e     # 需要先 build；使用系统 Chrome/Edge
-npm run size         # 体积报告与按需检查
-npm run check:tokens # 组件 CSS 是否只用了 --ds-* Token
+# 从仓库根目录执行（本包通过 @ui 别名引用，不单独安装）：
+npm run lint            # ESLint flat config（含类型感知规则）
+npm run format          # Prettier 格式化
+npm run build:ui-demo   # 库 + 演示用单文件 userscript
+npm run test:ui-e2e     # 需要先 build:ui-demo；使用系统 Chrome/Edge
+npm run check:ui-tokens # 组件 CSS 是否只用了 --ds-* Token
 ```
 
 演示保存会校验 http(s) 地址和 1–200 的整数范围；校验错误保留在对应字段，销毁 UI 会取消待执行的保存计时器。
 
 单文件产物：
 
-- `dist/showcase.user.js` — 全部核心组件 + 设置/操作面板示例，可直接注入。
-- `dist/minimal.user.js` — 只含 Panel/Field/Switch/Button 的最小示例。
 - `dist/lib/userscript-ui.js` — ESM 库。
 - `dist/lib/userscript-ui.iife.js` — IIFE 库。
 
 分发前修改 `vite.demo.config.ts` 中的 `@match`。
-
-### 体积
-
-`npm run size` 输出每个产物的 raw / gzip / brotli，并断言 minimal 产物不含未导入的组件。具体数字不写进文档：每次提交都会变。
 
 ### 文档
 

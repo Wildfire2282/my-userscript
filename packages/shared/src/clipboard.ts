@@ -11,13 +11,13 @@
  */
 
 /** 页面里可能存在的管理器剪贴板函数；缺失时跳过该通道。 */
-export interface ClipboardGlobals {
+interface ClipboardGlobals {
   GM_setClipboard?: (text: string, info?: string) => unknown;
   GM?: { setClipboard?: (text: string, info?: string) => unknown };
 }
 
 /** 剪贴板通道与陈旧兜底需要的浏览器对象；测试里可以整体替换。 */
-export interface ClipboardScope extends ClipboardGlobals {
+interface ClipboardScope extends ClipboardGlobals {
   clipboard?: { writeText?: (text: string) => Promise<void> };
   document?: Document;
 }

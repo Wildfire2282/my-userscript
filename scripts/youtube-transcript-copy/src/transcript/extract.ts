@@ -29,6 +29,19 @@ function numberOr(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
+/**
+ * 面板里是否出现 cueGroup：直接按 key 找，比整块 JSON.stringify 快得多。
+ * 面板响应可能很大，每份都序列化一次会拖慢每次复制。
+ */
+function hasCueGroup(value: unknown, depth = 0): boolean {
+  if (depth > 6) return false;
+  if (Array.isArray(value)) return value.some((entry) => hasCueGroup(entry, depth + 1));
+  if (typeof value !== 'object' || value === null) return false;
+  const record = value as Record<string, unknown>;
+  if ('transcriptCueGroupRenderer' in record || 'cueGroup' in record) return true;
+  return Object.values(record).some((entry) => hasCueGroup(entry, depth + 1));
+}
+
 /** `engagementPanels[*]...cueGroups` 里的转写；返回 null 表示这份响应没有文稿。 */
 export function extractFromPanelResponse(data: unknown): Segment[] | null {
   const root = asRecord(data);
@@ -44,10 +57,7 @@ export function extractFromPanelResponse(data: unknown): Segment[] | null {
       wrapper;
     // 2025+ 起面板标识为 engagement-panel-searchable-transcript；更早的版本可能没有标识，
     // 只能按内容里是否出现 cueGroup 判断。
-    if (
-      !/transcript/i.test(asString(panel.panelIdentifier)) &&
-      !/cueGroup/i.test(JSON.stringify(panel))
-    ) {
+    if (!/transcript/i.test(asString(panel.panelIdentifier)) && !hasCueGroup(panel)) {
       continue;
     }
 

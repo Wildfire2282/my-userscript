@@ -126,7 +126,8 @@ export interface OpenPanelOptions {
 /**
  * 打开转写面板。
  *
- * 每轮：展开描述 → 等界面稳定 → 点按钮 → 最多等 3.6 秒让面板渲染。
+ * 每轮：展开描述 → 等界面稳定 → 点一次按钮 → 最多等 3.6 秒让面板渲染。
+ * 只点一次：click() 与合成 MouseEvent 会各触发一次面板切换，连点两次等于又关上。
  *
  * @returns 面板是否真的打开
  */
@@ -143,11 +144,20 @@ export async function openTranscriptPanel(options: OpenPanelOptions = {}): Promi
     if (!trigger) continue;
 
     // 管理器把按钮包在 Shadow DOM / 自定义元素里时 click() 可能不触发内部行为，
-    // 再补一个冒泡的 MouseEvent；两次点击不会重复打开面板。
+    // 才补一个冒泡的 MouseEvent；clicked 为 true 时只用一种，避免开关被拨两次。
+    let clicked = false;
     try {
       (trigger as HTMLElement).click();
+      clicked = true;
     } catch {
       // 继续尝试事件方式
+    }
+    if (clicked) {
+      for (let wait = 0; wait < 12; wait += 1) {
+        await sleep(300);
+        if (isPanelOpen(doc)) return true;
+      }
+      continue;
     }
     try {
       trigger.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));

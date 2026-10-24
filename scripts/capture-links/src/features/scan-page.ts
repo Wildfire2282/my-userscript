@@ -31,11 +31,11 @@ function collectAnchors(root: ParentNode, found: HTMLAnchorElement[] = []): HTML
  * 地址规则；标题策略单独放在 `titles.ts`。
  *
  * @param doc 目标文档，默认当前页面
- * @param baseHref 解析相对地址用的页面地址；默认取文档自身的地址
+ * @param baseHref 解析相对地址用的基准地址；默认取文档 baseURI（含 `<base href>`）
  */
 export function scanLinks(doc: Document = document, baseHref?: string): LinkItem[] {
   if (!doc.body) return [];
-  const base = baseHref ?? doc.location?.href ?? '';
+  const base = baseHref ?? doc.baseURI;
   const candidates: LinkCandidate[] = collectAnchors(doc).map((anchor) => {
     // SVG `<a>` 的 href 是 SVGAnimatedString，不是字符串；只有 HTML 锚点才读它。
     const resolved = anchor.href;

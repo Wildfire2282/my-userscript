@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { beforeEach, describe, expect, it } from 'vitest';
 import { scanLinks } from '../src/features/scan-page';
+import { formatLinks } from '../src/format';
 
 const BASE = 'https://example.com/board/list';
 
@@ -35,6 +36,28 @@ describe('scanLinks', () => {
     const items = scanLinks(document, BASE);
     expect(items).toHaveLength(1);
     expect(items[0]?.title).toBe('第一条');
+  });
+
+  it('复制地址只经过 DOM 的一次实体解码，保留字面实体和标题', () => {
+    const parsed = new DOMParser().parseFromString(
+      `
+      <a href="https://example.com/?a=1&amp;b=2">普通参数</a>
+      <a href="https://example.com/?a=1&amp;amp;b=2">字面 &amp;amp;</a>
+      <a href="magnet:?xt=urn:btih:abc&amp;dn=a&amp;amp;b">磁链</a>
+    `,
+      'text/html',
+    );
+    document.body.append(...parsed.body.childNodes);
+    const items = scanLinks(document, BASE);
+    const browserUrls = [...document.querySelectorAll('a')].map((anchor) => anchor.href);
+
+    expect(items.map((item) => item.url)).toEqual(browserUrls);
+    expect(formatLinks(items, 'url')).toBe(
+      'https://example.com/?a=1&b=2\nhttps://example.com/?a=1&amp;b=2\nmagnet:?xt=urn:btih:abc&dn=a&amp;b',
+    );
+    expect(items[1]?.title).toBe('字面 &amp;');
+    const copied = new DOMParser().parseFromString(formatLinks(items, 'html'), 'text/html');
+    expect([...copied.querySelectorAll('a')].map((anchor) => anchor.href)).toEqual(browserUrls);
   });
 
   it('标题优先取外层 title 属性', () => {

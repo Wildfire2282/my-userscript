@@ -124,6 +124,29 @@ const TITLES = [
 
 export const scenarios = [
   {
+    name: '文档 base 指向资源目录 → 相对链接按浏览器目标复制',
+    async run(ctx) {
+      await ctx.evaluate(() => {
+        const base = document.createElement('base');
+        base.href = 'https://cdn.test/assets/';
+        document.head.appendChild(base);
+        const link = document.createElement('a');
+        link.setAttribute('href', 'a.zip');
+        link.textContent = 'base 地址验收';
+        document.body.appendChild(link);
+        window.__page.openMenu('操作面板');
+        window.__page.setSearch('base 地址验收');
+        window.__page.clickButton(window.__page.linkPanel(), '全选');
+        window.__page.clickButton(window.__page.linkPanel(), '复制选中');
+      });
+      await ctx.wait(80);
+      return {
+        expected: 'https://cdn.test/assets/a.zip',
+        actual: await ctx.evaluate(() => window.__page.lastClipboard()),
+      };
+    },
+  },
+  {
     name: '油猴菜单只有「操作面板」和「功能设置」两项',
     async run(ctx) {
       const items = await ctx.evaluate(() => window.__gm.menus.map((menu) => menu.label));

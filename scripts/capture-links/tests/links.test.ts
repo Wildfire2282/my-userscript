@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
   collectLinks,
-  decodeText,
   filterLinks,
   isMagnetLink,
   normalizeUrl,
@@ -11,22 +10,9 @@ import {
 
 const BASE = 'https://example.com/page';
 
-describe('decodeText', () => {
-  it('还原常见实体', () => {
-    expect(decodeText('a&amp;b&lt;c&gt;d&quot;e&#39;f')).toBe('a&b<c>d"e\'f');
-  });
-
-  it('还原空格与数字实体，只解一层', () => {
-    expect(decodeText('第&nbsp;一节')).toBe('第 一节');
-    expect(decodeText('a&#58;b&#x3A;c')).toBe('a:b:c');
-    expect(decodeText('&amp;lt;')).toBe('&lt;');
-    expect(decodeText('&#xZZ;')).toBe('&#xZZ;');
-  });
-});
-
 describe('normalizeUrl', () => {
-  it('去掉首尾空白并解码实体', () => {
-    expect(normalizeUrl('  https://example.com/a&amp;b  ')).toBe('https://example.com/a&b');
+  it('只去掉首尾空白，保留 DOM 地址中的字面实体', () => {
+    expect(normalizeUrl('  https://example.com/a&amp;b  ')).toBe('https://example.com/a&amp;b');
   });
 });
 

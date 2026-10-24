@@ -1,5 +1,5 @@
 /**
- * 链接的纯逻辑：解码、补全地址、去重、筛选。
+ * 链接的纯逻辑：补全地址、去重、筛选。
  *
  * 不访问 DOM：页面扫描在 `features/scan-page.ts`，这里只处理已经取到的字符串，
  * 所以绝大多数边界都能用 Vitest 直接覆盖。
@@ -19,41 +19,9 @@ export interface LinkCandidate {
   title: string;
 }
 
-/** 线上旧版对地址做的实体解码；链接文字与地址都可能来自被转义的页面。
- *
- * 一次只解一层：`&amp;lt;` 还原成 `&lt;` 就停，不再往 `<` 解，
- * 否则页面原文里就写着 `&lt;` 的地方会被多解一层。 */
-export function decodeText(text: string): string {
-  return text.replace(/&(amp|lt|gt|quot|nbsp|#39|#\d+|#x[0-9a-f]+);/gi, (match, name: string) => {
-    switch (name.toLowerCase()) {
-      case 'amp':
-        return '&';
-      case 'lt':
-        return '<';
-      case 'gt':
-        return '>';
-      case 'quot':
-        return '"';
-      case 'nbsp':
-        return ' ';
-      case '#39':
-        return "'";
-      default: {
-        // 数字实体：`&#58;` / `&#x3A;`；非法编码原样保留。
-        const lower = name.toLowerCase();
-        const code = lower.startsWith('#x')
-          ? Number.parseInt(lower.slice(2), 16)
-          : Number(lower.slice(1));
-        return Number.isInteger(code) && code >= 0 && code <= 0x10ffff
-          ? String.fromCodePoint(code)
-          : match;
-      }
-    }
-  });
-}
-
+/** DOM 已解码 HTML 实体，地址只去掉首尾空白，不能再次解码。 */
 export function normalizeUrl(url: string): string {
-  return decodeText(url).trim();
+  return url.trim();
 }
 
 /** 不执行的链接协议：不能打开、复制出来也是坏地址，列表里直接不要。 */
@@ -62,7 +30,7 @@ const BLOCKED_SCHEMES = /^(javascript|data|vbscript):/i;
 /**
  * 把 `href` 补成绝对地址。
  *
- * @param rawHref 元素上的原始 `href`
+ * @param rawHref DOM `getAttribute('href')` 的值，HTML 实体已由浏览器解码
  * @param baseHref 页面地址，用来解析相对地址
  * @param absoluteHref 浏览器已经解析好的 `a.href`，解析失败时用它兜底
  * @returns 归一化后的地址；空地址或不可执行的协议返回 `null`

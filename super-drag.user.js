@@ -2,7 +2,7 @@
 // @name         拖拽打开
 // @name:en      Drag to Open
 // @namespace    https://github.com/Wildfire2282
-// @version      2.9.2
+// @version      2.9.3
 // @description  拖拽文本搜索，拖拽链接在新标签页打开，拖拽图片查看
 // @description:en Drag text to search, links to open, and images to view
 // @author       Wildfire2282 (https://github.com/Wildfire2282)
@@ -373,6 +373,7 @@
 			kind: "image",
 			data: candidate.image
 		};
+		if (candidate.link !== "" || candidate.image !== "") return null;
 		if (kinds.text && candidate.selection !== "") return {
 			kind: "text",
 			data: candidate.selection
@@ -430,13 +431,16 @@
 		return false;
 	}
 	/**
-	* 事件是否发生在页面自己声明的可拖动元素里（`draggable="true"`）。
+	* 事件发生处最近的可拖动祖先（`draggable="true"`）。
 	*
 	* 卡片排序、上传区、看板列都用它实现原生拖拽；页面上只要存在一段文字选区，
 	* 脚本的文字兜底就会把这类拖拽抢过来，用户原本的拖拽动作变成“搜索选中文字”。
+	*
+	* 是否豁免由调用方结合「宿主是不是真的有链接 / 图片地址」判断，见
+	* `hit-test.ts` 的 `hasNativeDragContent`：没有地址的链接、图片只是页面自己的控件。
 	*/
-	function isDraggableHost(node) {
-		return node?.closest("[draggable=\"true\"]") != null;
+	function draggableHostOf(node) {
+		return node?.closest("[draggable=\"true\"]") ?? null;
 	}
 	/**
 	* 取真实的事件目标。
@@ -481,6 +485,10 @@
 	function isIgnorableHref(href) {
 		return !href || href === "#" || href.toLowerCase().startsWith("javascript:");
 	}
+	/** 链接的原始地址；SVG 的 `<a>` 往往只有 xlink:href。 */
+	function rawLinkHref(node) {
+		return node.getAttribute("href") ?? node.getAttributeNS(XLINK_NS, "href") ?? "";
+	}
 	/**
 	* 解析链接地址。
 	*
@@ -488,13 +496,31 @@
 	* 所以统一读原始属性并用 `document.baseURI` 补全，顺带支持 `xlink:href`。
 	*/
 	function resolveLinkHref(node) {
-		const raw = node.getAttribute("href") ?? node.getAttributeNS(XLINK_NS, "href") ?? "";
+		const raw = rawLinkHref(node);
 		if (raw === "") return "";
 		try {
 			return new URL(raw, document.baseURI).href;
 		} catch {
 			return "";
 		}
+	}
+	/** 图片地址；空 `src` 属性会被 `img.src` 解析成当前页面地址，不能当图片打开。 */
+	function imageUrl(img) {
+		if (img.currentSrc !== "") return img.currentSrc;
+		const raw = img.getAttribute("src");
+		return raw === null || raw.trim() === "" ? "" : img.src;
+	}
+	/**
+	* 页面显式标成 `draggable="true"` 的宿主，是否携带脚本该接管的链接 / 图片内容。
+	*
+	* 站点常给本来就默认可拖拽的链接、图片补上该属性；但 `<a>` 没有可用地址、`<img>`
+	* 没有地址时，它只是页面自己的拖拽控件，交还页面。
+	*/
+	function hasNativeDragContent(node) {
+		const tag = node.tagName.toUpperCase();
+		if (tag === "A") return !isIgnorableHref(rawLinkHref(node)) && resolveLinkHref(node) !== "";
+		if (tag === "IMG") return imageUrl(node) !== "";
+		return false;
 	}
 	/** 逐层穿透 open Shadow Root 取真实元素。 */
 	function deepElementFromPoint(x, y) {
@@ -520,12 +546,9 @@
 		const tag = target.tagName.toUpperCase();
 		let link = "";
 		const linkEl = tag === "A" ? target : target.closest("a");
-		if (linkEl && !isIgnorableHref(linkEl.getAttribute("href"))) link = resolveLinkHref(linkEl);
+		if (linkEl && !isIgnorableHref(rawLinkHref(linkEl))) link = resolveLinkHref(linkEl);
 		let image = "";
-		if (tag === "IMG") {
-			const img = target;
-			image = img.currentSrc || img.src || "";
-		}
+		if (tag === "IMG") image = imageUrl(target);
 		return link || image ? {
 			link,
 			image
@@ -541,14 +564,11 @@
 		while (node) {
 			const tag = node.tagName.toUpperCase();
 			if (found.link === "" && tag === "A") {
-				if (!isIgnorableHref(node.getAttribute("href"))) {
+				if (!isIgnorableHref(rawLinkHref(node))) {
 					found.link = resolveLinkHref(node);
 					if (found.link !== "") break;
 				}
-			} else if (found.image === "" && tag === "IMG") {
-				const img = node;
-				found.image = img.currentSrc || img.src || "";
-			}
+			} else if (found.image === "" && tag === "IMG") found.image = imageUrl(node);
 			node = parentAcrossShadow(node);
 		}
 		return found;
@@ -619,6 +639,15 @@
 		const target = realTarget(event);
 		return target instanceof Element ? target : null;
 	}
+	/**
+	* 是否来自脚本自己的界面（@ui 挂在 shadow root 里）。
+	*
+	* 在设置面板里拖选说明文字只是想复制，不该变成搜索；输入框另有 `isInputElement` 拦。
+	*/
+	function isOwnUi(node) {
+		const root = node?.getRootNode();
+		return root instanceof ShadowRoot && root.host.matches("userscript-ui-root[data-ds-root]");
+	}
 	function installDragSensor(deps) {
 		const controller = new AbortController();
 		const { signal } = controller;
@@ -663,6 +692,7 @@
 		const handleDragStart = (event) => {
 			reset();
 			if (event.defaultPrevented) return;
+			if (isOwnUi(targetOf(event))) return;
 			if (event.ctrlKey || event.metaKey || event.altKey) return;
 			if (isInputElement(event)) return;
 			const transfer = event.dataTransfer;
@@ -670,7 +700,8 @@
 			const settings = deps.getSettings();
 			const selected = getSelectionText();
 			const selectionHit = selected !== "" && isPointInSelection(event.clientX, event.clientY, event.composedPath());
-			if (!selectionHit && isDraggableHost(targetOf(event))) return;
+			const draggableHost = draggableHostOf(targetOf(event));
+			if (!selectionHit && draggableHost && !hasNativeDragContent(draggableHost)) return;
 			const hit = selectionHit ? {
 				link: "",
 				image: ""

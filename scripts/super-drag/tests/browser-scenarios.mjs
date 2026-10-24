@@ -63,20 +63,7 @@ export function helpers() {
     },
     lastOpened: () => window.__gm.opened.at(-1) ?? null,
     openedCount: () => window.__gm.opened.length,
-    /** 拖拽反馈图标：读真实布局矩形，验证的是屏幕上看到的位置与显隐。 */
-    cursorMark: () => {
-      const node = root()?.querySelector('.drag-cursor-mark');
-      if (!node) return null;
-      const rect = node.getBoundingClientRect();
-      return {
-        visible: node.dataset.visible === 'true',
-        text: node.textContent ?? '',
-        opacity: Number(getComputedStyle(node).opacity),
-        x: Math.round(rect.x),
-        y: Math.round(rect.y),
-        size: Math.round(rect.width),
-      };
-    },
+
     /** 模拟一次真实点击：先按下再松开，最后才是 click（页面会据此判断新交互）。 */
     press: (el) => {
       const init = { bubbles: true, cancelable: true, composed: true };
@@ -221,59 +208,23 @@ export const scenarios = [
     },
   },
   {
-    name: '拖拽时指针左上方显示链接图标，并跟着指针移动',
-    async run(ctx) {
-      const point = await ctx.evaluate(() => {
-        const source = document.querySelector('#text');
-        const at = window.__page.select(source);
-        const init = {
-          bubbles: true,
-          cancelable: true,
-          composed: true,
-          dataTransfer: new DataTransfer(),
-          clientX: at.x,
-          clientY: at.y,
-        };
-        window.__dragInit = init;
-        source.dispatchEvent(new DragEvent('dragstart', init));
-        return at;
-      });
-      // 淡入有过渡，等它结束再量真实布局。
-      await ctx.wait(200);
-      const start = await ctx.evaluate(() => window.__page.cursorMark());
-      const moved = await ctx.evaluate(() => {
-        const source = document.querySelector('#text');
-        source.dispatchEvent(
-          new DragEvent('dragover', {
-            ...window.__dragInit,
-            clientX: window.__dragInit.clientX + 100,
-          }),
-        );
-        return window.__page.cursorMark();
-      });
-      await ctx.evaluate(() => {
-        document.querySelector('#text').dispatchEvent(new DragEvent('dragend', window.__dragInit));
-      });
-      await ctx.wait(200);
-      const after = await ctx.evaluate(() => window.__page.cursorMark());
-
-      // 图标右下角应在指针左上方：整体位于指针左侧与上方。
-      const aboveLeft = start.x + start.size <= point.x && start.y + start.size <= point.y;
-      const shown = start.visible && start.opacity > 0.9 && start.text.includes('\u{1F517}');
-      const followed = moved.x === start.x + 100;
-      const hidden = after.visible === false;
-      return {
-        expected: '指针左上方显示链接图标 / 跟随移动 / 松手后隐藏',
-        actual: `${shown && aboveLeft ? '指针左上方显示链接图标' : `图标不在指针左上方：${JSON.stringify(start)}，指针在 ${JSON.stringify(point)}`} / ${
-          followed ? '跟随移动' : `没有跟随移动：${JSON.stringify(moved)}`
-        } / ${hidden ? '松手后隐藏' : '松手后仍在显示'}`,
-      };
-    },
-  },
-  {
-    name: '拖拽不带复制加号，松手仍照常打开',
+    name: '拖拽用复制效果（加号光标），松手照常打开',
     async run(ctx) {
       const state = await ctx.evaluate(() => {
+        // 合成拖拽里浏览器不保留 effectAllowed（读回来是 none），只能记录脚本请求的效果。
+        const requested = [];
+        const descriptor = Object.getOwnPropertyDescriptor(DataTransfer.prototype, 'effectAllowed');
+        Object.defineProperty(DataTransfer.prototype, 'effectAllowed', {
+          configurable: true,
+          get() {
+            return descriptor.get.call(this);
+          },
+          set(value) {
+            requested.push(value);
+            descriptor.set.call(this, value);
+          },
+        });
+
         const link = document.querySelector('#link');
         const point = window.__page.point(link);
         const dataTransfer = new DataTransfer();
@@ -285,18 +236,20 @@ export const scenarios = [
           clientX: point.x,
           clientY: point.y,
         };
-        link.dispatchEvent(new DragEvent('dragstart', init));
-        const allowed = dataTransfer.effectAllowed;
-        link.dispatchEvent(new DragEvent('dragover', init));
-        const effect = dataTransfer.dropEffect;
-        link.dispatchEvent(new DragEvent('drop', init));
-        link.dispatchEvent(new DragEvent('dragend', init));
-        return { allowed, effect, opened: window.__page.openedCount() };
+        try {
+          link.dispatchEvent(new DragEvent('dragstart', init));
+          link.dispatchEvent(new DragEvent('dragover', init));
+          link.dispatchEvent(new DragEvent('drop', init));
+          link.dispatchEvent(new DragEvent('dragend', init));
+        } finally {
+          Object.defineProperty(DataTransfer.prototype, 'effectAllowed', descriptor);
+        }
+        return { requested, opened: window.__page.openedCount() };
       });
-      const noPlus = state.allowed !== 'copy' && state.effect !== 'copy';
+      const copy = state.requested.includes('copy');
       return {
-        expected: '不是复制效果 / 松手打开 1 个页面',
-        actual: `${noPlus ? '不是复制效果' : `仍是复制效果（${state.allowed} / ${state.effect}）`} / 松手打开 ${state.opened} 个页面`,
+        expected: '复制效果 / 松手打开 1 个页面',
+        actual: `${copy ? '复制效果' : `脚本请求的是 ${JSON.stringify(state.requested)}`} / 松手打开 ${state.opened} 个页面`,
       };
     },
   },

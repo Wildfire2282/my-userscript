@@ -20,18 +20,10 @@ export interface DragSensorDeps {
   getSettings: () => Settings;
   openUrl: (url: string, active: boolean) => void;
   openImage: (url: string, active: boolean) => void;
-  /** 拖拽图标；不传时不显示任何反馈（单测只关心接管判断）。 */
-  feedback?: DragFeedback;
 }
 
 export interface DragSensor {
   destroy(): void;
-}
-
-/** 拖拽期间的指针反馈；坐标是视口坐标。 */
-export interface DragFeedback {
-  move: (point: { x: number; y: number }) => void;
-  hide: () => void;
 }
 
 // 拖拽结束后浏览器可能补发一次 click；只在这段时间内吞掉它，
@@ -58,13 +50,24 @@ export function installDragSensor(deps: DragSensorDeps): DragSensor {
   // 浏览器补发的 click 落在拖拽起点上；只有这一次该吞，用户点别处是真实操作。
   let dragSource: Element | null = null;
   // 顶掉浏览器自带的拖拽残影（文字 / 元素的低分辨率缩略图）。
-  // Chromium 只对“已渲染”的元素做快照：游离的图片或未布局的节点会被忽略，
-  // 于是回退到原生缩略图，鼠标旁边就一直是那张模糊的图。
-  const ghost = document.createElement('div');
+  //
+  // Chromium 只对“已渲染”的元素做快照：游离的图片、尺寸过小或未布局的节点会被
+  // 直接忽略，于是回退成原生缩略图——鼠标旁边那张虚影就是它，和光标形状无关。
+  // 用 16×16 的 canvas 而不是 1×1 图片，是为了避开尺寸下限判断；canvas 默认全透明，
+  // 快照出来不可见。
+  const ghost = document.createElement('canvas');
+  ghost.width = 16;
+  ghost.height = 16;
   ghost.setAttribute('aria-hidden', 'true');
   ghost.style.cssText =
-    'position:fixed;top:0;left:0;width:1px;height:1px;margin:0;padding:0;border:0;' +
-    'opacity:0;pointer-events:none;contain:strict;';
+    'position:fixed;top:0;left:0;width:16px;height:16px;margin:0;padding:0;border:0;' +
+    'opacity:0;pointer-events:none;';
+
+  /** 拖拽开始前把残影元素挂进文档并布局；浏览器在 dragstart 结束时才快照。 */
+  const mountGhost = (): void => {
+    if (!ghost.isConnected) document.documentElement.appendChild(ghost);
+    ghost.getBoundingClientRect();
+  };
 
   const reset = () => {
     dragStart = null;
@@ -72,7 +75,6 @@ export function installDragSensor(deps: DragSensorDeps): DragSensor {
     data = '';
     // 快照只在拖拽期间需要：结束后不再给页面留任何节点。
     if (ghost.isConnected) ghost.remove();
-    deps.feedback?.hide();
   };
 
   const claim = (transfer: DataTransfer, text: string): boolean => {
@@ -131,13 +133,8 @@ export function installDragSensor(deps: DragSensorDeps): DragSensor {
     if (!payload || !claim(transfer, payload.data)) return;
 
     try {
-      // 用中性的「移动」效果：'copy' 会让光标带一个 + 号，与链接图标重复。
-      // 不能留空——dropEffect 回落到 'none' 时浏览器显示禁止符号，并且不再派发 drop，
-      // 拖拽会彻底失效。
-      transfer.effectAllowed = 'move';
-      // 必须先挂进文档并触发一次布局，浏览器才会把它当成可快照的元素。
-      if (!ghost.isConnected) document.documentElement.appendChild(ghost);
-      ghost.getBoundingClientRect();
+      transfer.effectAllowed = 'copy';
+      mountGhost();
       transfer.setDragImage(ghost, 0, 0);
     } catch {
       // setDragImage 不支持时保留原生残影
@@ -146,7 +143,6 @@ export function installDragSensor(deps: DragSensorDeps): DragSensor {
     kind = payload.kind;
     data = payload.data;
     dragSource = targetOf(event);
-    deps.feedback?.move({ x: event.clientX, y: event.clientY });
   };
 
   const isActiveDrag = (event: DragEvent): boolean => {
@@ -163,10 +159,8 @@ export function installDragSensor(deps: DragSensorDeps): DragSensor {
     if (!isActiveDrag(event)) return;
     event.preventDefault();
     event.stopPropagation();
-    // 拖拽期间没有 mousemove，dragover 是唯一能拿到指针位置的事件。
-    deps.feedback?.move({ x: event.clientX, y: event.clientY });
     try {
-      if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+      if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
     } catch {
       // 某些引擎的 dataTransfer 只读，忽略
     }

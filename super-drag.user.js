@@ -2,7 +2,7 @@
 // @name         拖拽打开
 // @name:en      Drag to Open
 // @namespace    https://github.com/Wildfire2282
-// @version      2.8.3
+// @version      2.8.4
 // @description  拖拽文本搜索，拖拽链接在新标签页打开，拖拽图片查看
 // @description:en Drag text to search, links to open, and images to view
 // @author       Wildfire2282 (https://github.com/Wildfire2282)
@@ -614,7 +614,6 @@
 	//#endregion
 	//#region scripts/super-drag/src/features/dnd.ts
 	var CLICK_SWALLOW_MS = 400;
-	var GHOST_PIXEL_SRC = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
 	/** 事件发生处最里层的元素；Shadow DOM 内的拖拽要拿到内部节点而不是宿主。 */
 	function targetOf(event) {
 		const target = realTarget(event);
@@ -632,12 +631,14 @@
 		let data = "";
 		let swallowClickUntil = 0;
 		let dragSource = null;
-		const ghost = document.createElement("img");
-		ghost.src = GHOST_PIXEL_SRC;
+		const ghost = document.createElement("div");
+		ghost.setAttribute("aria-hidden", "true");
+		ghost.style.cssText = "position:fixed;top:0;left:0;width:1px;height:1px;margin:0;padding:0;border:0;opacity:0;pointer-events:none;contain:strict;";
 		const reset = () => {
 			dragStart = null;
 			kind = "text";
 			data = "";
+			if (ghost.isConnected) ghost.remove();
 		};
 		const claim = (transfer, text) => {
 			try {
@@ -676,7 +677,9 @@
 			if (!payload || !claim(transfer, payload.data)) return;
 			try {
 				transfer.effectAllowed = "copy";
-				if (ghost.complete && ghost.naturalWidth > 0) transfer.setDragImage(ghost, 0, 0);
+				if (!ghost.isConnected) document.documentElement.appendChild(ghost);
+				ghost.getBoundingClientRect();
+				transfer.setDragImage(ghost, 0, 0);
 			} catch {}
 			dragStart = event;
 			kind = payload.kind;

@@ -8,7 +8,6 @@ const tsconfigRootDir = fileURLToPath(new URL('.', import.meta.url));
 
 export default [
   {
-    // 设计体系是独立子模块，检查归它自己的仓库。
     ignores: [
       'dist/**',
       '**/dist/**',
@@ -17,7 +16,6 @@ export default [
       'test-results/**',
       '.npm-cache/**',
       '.tmp/**',
-      'packages/userscript-ui/**',
       // 元数据块只有注释，线上原版是迁移对照物，都不参与 lint。
       'scripts/*/userscript.meta.*',
       'scripts/*/legacy/**',
@@ -87,7 +85,12 @@ export default [
     },
   },
   {
-    files: ['scripts/*/src/**/*.ts', 'packages/shared/src/**/*.ts'],
+    files: [
+      'scripts/*/src/**/*.ts',
+      'packages/shared/src/**/*.ts',
+      'packages/userscript-ui/src/**/*.ts',
+      'packages/userscript-ui/demo/**/*.ts',
+    ],
     languageOptions: {
       globals: globals.browser,
     },
@@ -107,7 +110,12 @@ export default [
     },
   },
   {
-    files: ['scripts/*/tests/**/*.ts', 'packages/shared/tests/**/*.ts', '*.config.ts'],
+    files: [
+      'scripts/*/tests/**/*.ts',
+      'packages/shared/tests/**/*.ts',
+      'packages/userscript-ui/tests/**/*.ts',
+      '*.config.ts',
+    ],
     languageOptions: {
       globals: { ...globals.node, ...globals.browser },
     },

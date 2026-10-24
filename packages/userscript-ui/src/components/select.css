@@ -1,0 +1,66 @@
+.ds-select-wrap {
+  position: relative;
+  width: 100%;
+  min-width: 0;
+}
+
+.ds-select {
+  width: 100%;
+  height: var(--ds-control-h);
+  padding: 0 var(--ds-space-8) 0 var(--ds-space-2-5);
+  border: var(--ds-border-width) solid var(--ds-input);
+  border-radius: var(--ds-radius-md);
+  background: transparent;
+  color: var(--ds-foreground);
+  font-family: inherit;
+  font-size: var(--ds-text-sm);
+  line-height: normal;
+  appearance: none;
+  cursor: pointer;
+  transition:
+    border-color var(--ds-duration-fast) var(--ds-ease),
+    box-shadow var(--ds-duration-fast) var(--ds-ease);
+}
+
+.ds-select:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--ds-input) 65%, var(--ds-foreground));
+}
+
+.ds-select:focus-visible {
+  border-color: var(--ds-ring);
+  outline: none;
+  box-shadow: 0 0 0 var(--ds-ring-width) color-mix(in srgb, var(--ds-ring) 24%, transparent);
+}
+
+.ds-select[aria-invalid='true'] {
+  border-color: var(--ds-destructive);
+}
+
+.ds-select[aria-invalid='true']:focus-visible {
+  box-shadow: 0 0 0 var(--ds-ring-width) color-mix(in srgb, var(--ds-destructive) 24%, transparent);
+}
+
+.ds-select:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.ds-select option {
+  background: var(--ds-card);
+  color: var(--ds-card-foreground);
+}
+
+.ds-select-chevron {
+  position: absolute;
+  inset-block-start: 50%;
+  inset-inline-end: var(--ds-space-2);
+  width: var(--ds-icon-sm);
+  height: var(--ds-icon-sm);
+  color: var(--ds-muted-foreground);
+  pointer-events: none;
+  transform: translateY(-50%);
+}
+
+.ds-select:focus-visible + .ds-select-chevron {
+  color: var(--ds-foreground);
+}

@@ -1,0 +1,66 @@
+.ds-launcher {
+  position: fixed;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--ds-launcher-size);
+  height: var(--ds-launcher-size);
+  padding: 0;
+  border: var(--ds-border-width) solid var(--ds-border);
+  border-radius: var(--ds-radius-full);
+  background: var(--ds-card);
+  color: var(--ds-foreground);
+  box-shadow: var(--ds-shadow-md);
+  cursor: pointer;
+  pointer-events: auto;
+  transition:
+    background-color var(--ds-duration-fast) var(--ds-ease),
+    border-color var(--ds-duration-fast) var(--ds-ease),
+    box-shadow var(--ds-duration-fast) var(--ds-ease),
+    transform var(--ds-duration-fast) var(--ds-ease);
+}
+
+.ds-launcher:hover {
+  border-color: var(--ds-input);
+  background: var(--ds-muted);
+}
+
+.ds-launcher:active {
+  transform: translateY(var(--ds-border-width));
+}
+
+.ds-launcher:focus-visible {
+  outline: var(--ds-ring-width) solid var(--ds-ring);
+  outline-offset: var(--ds-ring-offset);
+}
+
+.ds-launcher[aria-expanded='true'] {
+  border-color: var(--ds-ring);
+  background: var(--ds-muted);
+}
+
+.ds-launcher svg {
+  width: var(--ds-launcher-icon);
+  height: var(--ds-launcher-icon);
+}
+
+.ds-launcher[data-position='bottom-right'] {
+  inset-block-end: calc(var(--ds-launcher-offset) + env(safe-area-inset-bottom, 0px));
+  inset-inline-end: calc(var(--ds-launcher-offset) + env(safe-area-inset-right, 0px));
+}
+
+.ds-launcher[data-position='bottom-left'] {
+  inset-block-end: calc(var(--ds-launcher-offset) + env(safe-area-inset-bottom, 0px));
+  inset-inline-start: calc(var(--ds-launcher-offset) + env(safe-area-inset-left, 0px));
+}
+
+.ds-launcher[data-position='top-right'] {
+  inset-block-start: calc(var(--ds-launcher-offset) + env(safe-area-inset-top, 0px));
+  inset-inline-end: calc(var(--ds-launcher-offset) + env(safe-area-inset-right, 0px));
+}
+
+.ds-launcher[data-position='top-left'] {
+  inset-block-start: calc(var(--ds-launcher-offset) + env(safe-area-inset-top, 0px));
+  inset-inline-start: calc(var(--ds-launcher-offset) + env(safe-area-inset-left, 0px));
+}

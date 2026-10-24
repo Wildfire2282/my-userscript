@@ -16,7 +16,13 @@ export default defineConfig({
     ],
   },
   test: {
-    include: ['scripts/*/tests/**/*.test.ts', 'packages/shared/tests/**/*.test.ts'],
-    environment: 'node',
+    // UI 组件依赖真实 DOM 与 CSS 导入；脚本单测在 happy-dom 下同样能跑。
+    environment: 'happy-dom',
+    css: true,
+    include: [
+      'scripts/*/tests/**/*.test.ts',
+      'packages/shared/tests/**/*.test.ts',
+      'packages/userscript-ui/tests/unit/**/*.test.ts',
+    ],
   },
 });

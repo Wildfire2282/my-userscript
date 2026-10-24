@@ -14,13 +14,13 @@
 | [`release-automation.md`](release-automation.md) | Agent | 自动发布链路、元数据变更、回滚与排障 |
 | `scripts/<slug>/README.md` | Agent | 单个脚本的用途、权限、匹配、设置键与迁移状态 |
 | `scripts/<slug>/CHANGELOG.md` | 维护者 | 用户能感知的版本变化 |
-| [`packages/userscript-ui/README.md`](../packages/userscript-ui/README.md) | Agent | UI 设计体系；子模块自带文档，本仓库不重复维护 |
+| [`packages/userscript-ui/README.md`](../packages/userscript-ui/README.md) | Agent | UI 设计体系；文档随包放在本仓库内 |
 
 ## 阅读顺序
 
 - **维护者**：只读根目录 `README.md`，以及各脚本的 `CHANGELOG.md`。
 - **Agent 接手任务**：`AGENTS.md` → `architecture.md` → 按任务读元数据、迁移或发布文档 → 目标脚本的 `README.md`。
-- **改 UI**：先读 `packages/userscript-ui/AGENTS.md`，再按需读该子模块的设计、组件与集成文档。
+- **改 UI**：先读 `packages/userscript-ui/AGENTS.md`，再按需读该包的设计、组件与集成文档。
 
 ## 当前状态
 
@@ -51,4 +51,4 @@
 | 改脚本元数据、作者链接或语言标记 | `metadata.md`、目标脚本的元数据块 |
 | 改迁移步骤或验收方式 | `migration-guide.md` |
 | 改发布流程、权限或回滚方式 | `release-automation.md`、`AGENTS.md` 第 10 节 |
-| 升级 UI 子模块 | 子模块自己的文档；本仓库只在 `architecture.md` 记录指针与验证要求 |
+| 改 UI 组件或 Token | `packages/userscript-ui/AGENTS.md` 与该包的文档；`npm run check` 里已含 UI 的 safety / token 检查 |

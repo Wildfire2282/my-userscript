@@ -1,0 +1,130 @@
+.ds-toast-viewport {
+  position: fixed;
+  inset-block-start: var(--ds-launcher-offset);
+  inset-inline-end: var(--ds-launcher-offset);
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-2);
+  width: min(var(--ds-toast-width), calc(100vw - 2 * var(--ds-launcher-offset)));
+  pointer-events: none;
+}
+
+.ds-toast {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--ds-space-2-5);
+  padding: var(--ds-space-3);
+  border: var(--ds-border-width) solid var(--ds-border);
+  border-inline-start: var(--ds-accent-width) solid var(--ds-muted-foreground);
+  border-radius: var(--ds-radius-md);
+  background: var(--ds-card);
+  color: var(--ds-card-foreground);
+  box-shadow: var(--ds-shadow-md);
+  pointer-events: auto;
+  animation: ds-toast-in var(--ds-duration-base) var(--ds-ease);
+}
+
+.ds-toast--success {
+  border-inline-start-color: var(--ds-success);
+}
+
+.ds-toast--info {
+  border-inline-start-color: var(--ds-primary);
+}
+
+.ds-toast--warning {
+  border-inline-start-color: var(--ds-warning);
+}
+
+.ds-toast--error {
+  border-inline-start-color: var(--ds-destructive);
+}
+
+.ds-toast-icon {
+  display: flex;
+  flex: none;
+  margin-block-start: var(--ds-border-width);
+  color: var(--ds-muted-foreground);
+}
+
+.ds-toast-icon svg {
+  width: var(--ds-icon);
+  height: var(--ds-icon);
+}
+
+.ds-toast--success .ds-toast-icon {
+  color: var(--ds-success);
+}
+
+.ds-toast--info .ds-toast-icon {
+  color: var(--ds-primary);
+}
+
+.ds-toast--warning .ds-toast-icon {
+  color: var(--ds-warning);
+}
+
+.ds-toast--error .ds-toast-icon {
+  color: var(--ds-destructive);
+}
+
+.ds-toast-content {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--ds-space-0-5);
+  min-width: 0;
+}
+
+.ds-toast-title {
+  margin: 0;
+  font-size: var(--ds-text-sm);
+  font-weight: var(--ds-weight-medium);
+  line-height: var(--ds-leading-snug);
+}
+
+.ds-toast-description {
+  margin: 0;
+  color: var(--ds-muted-foreground);
+  font-size: var(--ds-text-xs);
+  line-height: var(--ds-leading-snug);
+}
+
+.ds-toast-close {
+  flex: none;
+  margin-block-start: calc(-1 * var(--ds-space-1));
+  margin-inline-end: calc(-1 * var(--ds-space-1));
+}
+
+/* Visually hidden live regions stay in the DOM so announcements are reliable. */
+.ds-toast-announcer {
+  position: absolute;
+  width: var(--ds-border-width);
+  height: var(--ds-border-width);
+  margin: calc(-1 * var(--ds-border-width));
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+  pointer-events: none;
+}
+
+@keyframes ds-toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ds-toast {
+    animation: none;
+  }
+}

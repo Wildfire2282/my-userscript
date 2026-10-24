@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Northwind — Userscript playground</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family:
+          ui-sans-serif,
+          system-ui,
+          -apple-system,
+          'Segoe UI',
+          Roboto,
+          'PingFang SC',
+          'Microsoft YaHei',
+          sans-serif;
+        color: #18181b;
+        background: #f7f7f8;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background:
+          radial-gradient(circle at 18% 12%, #ffffff 0, #ffffff 22%, transparent 55%), #f7f7f8;
+      }
+
+      .topbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        height: 60px;
+        padding: 0 40px;
+        border-bottom: 1px solid #e4e4e7;
+        background: rgb(255 255 255 / 0.82);
+        backdrop-filter: blur(12px);
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-weight: 600;
+        letter-spacing: -0.01em;
+      }
+
+      .brand-mark {
+        display: grid;
+        width: 26px;
+        height: 26px;
+        border-radius: 7px;
+        background: #18181b;
+        color: #ffffff;
+        font-size: 13px;
+        place-items: center;
+      }
+
+      .nav {
+        display: flex;
+        gap: 22px;
+        color: #71717a;
+        font-size: 13px;
+      }
+
+      .nav span:first-child {
+        color: #18181b;
+      }
+
+      main {
+        width: min(720px, calc(100vw - 96px));
+        margin: 72px 0 0 64px;
+      }
+
+      .eyebrow {
+        margin: 0 0 14px;
+        color: #71717a;
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+      }
+
+      h1 {
+        max-width: 560px;
+        margin: 0;
+        font-size: 44px;
+        font-weight: 600;
+        letter-spacing: -0.035em;
+        line-height: 1.08;
+      }
+
+      .lead {
+        max-width: 540px;
+        margin: 20px 0 0;
+        color: #52525b;
+        font-size: 16px;
+        line-height: 1.7;
+      }
+
+      .actions {
+        display: flex;
+        gap: 10px;
+        margin-top: 28px;
+      }
+
+      .actions button {
+        height: 36px;
+        padding: 0 16px;
+        border: 1px solid #18181b;
+        border-radius: 7px;
+        background: #18181b;
+        color: #ffffff;
+        font: inherit;
+        font-size: 13px;
+        font-weight: 500;
+        cursor: pointer;
+      }
+
+      .actions button.secondary {
+        border-color: #d4d4d8;
+        background: #ffffff;
+        color: #18181b;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 16px;
+        margin-top: 48px;
+      }
+
+      .card {
+        padding: 20px;
+        border: 1px solid #e4e4e7;
+        border-radius: 12px;
+        background: #ffffff;
+      }
+
+      .card h2 {
+        margin: 0 0 8px;
+        font-size: 14px;
+        font-weight: 600;
+      }
+
+      .card p {
+        margin: 0;
+        color: #71717a;
+        font-size: 13px;
+        line-height: 1.6;
+      }
+
+      .card strong {
+        display: block;
+        margin-top: 18px;
+        font-size: 26px;
+        font-weight: 600;
+        letter-spacing: -0.03em;
+      }
+    </style>
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-mark">N</span>
+        Northwind
+      </div>
+      <nav class="nav">
+        <span>工作台</span>
+        <span>数据</span>
+        <span>设置</span>
+      </nav>
+    </header>
+
+    <main>
+      <p class="eyebrow">Userscript playground</p>
+      <h1>让页面更顺手一点</h1>
+      <p class="lead">
+        这是一个用于展示用户脚本设置面板的宿主页面。右下角的入口由设计系统提供，
+        面板、表单、反馈和确认流程都运行在独立的 Shadow DOM 中。
+      </p>
+
+      <div class="actions">
+        <button id="host-primary" type="button">页面主操作</button>
+        <button class="secondary" type="button">查看文档</button>
+      </div>
+
+      <div class="grid">
+        <section class="card">
+          <h2>今日处理</h2>
+          <p>脚本帮助你在当前页面完成重复操作。</p>
+          <strong>1,284</strong>
+        </section>
+        <section class="card">
+          <h2>节省时间</h2>
+          <p>所有反馈都应清楚、克制、可撤销。</p>
+          <strong>3.6h</strong>
+        </section>
+      </div>
+    </main>
+  </body>
+</html>

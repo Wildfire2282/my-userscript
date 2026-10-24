@@ -1,0 +1,90 @@
+.ds-alert {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--ds-space-2-5);
+  padding: var(--ds-space-3);
+  border: var(--ds-border-width) solid var(--ds-border);
+  border-radius: var(--ds-radius-md);
+  background: var(--ds-card);
+  color: var(--ds-foreground);
+}
+
+.ds-alert-icon {
+  display: flex;
+  flex: none;
+  margin-block-start: var(--ds-border-width);
+  color: var(--ds-muted-foreground);
+}
+
+.ds-alert-icon svg {
+  width: var(--ds-icon);
+  height: var(--ds-icon);
+}
+
+.ds-alert-content {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--ds-space-0-5);
+  min-width: 0;
+}
+
+.ds-alert-title {
+  margin: 0;
+  font-size: var(--ds-text-sm);
+  font-weight: var(--ds-weight-medium);
+  line-height: var(--ds-leading-snug);
+}
+
+.ds-alert-description {
+  margin: 0;
+  color: var(--ds-muted-foreground);
+  font-size: var(--ds-text-xs);
+  line-height: var(--ds-leading-snug);
+}
+
+.ds-alert-action {
+  margin-block-start: var(--ds-space-2);
+}
+
+.ds-alert-close {
+  flex: none;
+  margin-block-start: calc(-1 * var(--ds-space-1));
+  margin-inline-end: calc(-1 * var(--ds-space-1));
+}
+
+.ds-alert--info {
+  border-color: color-mix(in srgb, var(--ds-primary) 22%, var(--ds-border));
+  background: color-mix(in srgb, var(--ds-primary) 4%, var(--ds-card));
+}
+
+.ds-alert--info .ds-alert-icon {
+  color: var(--ds-primary);
+}
+
+.ds-alert--success {
+  border-color: color-mix(in srgb, var(--ds-success) 30%, var(--ds-border));
+  background: color-mix(in srgb, var(--ds-success) 6%, var(--ds-card));
+}
+
+.ds-alert--success .ds-alert-icon {
+  color: var(--ds-success);
+}
+
+.ds-alert--warning {
+  border-color: color-mix(in srgb, var(--ds-warning) 34%, var(--ds-border));
+  background: color-mix(in srgb, var(--ds-warning) 7%, var(--ds-card));
+}
+
+.ds-alert--warning .ds-alert-icon {
+  color: var(--ds-warning);
+}
+
+.ds-alert--error {
+  border-color: color-mix(in srgb, var(--ds-destructive) 34%, var(--ds-border));
+  background: color-mix(in srgb, var(--ds-destructive) 7%, var(--ds-card));
+}
+
+.ds-alert--error .ds-alert-icon {
+  color: var(--ds-destructive);
+}

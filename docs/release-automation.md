@@ -112,7 +112,7 @@ GitHub 的 push 事件只把「已存在文件的修改」算作 changed files�
 | 现象 | 原因 | 处理 |
 | --- | --- | --- |
 | Actions 失败 | lint / 类型 / 测试 / 元数据 / 版本校验 | 看失败步骤，修好再 push |
-| 检出报 `Repository not found` | 界面库仓库为私有，CI 的只读部署密钥失效或未配置 | 在 `userscript-ui` 重建只读部署密钥，更新本仓库的 `SUBMODULE_DEPLOY_KEY` secret（见 `release.yml` 检出前的步骤） |
+| 检出报 `Repository not found` | 部署密钥或权限配置失效（UI 已并入本仓库，正常构建不再需要任何密钥） | 确认 `release.yml` 没有遗留的 submodule 步骤 |
 | Webhook 401 | Secret 与 Greasy Fork 不一致 | 用 Greasy Fork 页面上的值重填 |
 | Webhook 2xx 但脚本没更新 | 版本没提升、同步 URL 不匹配、分支或文件名写错 | 对比 `release` 分支文件与同步 URL |
 | CI 报「版本仍是 x」 | 改了内容没升版本 | 提升 `package.json` 版本 |

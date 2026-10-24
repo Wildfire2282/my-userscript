@@ -22,7 +22,7 @@
 
 | 路径 | 职责 |
 | --- | --- |
-| `packages/userscript-ui/` | UI 设计体系，git submodule，只读；升级走独立提交；仓库为私有，CI 用只读部署密钥（仓库 secret `SUBMODULE_DEPLOY_KEY`）拉取 |
+| `packages/userscript-ui/` | UI 设计体系，仓库内普通包（原 `userscript-ui` 子模块已并入）；源码由 `@ui` 别名直引，不再单独发布或单独验收 |
 | `packages/shared/` | 跨脚本共用代码：GM 适配（`gm.ts`）、设置合并与读写（`storage.ts`）、设置仓库（`settings-store.ts`）与剪贴板写入（`clipboard.ts`） |
 | `scripts/<slug>/` | 一个脚本一个 npm workspace 包 |
 | `scripts/<slug>/userscript.meta.ts` | 静态元数据（名称、匹配、权限），不含 `@version` |
@@ -144,7 +144,7 @@ npm run check           # 交付前全量：静态检查 + 单测 + 构建 + 元
 | 版本 | `package.json` 唯一来源，构建时注入 | 元数据与包版本两处手写必然漂移 |
 | 元数据 lint | 只用 `tools/check-meta.mjs`，不引入 `eslint-plugin-userscripts` | 该插件只认 `.user.js` 里的元数据块，而本仓元数据在 `.ts`、产物不提交；`use-homepage-and-url` 要求非标准 `@homepage`，`align-attributes` 的自动修复会重排整块并插入 `@homepage`，与 `metadata.md` 的字段清单冲突；`@match` 语法它也不校验，唯一能补的是未使用 `@grant` 的拼写，价值低于多一个 devDependency |
 | 共享内核 | 只收纳 `gm`、`storage`、`settings-store` 与 `clipboard` | 重复事实来自多个 legacy 脚本；其余抽象尚无稳定复用 |
-| UI 复用 | 子模块源码直引，按需 tree-shake | 不发布运行时包，不引入全局样式与远程资源 |
+| UI 复用 | 源码直引，按需 tree-shake | 不发布运行时包，不引入全局样式与远程资源 |
 | 测试分层 | 纯逻辑走 Vitest，用户可见交互走真实浏览器；同一事实只在一层断言 | 两层都断言同一规则会让维护成本翻倍，失败时也看不出该改哪一层 |
 | 浏览器验证 | 自建 CDP 驱动，不用 Playwright；每个场景独立重载页面 | 环境已有 Chrome/Edge，避免下载浏览器与额外依赖；场景互不污染，可单独删除或调试 |
 | 发布 | 确认发布后 push `main`，CI 推送 `release` 分支，webhook 通知 Greasy Fork | 构建与上线自动完成；发布时机、登录与元数据变化仍由人确认 |

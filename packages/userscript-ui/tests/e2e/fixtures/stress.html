@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Userscript UI — Host CSS stress test</title>
+    <style>
+      :root {
+        --ds-primary: #ff00aa;
+        --ds-background: #00ff00;
+      }
+
+      * {
+        font-family: 'Comic Sans MS', cursive !important;
+        font-size: 18px !important;
+        letter-spacing: 1px !important;
+        color: #b91c1c !important;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background: #f0f0f0;
+      }
+
+      main {
+        width: min(680px, calc(100vw - 48px));
+        margin: 40px auto;
+        padding: 24px;
+        border: 6px dashed #b91c1c;
+        background: #ffffff;
+      }
+
+      button {
+        padding: 8px 12px;
+        border: 0;
+        border-radius: 0;
+        background: hotpink !important;
+        color: #111111 !important;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Host page with aggressive CSS</h1>
+      <p>Global selectors, important rules, and generic token names.</p>
+      <button id="host-button" type="button">Host button</button>
+    </main>
+    <script>
+      window.__hostFontBefore = getComputedStyle(document.body).fontFamily;
+      window.__hostButtonBefore = getComputedStyle(
+        document.getElementById('host-button'),
+      ).backgroundColor;
+    </script>
+  </body>
+</html>

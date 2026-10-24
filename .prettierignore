@@ -11,6 +11,3 @@ package-lock.json
 # 线上原版快照与同步脚本的产物：只能原样保留，不能重排
 scripts/*/legacy/
 scripts.json
-
-# 设计体系是独立子模块，有自己的 Prettier 配置
-packages/userscript-ui/

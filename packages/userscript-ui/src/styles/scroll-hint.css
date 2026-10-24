@@ -1,0 +1,38 @@
+.ds-scroll-hint {
+  position: absolute;
+  inset-inline: 0;
+  bottom: 0;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  height: var(--ds-scroll-hint-height);
+  padding-bottom: var(--ds-space-1-5);
+  background: linear-gradient(to top, var(--ds-card) 30%, transparent);
+  color: var(--ds-muted-foreground);
+  font-size: var(--ds-text-xs);
+  pointer-events: none;
+  opacity: 1;
+  visibility: visible;
+  transition: opacity var(--ds-duration-fast) var(--ds-ease);
+}
+
+.ds-scroll-hint[data-state='hidden'] {
+  opacity: 0;
+  visibility: hidden;
+}
+
+.ds-scroll-hint-label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+  padding: var(--ds-space-0-5) var(--ds-space-2);
+  border-radius: var(--ds-radius-full);
+  background: var(--ds-muted);
+  white-space: nowrap;
+}
+
+.ds-scroll-hint-label svg {
+  width: var(--ds-icon-xs);
+  height: var(--ds-icon-xs);
+  flex: none;
+}

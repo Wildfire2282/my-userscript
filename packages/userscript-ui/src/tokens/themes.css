@@ -1,0 +1,55 @@
+:host,
+:host([data-ds-theme='light']) {
+  --ds-background: #ffffff;
+  --ds-foreground: #18181b;
+  --ds-card: #ffffff;
+  --ds-card-foreground: #18181b;
+  --ds-primary: #18181b;
+  --ds-primary-foreground: #fafafa;
+  --ds-secondary: #f4f4f5;
+  --ds-secondary-foreground: #18181b;
+  --ds-muted: #f4f4f5;
+  --ds-muted-foreground: #6b6b74;
+  --ds-border: #e4e4e7;
+  --ds-input: #8e8e97;
+  --ds-track: #8e8e97;
+  --ds-ring: #71717a;
+  --ds-destructive: #dc2626;
+  --ds-destructive-foreground: #fafafa;
+  --ds-success: #16a34a;
+  --ds-warning: #d97706;
+  --ds-switch-thumb: #ffffff;
+  --ds-overlay: rgb(9 9 11 / 0.45);
+}
+
+/* 深色主题遵循与浅色同一套语义 Token，只替换取值。
+   取值原则：
+   - 不使用纯黑/纯白：画布 #09090b，抬升表面 #18181b，正文 #fafafa。
+   - 深色下用“更亮的灰”表达层级：卡片 #18181b 浮于画布之上，边框 #2b2b31 与之分离。
+   - 状态色在深色背景上提亮，保证文字对比度 ≥ 4.5:1（destructive 改用亮红 + 深色前景）。 */
+:host([data-ds-theme='dark']) {
+  --ds-background: #09090b;
+  --ds-foreground: #fafafa;
+  --ds-card: #18181b;
+  --ds-card-foreground: #fafafa;
+  --ds-primary: #fafafa;
+  --ds-primary-foreground: #18181b;
+  --ds-secondary: #27272a;
+  --ds-secondary-foreground: #fafafa;
+  --ds-muted: #27272a;
+  --ds-muted-foreground: #a1a1aa;
+  --ds-border: #2b2b31;
+  --ds-input: #70707a;
+  --ds-track: #6b6b74;
+  --ds-ring: #d4d4d8;
+  --ds-destructive: #f87171;
+  --ds-destructive-foreground: #450a0a;
+  --ds-success: #4ade80;
+  --ds-warning: #fbbf24;
+  --ds-switch-thumb: #fafafa;
+  --ds-overlay: rgb(0 0 0 / 0.7);
+
+  --ds-shadow-sm: 0 1px 2px rgb(0 0 0 / 0.5);
+  --ds-shadow-md: 0 4px 14px rgb(0 0 0 / 0.6);
+  --ds-shadow-lg: 0 16px 40px rgb(0 0 0 / 0.72);
+}

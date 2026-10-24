@@ -1,0 +1,146 @@
+.ds-panel {
+  position: fixed;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  width: min(var(--ds-panel-width), calc(100vw - 2 * var(--ds-launcher-offset)));
+  max-height: min(var(--ds-panel-max-h), calc(100vh - 2 * var(--ds-launcher-offset)));
+  overflow: hidden;
+  border: var(--ds-border-width) solid var(--ds-border);
+  border-radius: var(--ds-radius-lg);
+  background: var(--ds-card);
+  color: var(--ds-card-foreground);
+  box-shadow: var(--ds-shadow-lg);
+  pointer-events: auto;
+}
+
+/* Operation panels host script functions, so they get a wider working area and
+   a taller scroll region. Padding, typography and the footer stay identical. */
+.ds-panel[data-size='operation'] {
+  width: min(var(--ds-panel-width-operation), calc(100vw - 2 * var(--ds-launcher-offset)));
+  max-height: min(var(--ds-panel-max-h-operation), calc(100vh - 2 * var(--ds-launcher-offset)));
+}
+
+/* 居中位置不跟 Launcher 的角落偏移；左右用 auto 外边距居中，避免 transform 影响 RTL。 */
+.ds-panel[data-position='center'] {
+  inset-block-start: 50%;
+  inset-inline: 0;
+  margin-inline: auto;
+  transform: translateY(-50%);
+}
+
+/* 居中时设置面板放宽到 440px；操作面板保留自己的 560px 画布。 */
+.ds-panel[data-position='center'][data-size='settings'] {
+  width: min(var(--ds-panel-width-wide), calc(100vw - 2 * var(--ds-launcher-offset)));
+}
+
+.ds-panel[data-position='bottom-right'] {
+  inset-block-end: calc(
+    var(--ds-launcher-offset) + env(safe-area-inset-bottom, 0px) + var(--ds-launcher-size) +
+      var(--ds-space-2)
+  );
+  inset-inline-end: calc(var(--ds-launcher-offset) + env(safe-area-inset-right, 0px));
+}
+
+.ds-panel[data-position='bottom-left'] {
+  inset-block-end: calc(
+    var(--ds-launcher-offset) + env(safe-area-inset-bottom, 0px) + var(--ds-launcher-size) +
+      var(--ds-space-2)
+  );
+  inset-inline-start: calc(var(--ds-launcher-offset) + env(safe-area-inset-left, 0px));
+}
+
+.ds-panel[data-position='top-right'] {
+  inset-block-start: calc(
+    var(--ds-launcher-offset) + env(safe-area-inset-top, 0px) + var(--ds-launcher-size) +
+      var(--ds-space-2)
+  );
+  inset-inline-end: calc(var(--ds-launcher-offset) + env(safe-area-inset-right, 0px));
+}
+
+.ds-panel[data-position='top-left'] {
+  inset-block-start: calc(
+    var(--ds-launcher-offset) + env(safe-area-inset-top, 0px) + var(--ds-launcher-size) +
+      var(--ds-space-2)
+  );
+  inset-inline-start: calc(var(--ds-launcher-offset) + env(safe-area-inset-left, 0px));
+}
+
+.ds-panel-header {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--ds-space-3);
+  padding: var(--ds-panel-padding);
+  border-bottom: var(--ds-border-width) solid var(--ds-border);
+}
+
+.ds-panel-heading {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--ds-space-0-5);
+  min-width: 0;
+}
+
+.ds-panel-title {
+  margin: 0;
+  font-size: var(--ds-text-lg);
+  font-weight: var(--ds-weight-semibold);
+  line-height: var(--ds-leading-tight);
+}
+
+.ds-panel-description {
+  margin: 0;
+  color: var(--ds-muted-foreground);
+  font-size: var(--ds-text-xs);
+  line-height: var(--ds-leading-snug);
+}
+
+.ds-panel-close {
+  flex: none;
+  margin-block-start: calc(-1 * var(--ds-space-1));
+  margin-inline-end: calc(-1 * var(--ds-space-1));
+}
+
+.ds-panel-content {
+  position: relative;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.ds-panel-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--ds-space-4);
+  min-height: 0;
+  padding: var(--ds-panel-padding);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--ds-border) transparent;
+}
+
+.ds-panel-body::-webkit-scrollbar {
+  width: var(--ds-space-2);
+}
+
+.ds-panel-body::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.ds-panel-body::-webkit-scrollbar-thumb {
+  border-radius: var(--ds-radius-full);
+  background: var(--ds-border);
+}
+
+.ds-panel-footer {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--ds-space-2);
+  padding: var(--ds-space-3) var(--ds-panel-padding);
+  border-top: var(--ds-border-width) solid var(--ds-border);
+}

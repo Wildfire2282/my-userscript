@@ -1,0 +1,81 @@
+:host {
+  all: initial;
+}
+
+.ds-root {
+  all: initial;
+  /* all:initial also resets color-scheme; restore the host's theme for native UI. */
+  color-scheme: inherit;
+  display: contents;
+  font-family: var(--ds-font-sans);
+  font-size: var(--ds-text-base);
+  line-height: var(--ds-leading-normal);
+  color: var(--ds-foreground);
+  text-align: start;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+:host([data-ds-theme-switching]) *,
+:host([data-ds-theme-switching]) *::before,
+:host([data-ds-theme-switching]) *::after {
+  transition: none !important;
+}
+
+button,
+input,
+select,
+textarea {
+  margin: 0;
+  font: inherit;
+  letter-spacing: inherit;
+  color: inherit;
+}
+
+.ds-layer {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+}
+
+.ds-layer-base {
+  z-index: 1;
+}
+
+.ds-layer-toast {
+  z-index: 2;
+}
+
+.ds-layer-tooltip {
+  z-index: 3;
+}
+
+.ds-layer > * {
+  pointer-events: auto;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :host {
+    --ds-duration-fast: 0ms;
+    --ds-duration-base: 0ms;
+    --ds-duration-slow: 0ms;
+  }
+}
+
+@media print {
+  :host {
+    display: none !important;
+  }
+}

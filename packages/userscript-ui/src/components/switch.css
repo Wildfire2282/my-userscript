@@ -1,0 +1,74 @@
+.ds-switch {
+  position: relative;
+  display: inline-flex;
+  width: var(--ds-switch-width);
+  height: var(--ds-switch-height);
+  flex: none;
+  vertical-align: middle;
+}
+
+.ds-switch-input {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.ds-switch-track {
+  position: absolute;
+  inset: 0;
+  border-radius: var(--ds-radius-full);
+  background: var(--ds-track);
+  transition: background-color var(--ds-duration-fast) var(--ds-ease);
+}
+
+.ds-switch-thumb {
+  position: absolute;
+  inset-block-start: var(--ds-space-0-5);
+  inset-inline-start: var(--ds-space-0-5);
+  width: var(--ds-switch-thumb-size);
+  height: var(--ds-switch-thumb-size);
+  border-radius: var(--ds-radius-full);
+  background: var(--ds-switch-thumb);
+  box-shadow: var(--ds-shadow-sm);
+  transition:
+    transform var(--ds-duration-fast) var(--ds-ease),
+    background-color var(--ds-duration-fast) var(--ds-ease);
+}
+
+.ds-switch-input:checked + .ds-switch-track {
+  background: var(--ds-primary);
+}
+
+.ds-switch-input:checked + .ds-switch-track .ds-switch-thumb {
+  background: var(--ds-primary-foreground);
+  /* Travel is derived so the thumb always lands inside the track. */
+  transform: translateX(
+    calc(var(--ds-switch-width) - var(--ds-switch-thumb-size) - 2 * var(--ds-space-0-5))
+  );
+}
+
+.ds-switch-input:hover:not(:disabled) + .ds-switch-track {
+  background: color-mix(in srgb, var(--ds-track) 82%, var(--ds-foreground));
+}
+
+.ds-switch-input:checked:hover:not(:disabled) + .ds-switch-track {
+  background: color-mix(in srgb, var(--ds-primary) 90%, var(--ds-background));
+}
+
+.ds-switch-input:focus-visible + .ds-switch-track {
+  outline: var(--ds-ring-width) solid var(--ds-ring);
+  outline-offset: var(--ds-ring-offset);
+}
+
+.ds-switch-input:disabled {
+  cursor: not-allowed;
+}
+
+.ds-switch-input:disabled + .ds-switch-track {
+  opacity: 0.5;
+}

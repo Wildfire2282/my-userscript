@@ -15,6 +15,16 @@ push main
 
 `release` 分支由 CI 生成，根目录只放 `<slug>.user.js`。**不要手改，也不要合并回 `main`。**
 
+### 触发条件
+
+只有命中下面路径的 push 才会跑发布：`scripts/*/src/**`、`scripts/*/userscript.meta.*`、`scripts/*/package.json`。
+
+改 UI（`packages/userscript-ui/`）、共享代码（`packages/shared/`）、工具链（`tools/`）、依赖、测试、文档与 `CHANGELOG` 都**不会**触发发布，也不会碰 `release` 分支与 Greasy Fork。
+
+代价：改 UI / 工具链会让产物变化，但不随那次 push 发布。下次动脚本时 `tools/release.mjs` 会发现内容变了、版本没升而报错，提醒提版本——这是有意为之，避免同版本重新下载。
+
+新增脚本或补发已 push 的提交，用 `workflow_dispatch` 手动跑（`gh workflow run release.yml`，需要带 `[allow-meta]` 时加 `-f allow_meta_change=true`）。
+
 ## 2. 发布物与版本
 
 | 文件 | 作用 |
@@ -50,6 +60,7 @@ push main
 3. 本地跑 `npm run check`（含浏览器场景）。
 4. 向维护者说明本次用户可见的变化，确认发布后提交并 push `main`；
    这次推送带元数据变化时，把 `[allow-meta]` 写进最后一个提交的信息。
+   只改 UI、工具链或文档时不会触发发布，需要上线就跟脚本一起提版本。
 5. Actions 通过后 `release` 分支出现新文件；webhook 触发后 Greasy Fork 通常一分钟内更新。
 6. 发布生效后跑 `npm run sync`，刷新 `scripts.json` 与根 `README.md` 的脚本表。
 

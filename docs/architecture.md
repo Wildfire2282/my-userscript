@@ -37,7 +37,7 @@
 | `tools/release.mjs` | 汇总发布物、校验版本与元数据变化 |
 | `tools/sync.py` | 从 Greasy Fork 把线上版本同步回 `legacy/`、元数据、`scripts.json` 与 README 表格 |
 | `scripts.json` | 机器可读清单，由 `npm run sync` 刷新 |
-| `.github/workflows/release.yml` | push `main` 后检查、构建并推送 `release` 分支 |
+| `.github/workflows/release.yml` | 脚本包变化（`scripts/*/src`、元数据、`package.json`）后检查、构建并推送 `release` 分支；其他目录改动不触发 |
 
 ## 3. 依赖关系
 

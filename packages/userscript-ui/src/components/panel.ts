@@ -311,6 +311,8 @@ export function createPanel(ui: UI, options: PanelOptions = {}): PanelHandle {
     },
     setSize,
     onOpenChange(listener) {
+      // 销毁后注册的监听器永远不会触发，直接返回空取消函数，别让它留在死集合里。
+      if (destroyed) return () => {};
       openListeners.add(listener);
       return () => openListeners.delete(listener);
     },

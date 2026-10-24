@@ -89,8 +89,21 @@ function start(): void {
     }
   };
 
-  register(MENU_ACTIONS, () => app.openActions());
-  register(MENU_SETTINGS, () => app.openSettings());
+  // UI 挂载可能抛错：在菜单回调里兜住，否则异常直接冒到脚本管理器且没有提示。
+  register(MENU_ACTIONS, () => {
+    try {
+      app.openActions();
+    } catch (error) {
+      console.error('[youtube-transcript-copy] 打开操作面板失败', error);
+    }
+  });
+  register(MENU_SETTINGS, () => {
+    try {
+      app.openSettings();
+    } catch (error) {
+      console.error('[youtube-transcript-copy] 打开设置面板失败', error);
+    }
+  });
 
   const boot = (): void => {
     app.sync();

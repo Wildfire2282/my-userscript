@@ -27,27 +27,33 @@ interface SettingsStoreOptions<T> {
 }
 
 /**
+ * 写失败时的基线比较：存储值变了就说明别处写过，本页副本作废。
+ *
+ * 必须逐层比较：GM 每次返回的是新反序列化对象，且设置里普遍有数组
+ * （`disabledSites`）与嵌套对象（`engines`、`dragKinds`）。只看一层引用的话，
+ * 写失败后的第一个 `get()` 就会把内存里的新值丢掉，用户改的设置当场失效。
+ */
+function sameValue(left: unknown, right: unknown): boolean {
+  if (left === right) return true;
+  if (typeof left !== 'object' || typeof right !== 'object' || left === null || right === null)
+    return false;
+  if (Array.isArray(left) || Array.isArray(right)) {
+    if (!Array.isArray(left) || !Array.isArray(right) || left.length !== right.length) return false;
+    return left.every((value, index) => sameValue(value, right[index]));
+  }
+  const leftEntries = Object.entries(left);
+  const rightRecord = right as Record<string, unknown>;
+  if (leftEntries.length !== Object.keys(rightRecord).length) return false;
+  return leftEntries.every(
+    ([key, value]) => Object.hasOwn(rightRecord, key) && sameValue(value, rightRecord[key]),
+  );
+}
+
+/**
  * 创建设置仓库。
  *
  * @param options GM 适配层、存储键与收敛函数；测试里传假实现即可
  */
-/** 写失败时的基线比较：存储值变了就说明别处写过，本页副本作废。 */
-function shallowEqualValue(left: unknown, right: unknown): boolean {
-  if (left === right) return true;
-  if (typeof left !== 'object' || typeof right !== 'object' || left === null || right === null) {
-    return false;
-  }
-  if (Array.isArray(left) || Array.isArray(right)) return false;
-  const leftEntries = Object.entries(left);
-  const rightRecord = right as Record<string, unknown>;
-  return (
-    leftEntries.length === Object.keys(rightRecord).length &&
-    leftEntries.every(
-      ([key, value]) => Object.hasOwn(rightRecord, key) && rightRecord[key] === value,
-    )
-  );
-}
-
 export function createSettingsStore<T>(options: SettingsStoreOptions<T>): SettingsStore<T> {
   // 上次写入失败的新值：只要存储还是“写之前读到的旧值”，就用它顶住，
   // 别处改了存储就跟存储走；本页的首次读不重试写，避免每次 get 都写存储。
@@ -55,7 +61,7 @@ export function createSettingsStore<T>(options: SettingsStoreOptions<T>): Settin
 
   const get = (): T => {
     const raw = options.api.getValue(options.key, null);
-    if (pending && !shallowEqualValue(raw, pending.base)) pending = null;
+    if (pending && !sameValue(raw, pending.base)) pending = null;
     return pending?.value ?? options.normalize(raw);
   };
 

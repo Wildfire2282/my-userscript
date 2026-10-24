@@ -1,14 +1,25 @@
 import { collectLinks, type LinkCandidate, type LinkItem } from '../links';
 import { bestTitle } from './titles';
 
-/** 递归收 `open` 影子节点里的链接：组件化页面常把弹窗、播放器里的 `<a>` 藏在这里。
- * `closed` 影子节点浏览器不让进，只能放弃。 */
-function collectAnchors(root: ParentNode): HTMLAnchorElement[] {
+/** 本脚本自己的界面宿主：扫进去只会把面板里的按钮和目标当链接。 */
+const OWN_UI_SELECTOR = 'userscript-ui-root, [data-ds-root]';
+
+/**
+ * 递归收 `open` 影子节点里的链接：组件化页面常把弹窗、播放器里的 `<a>` 藏在这里。
+ * `closed` 影子节点浏览器不让进，只能放弃。
+ *
+ * 一遍遍历：先取本层全部元素，再对带 shadowRoot 的下钻；不对每个元素重复查子树，
+ * 否则大页面是 O(n²)。
+ */
+function collectAnchors(root: ParentNode, found: HTMLAnchorElement[] = []): HTMLAnchorElement[] {
   const scope = root as Document | DocumentFragment | Element;
-  if (typeof scope.querySelectorAll !== 'function') return [];
-  const found = [...scope.querySelectorAll<HTMLAnchorElement>('a[href]')];
+  if (typeof scope.querySelectorAll !== 'function') return found;
   for (const element of scope.querySelectorAll('*')) {
-    if (element.shadowRoot) found.push(...collectAnchors(element.shadowRoot));
+    if (element.matches(OWN_UI_SELECTOR)) continue;
+    if (element.tagName === 'A' && element.hasAttribute('href')) {
+      found.push(element as HTMLAnchorElement);
+    }
+    if (element.shadowRoot) collectAnchors(element.shadowRoot, found);
   }
   return found;
 }
@@ -25,10 +36,14 @@ function collectAnchors(root: ParentNode): HTMLAnchorElement[] {
 export function scanLinks(doc: Document = document, baseHref?: string): LinkItem[] {
   if (!doc.body) return [];
   const base = baseHref ?? doc.location?.href ?? '';
-  const candidates: LinkCandidate[] = collectAnchors(doc).map((anchor) => ({
-    rawHref: anchor.getAttribute('href') ?? '',
-    absoluteHref: anchor.href,
-    title: bestTitle(anchor, ''),
-  }));
+  const candidates: LinkCandidate[] = collectAnchors(doc).map((anchor) => {
+    // SVG `<a>` 的 href 是 SVGAnimatedString，不是字符串；只有 HTML 锚点才读它。
+    const resolved = anchor.href;
+    return {
+      rawHref: anchor.getAttribute('href') ?? '',
+      absoluteHref: typeof resolved === 'string' ? resolved : '',
+      title: bestTitle(anchor, ''),
+    };
+  });
   return collectLinks(candidates, base);
 }

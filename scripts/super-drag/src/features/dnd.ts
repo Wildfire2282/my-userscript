@@ -143,14 +143,9 @@ export function installDragSensor(deps: DragSensorDeps): DragSensor {
 
   const handleDrop = (event: DragEvent) => {
     if (phase !== 'dragging') return;
-    // 拖进输入框是页面的原生粘贴，不接管：DataTransfer 里还留着脚本改写的值，
-    // 必须恢复成用户原本拖的文字，否则粘贴出来的是网址或搜索结果。
+    // 拖进输入框是页面的原生粘贴，不接管。保持脚本写入的载荷与原生拖拽一致：
+    // 拖链接/图片时原生粘贴的也是地址，拖文字时就是选中的文字。
     if (isInputElement(event)) {
-      try {
-        event.dataTransfer?.setData('text/plain', data);
-      } catch {
-        // 只读的 DataTransfer：保不住原文，但至少不打开页面。
-      }
       reset();
       return;
     }
@@ -203,9 +198,12 @@ export function installDragSensor(deps: DragSensorDeps): DragSensor {
   };
 
   // 新的按下动作说明是另一次交互：浏览器补发的 click 不可能再出现了，清掉标记。
+  // 同时清掉可能残留的「正在拖拽」：拖到外部应用或 DevTools 时浏览器不发 dragend，
+  // 状态卡在 dragging 会让之后任何原生拖放都被拦截、并按旧数据打开页面。
   const handlePressStart = () => {
     swallowClickUntil = 0;
     dragSource = null;
+    if (phase !== 'idle') reset();
   };
 
   window.addEventListener('dragstart', handleDragStart, listenerOptions);

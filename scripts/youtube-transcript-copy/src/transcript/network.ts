@@ -124,10 +124,12 @@ export function installNetworkCapture(
     return state !== null && state.videoId === currentVideoId() ? state.segments : null;
   };
 
-  const accept = (url: string, data: unknown): void => {
+  // 视频 ID 在**发起请求时**读取：响应回来时地址栏可能已经换台，
+  // 按响应时的 ID 收下就会把上一个视频的字幕送给新视频。
+  const accept = (url: string, data: unknown, videoIdAtRequest: string): void => {
     const next = nextCapture(
       globals.__ytTxNetSegments ?? null,
-      currentVideoId(),
+      videoIdAtRequest,
       url,
       parseCapturedResponse(url, data),
     );
@@ -161,10 +163,11 @@ export function installNetworkCapture(
             : '';
     const request = originalFetch(...args);
     if (CAPTURE_PATTERN.test(url)) {
+      const videoIdAtRequest = currentVideoId();
       void request
         .then(async (response) => {
           try {
-            accept(url, await response.clone().json());
+            accept(url, await response.clone().json(), videoIdAtRequest);
           } catch {
             // 响应不是 JSON 或已被消费：不影响页面。
           }
@@ -187,15 +190,21 @@ export function installNetworkCapture(
   ): void {
     const target = typeof url === 'string' ? url : url.href;
     if (CAPTURE_PATTERN.test(target)) {
-      this.addEventListener('load', () => {
-        try {
-          const data: unknown =
-            this.responseType === 'json' ? this.response : JSON.parse(this.responseText);
-          accept(target, data);
-        } catch {
-          // 响应不是 JSON：忽略。
-        }
-      });
+      const videoIdAtRequest = currentVideoId();
+      // `once`：同一个 XHR 被复用时（open 多次）监听器不会叠加、重复收取同一份响应。
+      this.addEventListener(
+        'load',
+        () => {
+          try {
+            const data: unknown =
+              this.responseType === 'json' ? this.response : JSON.parse(this.responseText);
+            accept(target, data, videoIdAtRequest);
+          } catch {
+            // 响应不是 JSON：忽略。
+          }
+        },
+        { once: true },
+      );
     }
     Reflect.apply(originalOpen, this, [method, url, ...rest]);
   };

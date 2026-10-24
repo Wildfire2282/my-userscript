@@ -77,6 +77,29 @@ describe('createSettingsStore', () => {
     expect(store.get().site).toBe('other-tab');
   });
 
+  it('设置里带数组时，写失败后的新值仍然生效', () => {
+    interface WithList {
+      sites: string[];
+    }
+    const listNormalize = (stored: unknown): WithList => {
+      const record = (typeof stored === 'object' && stored !== null ? stored : {}) as {
+        sites?: unknown;
+      };
+      return { sites: Array.isArray(record.sites) ? (record.sites as string[]) : [] };
+    };
+    // GM 每次返回新的反序列化对象：不能靠引用判断“存储没变”。
+    const values = new Map<string, unknown>();
+    const api: GmApi = {
+      getValue: (key, fallback) => (values.has(key) ? structuredClone(values.get(key)) : fallback),
+      setValue: () => false,
+      registerMenuCommand: () => true,
+    };
+    const store = createSettingsStore({ api, key: 'k', normalize: listNormalize });
+
+    store.update({ sites: ['a.test'] });
+    expect(store.get().sites).toEqual(['a.test']);
+  });
+
   it('之后写成功时清掉内存副本', () => {
     const api = fakeGm({ site: 'old' }, false);
     const store = createSettingsStore({ api, key: 'k', normalize });

@@ -77,7 +77,17 @@ export function createToast(ui: UI, options: ToastControllerOptions = {}): Toast
 
   const announce = (variant: FeedbackVariant, title?: string, description?: string) => {
     const target = variant === 'error' ? announcers.assertive : announcers.polite;
-    target.textContent = [title, description].filter(Boolean).join(' ');
+    const message = [title, description].filter(Boolean).join(' ');
+    // 同一句话写回同样的内容不会触发 live region，再报一次就静默了；
+    // 先清空、下一轮再写入，屏幕阅读器才会重新播报。
+    if (target.textContent === message) {
+      target.textContent = '';
+      queueMicrotask(() => {
+        if (!destroyed) target.textContent = message;
+      });
+      return;
+    }
+    target.textContent = message;
   };
 
   // A toast must stay visible above a modal, and only elements inside a

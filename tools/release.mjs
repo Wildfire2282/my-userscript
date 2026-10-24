@@ -207,7 +207,7 @@ for (const pkg of packages) {
     // 名称、匹配站点、权限变化会影响安装提示，必须由人确认后手动触发。
     if (stableFields(current) !== stableFields(content) && process.env.ALLOW_META_CHANGE !== '1') {
       problems.push(
-        `${pkg.slug}：@name / @match / @include / @grant 有变化，确认后由 Agent 运行 gh workflow run release.yml -f allow_meta_change=true 发布（本地复验设 ALLOW_META_CHANGE=1）`,
+        `${pkg.slug}：@name / @match / @include / @grant 有变化，维护者确认后在推送的提交信息里写 [allow-meta]（已经 push 过的用 gh workflow run release.yml -f allow_meta_change=true 补发；本地复验设 ALLOW_META_CHANGE=1）`,
       );
       continue;
     }

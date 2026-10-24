@@ -42,9 +42,11 @@ jobs:
       - name: 安装依赖
         run: npm ci
 
+      # 元数据变化（@name / @match / @include / @grant）默认拦下；维护者确认后
+      # 在推送的提交信息里写 [allow-meta] 即随本次推送发布，未确认不要写。
       - name: 检查与构建
         env:
-          ALLOW_META_CHANGE: ${{ inputs.allow_meta_change == true && '1' || '0' }}
+          ALLOW_META_CHANGE: ${{ (inputs.allow_meta_change == true || contains(github.event.head_commit.message || '', '[allow-meta]')) && '1' || '0' }}
         run: npm run check
 
       - name: 准备 release 分支
@@ -65,7 +67,7 @@ jobs:
       - name: 汇总发布物
         env:
           RELEASE_DIR: ${{ runner.temp }}/release
-          ALLOW_META_CHANGE: ${{ inputs.allow_meta_change == true && '1' || '0' }}
+          ALLOW_META_CHANGE: ${{ (inputs.allow_meta_change == true || contains(github.event.head_commit.message || '', '[allow-meta]')) && '1' || '0' }}
         run: node tools/release.mjs "$RELEASE_DIR"
 
       - name: 推送到 release 分支

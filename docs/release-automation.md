@@ -37,7 +37,7 @@ push main
 | 版本更高 | 覆盖发布物 |
 | 版本相同、内容不同 | CI 失败，要求先提升版本 |
 | 版本更低 | CI 失败，拒绝回退 |
-| `@name` / `@match` / `@include` / `@grant` 变化 | 默认 CI 失败；人工确认后用 `allow_meta_change` 放行 |
+| `@name` / `@match` / `@include` / `@grant` 变化 | 默认拦下；维护者确认后在该次推送最后一个提交的信息里写 `[allow-meta]`，随本次推送发布 |
 
 脚本从仓库删除后，下一次发布会清掉 `release` 分支里的旧文件；Greasy Fork 上的脚本不会自动删除，需要到脚本管理页手动停用或删除。
 
@@ -48,7 +48,8 @@ push main
 1. 改 `scripts/<slug>/src/` 里的源码；`dist/` 与 `legacy/` 都不直接改。
 2. 提版本：改 `scripts/<slug>/package.json` 的 `version`，构建时注入；在 `CHANGELOG.md` 写一条人话。
 3. 本地跑 `npm run check`（含浏览器场景）。
-4. 向维护者说明本次用户可见的变化，确认发布后提交并 push `main`。
+4. 向维护者说明本次用户可见的变化，确认发布后提交并 push `main`；
+   这次推送带元数据变化时，把 `[allow-meta]` 写进最后一个提交的信息。
 5. Actions 通过后 `release` 分支出现新文件；webhook 触发后 Greasy Fork 通常一分钟内更新。
 6. 发布生效后跑 `npm run sync`，刷新 `scripts.json` 与根 `README.md` 的脚本表。
 
@@ -60,17 +61,18 @@ push main
 
 1. 维护者确认「多看到什么、少看到什么」；
 2. Agent 在本地跑 `ALLOW_META_CHANGE=1 npm run check`（PowerShell：`$env:ALLOW_META_CHANGE='1'; npm run check`）验证；
-3. 由 Agent 触发已确认的发布（维护者不需要操作 GitHub）：
+3. 在最后一个提交的信息里写明变更理由，并带上 `[allow-meta]`；
+4. 正常 push `main`：CI 认出这个标记，放行元数据对照并在同一次运行里发布。
 
-   ```bash
-   gh workflow run release.yml --ref main -f allow_meta_change=true
-   ```
+`[allow-meta]` 只代表「维护者已经确认过这次元数据变化」，没确认不要写；CI 仍按此标记放行安装提示与匹配范围的变化。已经 push 过、忘了标记的，用下面这次手动运行补发（等价于同一个开关）：
 
-4. 提交信息里写明变更理由与影响。
+```bash
+gh workflow run release.yml --ref main -f allow_meta_change=true
+```
 
-这次 push 的自动运行会在元数据对照处停下，属于预期的安全拦截，不是构建失败。手动运行成功后按第 3 节第 6 步 `npm run sync` 更新快照，后续运行即恢复通过。
+无论走哪条路，发布生效后都按第 3 节第 6 步 `npm run sync` 更新快照。
 
-该开关同时放行 `check:meta` 的 legacy 对照与 `release.mjs` 的元数据比对；未确认时不要触发。
+该开关（`[allow-meta]` 与 `-f allow_meta_change=true`）同时放行 `check:meta` 的 legacy 对照与 `release.mjs` 的元数据比对；未确认时不要使用。
 
 ## 5. Greasy Fork 同步
 

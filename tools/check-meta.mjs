@@ -347,7 +347,7 @@ async function checkPackage(slug) {
             if (allowMetaChange) notes.push(`${message}（已放行元数据变化）`);
             else
               problems.push(
-                `${message}（确认后由 Agent 运行 gh workflow run release.yml -f allow_meta_change=true；本地复验加 --allow-meta-change）`,
+                `${message}（维护者确认后，在该次推送最后一个提交的信息里写 [allow-meta]；已经 push 过的用 gh workflow run release.yml -f allow_meta_change=true 补发。本地复验加 --allow-meta-change）`,
               );
           }
         }

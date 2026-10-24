@@ -120,7 +120,7 @@ export function normalizeSettings(stored: unknown): Settings {
   };
 }
 
-/** 设置的读取与保存入口；读取结果缓存到内存，拖拽热路径不访问 GM。 */
+/** 设置的读取与保存入口；每次读取都看存储，别处改了设置本页立即按新值工作。 */
 export type SettingsStore = SharedStore<Settings>;
 
 /**

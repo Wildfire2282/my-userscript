@@ -82,7 +82,7 @@
 | 单元测试 | 受影响模块的测试全部通过（有则必跑）；只测行为，不测实现细节 |
 | 浏览器场景 | `tests/browser-scenarios.mjs` 中覆盖本次改动行为的场景全过；新增行为同步补场景 |
 | 元数据 | 与 `legacy/` 对比，`@name`、`@match`、`@include`、`@grant` 无非预期变化 |
-| 回退 | 确认上一版产物仍在，可随时退回 |
+| 回退 | 确认上一版可退回：`dist/` 不入库、每次构建被清空，上一版只存在于 `release` 分支与 Greasy Fork 历史版本 |
 
 ### 4.2 证据形态
 
@@ -280,7 +280,7 @@ npm run check             # 交付前全量：静态检查 + 单测 + 构建 + �
 - [ ] `npm run build <slug>` 通过；交付前另跑 `npm run check`（含浏览器场景）
 - [ ] 浏览器场景检查全过，证据按第 4.2 节记录
 - [ ] `@name`、`@match`、`@include`、`@grant` 与上一版一致，或已获确认
-- [ ] 回退路径可用（上一版产物仍在）
+- [ ] 回退路径可用（上一版在 `release` 分支或 Greasy Fork 历史版本里）
 - [ ] `README.md` / `CHANGELOG.md` 已按人话更新
 - [ ] 汇报里没有代码、日志、构建术语
 - [ ] 没有提交 `dist/`、`node_modules/`、缓存

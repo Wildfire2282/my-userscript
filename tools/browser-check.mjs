@@ -39,7 +39,7 @@
  */
 
 import { spawn } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, readdirSync, statSync } from 'node:fs';
 import { mkdir, readdir, readFile, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -183,6 +183,16 @@ async function discoverSlugs() {
 function clip(text) {
   const value = String(text);
   return value.length > 180 ? `${value.slice(0, 180)}…` : value;
+}
+
+/** 目录树里最新的修改时间；用来判断产物是否比源码旧。 */
+function newestTime(directory) {
+  let newest = 0;
+  for (const entry of readdirSync(directory, { withFileTypes: true })) {
+    const full = path.join(directory, entry.name);
+    newest = Math.max(newest, entry.isDirectory() ? newestTime(full) : statSync(full).mtimeMs);
+  }
+  return newest;
 }
 
 /** 每页注入的 GM 打桩；场景只需要读 window.__gm。 */
@@ -498,6 +508,12 @@ try {
     if (!existsSync(distFile)) {
       throw new Error(`缺少产物 ${path.relative(ROOT, distFile)}，先运行 npm run build ${slug}。`);
     }
+    // 产物比源码旧时场景测的是旧代码，结果没有意义：直接判失败，别让它看起来“通过”。
+    const distTime = statSync(distFile).mtimeMs;
+    const srcDir = path.join(SCRIPTS_DIR, slug, 'src');
+    if (existsSync(srcDir) && newestTime(srcDir) > distTime) {
+      throw new Error(`${path.relative(ROOT, distFile)} 比 src 旧，先运行 npm run build ${slug}。`);
+    }
     const bundle = await readFile(distFile, 'utf8');
     const ctx = createContext(slug);
     const startedAt = Date.now();
@@ -542,6 +558,8 @@ try {
   failed = Math.max(failed, 1);
 } finally {
   if (keepBrowser) {
+    // 放手：不 disconnect 的话子进程句柄会让当前进程跑完也退不出去。
+    chrome.unref();
     console.log(
       `浏览器与配置目录保留在 ${path.relative(ROOT, workDir)}（端口见 DevToolsActivePort）。`,
     );

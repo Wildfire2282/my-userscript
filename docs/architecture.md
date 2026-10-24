@@ -114,7 +114,7 @@ npm run check           # 交付前全量：静态检查 + 单测 + 构建 + 元
 
 | 检查 | 失败意味着 |
 | --- | --- |
-| `lint` | 违反硬规则（`innerHTML`、`==`、未清理监听器等）或类型感知问题 |
+| `lint` | 违反硬规则（`innerHTML`、`outerHTML`、`document.write`、`new Function`、`==`）或类型感知问题 |
 | `format:check` | 代码风格与 Prettier 配置不一致 |
 | `typecheck` | 类型错误，或别名 / `types` 配置缺项 |
 | `test` | 纯逻辑回归（Vitest，毫秒级） |
@@ -124,7 +124,11 @@ npm run check           # 交付前全量：静态检查 + 单测 + 构建 + 元
 
 `check:meta` 只扫描元数据块之后的代码来判断 `GM_*` 是否都有对应 `@grant`；迁移确实要改元数据时，加 `--allow-meta-change`，并在提交信息里写明理由。
 
-已知未覆盖：`@match` / `@include` 的 pattern 语法（写错的表现是脚本装上了却不生效）。新增或修改匹配地址时由 Agent 核对站点地址与通配符写法，不依赖自动检查。
+已知未覆盖：
+
+- `@match` / `@include` 的 pattern 语法（写错的表现是脚本装上了却不生效）。新增或修改匹配地址时由 Agent 核对站点地址与通配符写法，不依赖自动检查。
+- `@grant` 只看 `dist/` 里的 `GM_*` 形式；GM4 的点号写法（`GM.setValue`）与 `unsafeWindow` 不在检测范围。没有构建产物时只提示、不校验。
+- `check:ui-safety` 只扫 `packages/userscript-ui/{src,demo}`；脚本源码里刻意使用 `fetch`（转写网络钩子）不参与该检查，`scripts/*/src` 与 `packages/shared` 的危险能力靠 lint 规则与人工核对。
 
 `test:browser` 用系统 Chrome/Edge 与 Node 内置 WebSocket 驱动 CDP，不下载 Playwright 浏览器：Windows、macOS、Linux（CI 的 ubuntu-latest 自带 Chrome）都能自动找到，`CHROME_PATH` 可覆盖。场景写在 `scripts/<slug>/tests/browser-scenarios.mjs`：
 

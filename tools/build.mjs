@@ -118,6 +118,12 @@ async function buildPackage(pkg) {
   if (!banner.includes('==UserScript==') || !banner.includes('==/UserScript==')) {
     throw new Error(`${path.basename(metaFile)} 不是完整的 ==UserScript== 元数据块`);
   }
+  // 少了 @name / @match 的产物能构建成功却装不上或从不触发：在构建处就拦下。
+  for (const field of ['@name', '@match']) {
+    if (!new RegExp(`^//\\s*${field}\\s+\\S`, 'm').test(banner)) {
+      throw new Error(`${path.basename(metaFile)} 缺少 ${field}`);
+    }
+  }
 
   const entry = await findEntry(pkg.dir);
   if (!entry) return { status: 'skipped' };

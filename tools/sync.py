@@ -348,6 +348,18 @@ def sync(*, check_only: bool, force: bool) -> int:
     if not discovered:
         print("错误：没有在用户页上找到任何脚本。", file=sys.stderr)
         return 2
+    # 分页请求失败时 discover_scripts 会把“网络错误”当成“没有下一页”。
+    # 清单一旦被截断，scripts.json 与 README 表格会跟着少脚本，所以这里按
+    # 已知脚本表做一次完整性校验：少一个就整轮失败，不写入半份清单。
+    missing = [f"{script_id}（{slug}）" for script_id, slug in SLUGS.items() if script_id not in discovered]
+    if missing:
+        print(
+            "错误：用户页上缺少已知脚本："
+            + "、".join(missing)
+            + "。可能是分页请求失败，稍后重试；确认已下线时先从 SLUGS 里删除。",
+            file=sys.stderr,
+        )
+        return 2
     print(f"共发现 {len(discovered)} 个脚本。\n")
 
     SCRIPTS_DIR.mkdir(parents=True, exist_ok=True)

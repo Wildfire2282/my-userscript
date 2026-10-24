@@ -22,7 +22,6 @@
     }
   },
   "include": [
-    "types",
     "scripts/*/src",
     "scripts/*/tests",
     "packages/shared/src",

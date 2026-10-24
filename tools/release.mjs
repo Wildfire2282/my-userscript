@@ -134,8 +134,11 @@ function compareVersions(left, right) {
   return 0;
 }
 
-/** 源码目录里最新的修改时间；没有源码文件时返回 null。 */
-async function newestSourceTime(dir) {
+/**
+ * 目录里最新的修改时间；没有匹配文件时返回 null。
+ * 传 `only` 时只统计这些文件名（用于只看包根下的版本号与元数据）。
+ */
+async function newestSourceTime(dir, only = null) {
   let newest = null;
   let entries;
   try {
@@ -146,9 +149,10 @@ async function newestSourceTime(dir) {
   for (const entry of entries) {
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) {
+      if (only !== null) continue;
       const nested = await newestSourceTime(full);
       if (nested !== null && (newest === null || nested > newest)) newest = nested;
-    } else if (entry.isFile()) {
+    } else if (entry.isFile() && (only === null || only.includes(entry.name))) {
       const mtime = (await stat(full).catch(() => null))?.mtimeMs ?? null;
       if (mtime !== null && (newest === null || mtime > newest)) newest = mtime;
     }
@@ -160,12 +164,19 @@ async function newestSourceTime(dir) {
 async function findArtifact(dir, slug) {
   const dist = path.join(dir, 'dist', `${slug}.user.js`);
   if (await exists(dist)) {
-    // 直接跑发布会拿到上次构建的旧文件：产物必须比全部源码新，否则先构建再发布。
-    const [distStat, newestSrc] = await Promise.all([
+    // 直接跑发布会拿到上次构建的旧文件：产物必须比全部输入新，否则先构建再发布。
+    // `package.json`（版本）与元数据块也算输入——只改版本号时产物同样是旧的。
+    const [distStat, newestInput] = await Promise.all([
       stat(dist),
       newestSourceTime(path.join(dir, 'src')),
     ]);
-    if (newestSrc !== null && distStat.mtimeMs < newestSrc) {
+    const newestMeta = await newestSourceTime(dir, [
+      'package.json',
+      'userscript.meta.ts',
+      'userscript.meta.js',
+    ]);
+    const newest = Math.max(newestInput ?? 0, newestMeta ?? 0) || null;
+    if (newest !== null && distStat.mtimeMs < newest) {
       return { file: dist, kind: '构建产物', stale: true };
     }
     return { file: dist, kind: '构建产物' };

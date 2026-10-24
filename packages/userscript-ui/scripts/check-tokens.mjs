@@ -70,7 +70,7 @@ for (const name of readdirSync(stylesDir).filter((entry) => entry.endsWith('.css
 const failures = [];
 
 for (const file of files) {
-  const source = readFileSync(file, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+  let source = readFileSync(file, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
   const label = relative(projectRoot, file);
 
   for (const match of source.matchAll(/(#[0-9a-f]{3,8}\b|\brgba?\(|\bhsla?\()/gi)) {
@@ -79,7 +79,9 @@ for (const file of files) {
 
   if (label.includes('checkbox.css')) {
     // The checkmark and the dash are drawn with fixed geometry on ::after.
-    continue;
+    // Only those blocks are exempt: a stray `padding: 7px` elsewhere in the file
+    // must still fail, so do not skip the whole file.
+    source = source.replace(/::after\s*\{[^}]*\}/g, '');
   }
 
   for (const match of source.matchAll(/([a-z-]+)\s*:\s*([^;{}]+);/g)) {

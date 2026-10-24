@@ -37,7 +37,7 @@
 | `tools/release.mjs` | 汇总发布物、校验版本与元数据变化 |
 | `tools/sync.py` | 从 Greasy Fork 把线上版本同步回 `legacy/`、元数据、`scripts.json` 与 README 表格 |
 | `scripts.json` | 机器可读清单，由 `npm run sync` 刷新 |
-| `.github/workflows/release.yml` | 脚本包变化（`scripts/*/src`、元数据、`package.json`）后检查、构建并推送 `release` 分支；其他目录改动不触发 |
+| `.github/workflows/release.yml` | 脚本包与共享运行时代码变化后检查、构建并推送 `release` 分支；每个产物发生变化的脚本必须同步提版 |
 
 ## 3. 依赖关系
 
@@ -84,7 +84,6 @@ scripts/<slug>/
 ```powershell
 npm run build               # 全部已迁移脚本
 npm run build super-drag    # 单个
-npm run build:min           # 压缩产物，仅用于排查体积
 ```
 
 `tools/build.mjs` 的流程：
@@ -127,8 +126,8 @@ npm run check           # 交付前全量：静态检查 + 单测 + 构建 + 元
 已知未覆盖：
 
 - `@match` / `@include` 的 pattern 语法（写错的表现是脚本装上了却不生效）。新增或修改匹配地址时由 Agent 核对站点地址与通配符写法，不依赖自动检查。
-- `@grant` 只看 `dist/` 里的 `GM_*` 形式；GM4 的点号写法（`GM.setValue`）与 `unsafeWindow` 不在检测范围。没有构建产物时只提示、不校验。
-- `check:ui-safety` 只扫 `packages/userscript-ui/{src,demo}`；脚本源码里刻意使用 `fetch`（转写网络钩子）不参与该检查，`scripts/*/src` 与 `packages/shared` 的危险能力靠 lint 规则与人工核对。
+- `@grant` 扫描 `dist/` 里的 `GM_*`、`GM.*` 和对应静态字符串属性；两种 API 必须分别授权，动态拼接属性与 `unsafeWindow` 不在检测范围。已迁移脚本缺少产物直接失败。
+- `check:ui-safety` 只扫 `packages/userscript-ui/src`；脚本源码里刻意使用 `fetch`（转写网络钩子）不参与该检查，`scripts/*/src` 与 `packages/shared` 的危险能力靠 lint 规则与人工核对。
 
 `test:browser` 用系统 Chrome/Edge 与 Node 内置 WebSocket 驱动 CDP，不下载 Playwright 浏览器：Windows、macOS、Linux（CI 的 ubuntu-latest 自带 Chrome）都能自动找到，`CHROME_PATH` 可覆盖。场景写在 `scripts/<slug>/tests/browser-scenarios.mjs`：
 
@@ -137,6 +136,10 @@ npm run check           # 交付前全量：静态检查 + 单测 + 构建 + 元
 - `scenarios` 每项为 `{ name, run(ctx) }`，`run(ctx)` 返回 `{ expected, actual }`；
 - 每个场景都在新页面里跑：重新加载夹具、重新注入 GM 打桩与产物。场景自己写前置条件，不依赖执行顺序，也不需要「收尾复位」；
 - 页面里的未捕获异常直接判该场景失败，控制台错误单独列出。
+
+UI 组件浏览器场景统一放在 `packages/userscript-ui/tests/browser-scenarios.mjs`，同一驱动执行；测试入口只在内存中构建，不分发展示页或独立 UI 库产物。可用 `npm run test:browser -- userscript-ui` 单独验证。
+
+Windows 提权终端启动测试浏览器时禁用降权重启，避免 Chrome 脱离父进程导致调试端口等待超时；只影响自动检查，不改变用户浏览器配置。
 
 没有实际执行的检查不得写成「已通过」；无法验证时明确写「未验证」及原因。
 
@@ -151,6 +154,9 @@ npm run check           # 交付前全量：静态检查 + 单测 + 构建 + 元
 | UI 复用 | 源码直引，按需 tree-shake | 不发布运行时包，不引入全局样式与远程资源 |
 | 测试分层 | 纯逻辑走 Vitest，用户可见交互走真实浏览器；同一事实只在一层断言 | 两层都断言同一规则会让维护成本翻倍，失败时也看不出该改哪一层 |
 | 浏览器验证 | 自建 CDP 驱动，不用 Playwright；每个场景独立重载页面 | 环境已有 Chrome/Edge，避免下载浏览器与额外依赖；场景互不污染，可单独删除或调试 |
+| UI 验证与分发 | 删除独立展示页、库产物与第二套浏览器驱动，有效 UI 场景并入主检查 | UI 只供本仓脚本源码直引；测试不应要求维护展示应用 |
+| 共享修复发布 | 共享运行时代码变化也触发发布检查，同批为每个实际产物改变的脚本提升 patch 版本 | 避免修复滞留仓库；复用同版本异内容拒绝机制，不自动改写版本 |
+| 检查告警边界 | 控制台错误仅列出，体积预算超限仅警告 | 页面噪声和体积增长不等同功能失败；未捕获异常、行为断言与缺授权仍阻断 |
 | 发布 | 确认发布后 push `main`，CI 推送 `release` 分支，webhook 通知 Greasy Fork | 构建与上线自动完成；发布时机、登录与元数据变化仍由人确认 |
 | 存储 | 旧键不改名，新键用 `<slug>:<area>.<key>` | 改名会丢用户设置 |
 | 设置读取 | 三个脚本共用一个设置仓库，每次读取都看存储，不长期缓存在内存 | 多标签页与同页 iframe 共用存储，长期缓存会让别处的改动不生效，只有刷新才好 |

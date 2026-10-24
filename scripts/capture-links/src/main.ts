@@ -30,8 +30,23 @@ function start(): void {
       console.warn(`[capture-links] 菜单命令不可用：${label}`);
     }
   };
-  register(MENU_LINKS, () => app.openLinks());
-  register(MENU_SETTINGS, () => app.openSettings());
+  // 面板打开与扫描可能抛错：菜单回调里兜住，否则异常冒到脚本管理器且没有提示。
+  const openLinks = (): void => {
+    try {
+      app.openLinks();
+    } catch (error) {
+      console.error('[capture-links] 打开链接面板失败', error);
+    }
+  };
+  const openSettings = (): void => {
+    try {
+      app.openSettings();
+    } catch (error) {
+      console.error('[capture-links] 打开设置面板失败', error);
+    }
+  };
+  register(MENU_LINKS, openLinks);
+  register(MENU_SETTINGS, openSettings);
 }
 
 try {

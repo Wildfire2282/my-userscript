@@ -67,6 +67,16 @@ describe('createSettingsStore', () => {
     expect(store.get().site).toBe('new');
   });
 
+  it('写失败后别处改了存储就跟存储走，不再顶住旧值', () => {
+    const api = fakeGm({ enabled: true, site: 'old' }, false);
+    const store = createSettingsStore({ api, key: 'k', normalize });
+
+    store.update({ site: 'new' });
+    expect(store.get().site).toBe('new');
+    api.values.set('k', { enabled: true, site: 'other-tab' });
+    expect(store.get().site).toBe('other-tab');
+  });
+
   it('之后写成功时清掉内存副本', () => {
     const api = fakeGm({ site: 'old' }, false);
     const store = createSettingsStore({ api, key: 'k', normalize });

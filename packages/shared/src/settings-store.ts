@@ -31,17 +31,42 @@ export interface SettingsStoreOptions<T> {
  *
  * @param options GM 适配层、存储键与收敛函数；测试里传假实现即可
  */
-export function createSettingsStore<T>(options: SettingsStoreOptions<T>): SettingsStore<T> {
-  /** 写入失败后的内存副本；非 null 时不再相信存储里的旧值。 */
-  let pending: T | null = null;
+/** 写失败时的基线比较：存储值变了就说明别处写过，本页副本作废。 */
+function shallowEqualValue(left: unknown, right: unknown): boolean {
+  if (left === right) return true;
+  if (typeof left !== 'object' || typeof right !== 'object' || left === null || right === null) {
+    return false;
+  }
+  if (Array.isArray(left) || Array.isArray(right)) return false;
+  const leftEntries = Object.entries(left);
+  const rightRecord = right as Record<string, unknown>;
+  return (
+    leftEntries.length === Object.keys(rightRecord).length &&
+    leftEntries.every(
+      ([key, value]) => Object.hasOwn(rightRecord, key) && rightRecord[key] === value,
+    )
+  );
+}
 
-  const get = (): T => pending ?? options.normalize(options.api.getValue(options.key, null));
+export function createSettingsStore<T>(options: SettingsStoreOptions<T>): SettingsStore<T> {
+  // 上次写入失败的新值：只要存储还是“写之前读到的旧值”，就用它顶住，
+  // 别处改了存储就跟存储走；本页的首次读不重试写，避免每次 get 都写存储。
+  let pending: { value: T; base: unknown } | null = null;
+
+  const get = (): T => {
+    const raw = options.api.getValue(options.key, null);
+    if (pending && !shallowEqualValue(raw, pending.base)) pending = null;
+    return pending?.value ?? options.normalize(raw);
+  };
 
   return {
     get,
     update(patch) {
+      const raw = options.api.getValue(options.key, null);
       const next = options.normalize({ ...get(), ...patch });
-      pending = saveStoredSettings(options.api, options.key, next) ? null : next;
+      pending = saveStoredSettings(options.api, options.key, next)
+        ? null
+        : { value: next, base: raw };
       return next;
     },
   };

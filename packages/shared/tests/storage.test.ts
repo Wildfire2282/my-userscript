@@ -47,6 +47,15 @@ describe('mergeDefaults', () => {
     });
   });
 
+  it('存储里多出来的键是深拷贝，改合并结果不污染入参', () => {
+    const stored = { extra: { nested: 1 } };
+    const merged = mergeDefaults(defaults, stored) as typeof defaults & {
+      extra: { nested: number };
+    };
+    merged.extra.nested = 2;
+    expect(stored.extra.nested).toBe(1);
+  });
+
   it('存储内容不是对象时整体回到默认值', () => {
     for (const stored of ['oops', 42, ['array'], undefined, null]) {
       expect(mergeDefaults(defaults, stored)).toEqual(defaults);

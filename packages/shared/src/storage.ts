@@ -36,7 +36,8 @@ function mergeRecords(
       : mergeValue(value, undefined);
   }
   for (const [key, value] of Object.entries(stored)) {
-    if (!Object.hasOwn(merged, key)) merged[key] = value;
+    // 存储里多出来的键按引用挂上后，调用方改合并结果会污染读缓存：深拷贝一份。
+    if (!Object.hasOwn(merged, key)) merged[key] = clone(value);
   }
   return merged;
 }

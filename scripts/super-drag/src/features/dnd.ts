@@ -143,8 +143,14 @@ export function installDragSensor(deps: DragSensorDeps): DragSensor {
 
   const handleDrop = (event: DragEvent) => {
     if (phase !== 'dragging') return;
-    // 拖进输入框是页面的原生粘贴，不接管。
+    // 拖进输入框是页面的原生粘贴，不接管：DataTransfer 里还留着脚本改写的值，
+    // 必须恢复成用户原本拖的文字，否则粘贴出来的是网址或搜索结果。
     if (isInputElement(event)) {
+      try {
+        event.dataTransfer?.setData('text/plain', data);
+      } catch {
+        // 只读的 DataTransfer：保不住原文，但至少不打开页面。
+      }
       reset();
       return;
     }

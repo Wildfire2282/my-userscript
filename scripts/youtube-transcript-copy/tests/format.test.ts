@@ -14,11 +14,11 @@ describe('tsToSec', () => {
     expect(tsToSec('01:02:03')).toBe(3723);
   });
 
-  it('认不出的格式按 0 处理', () => {
-    expect(tsToSec('')).toBe(0);
-    expect(tsToSec('abc')).toBe(0);
-    expect(tsToSec('ab:cd')).toBe(0);
-    expect(tsToSec('1:ab')).toBe(0);
+  it('认不出的格式返回 null，调用方跳过而不是印成 [0:00]', () => {
+    expect(tsToSec('')).toBeNull();
+    expect(tsToSec('abc')).toBeNull();
+    expect(tsToSec('ab:cd')).toBeNull();
+    expect(tsToSec('1:ab')).toBeNull();
   });
 });
 
@@ -29,8 +29,9 @@ describe('fmtTs', () => {
     expect(fmtTs(5_000)).toBe('0:05');
   });
 
-  it('旧版没有小时位，超过一小时按分钟累加', () => {
-    expect(fmtTs(3_723_000)).toBe('62:03');
+  it('超过一小时带小时位，不再印成 90:00 这种分钟数', () => {
+    expect(fmtTs(3_723_000)).toBe('1:02:03');
+    expect(fmtTs(5_400_000)).toBe('1:30:00');
   });
 
   it('未知时间戳返回空串，负数按 0 处理', () => {
@@ -49,6 +50,10 @@ describe('formatLines', () => {
         { start: null, text: '没有时间戳' },
       ]),
     ).toBe('[0:00] 第一句\n[0:02] 第二句\n没有时间戳');
+  });
+
+  it('一小时以上的片段带小时位', () => {
+    expect(formatLines([{ start: 5_400_000, text: '后半段' }])).toBe('[1:30:00] 后半段');
   });
 
   it('没有片段时是空字符串', () => {

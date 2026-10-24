@@ -13,8 +13,9 @@ import { getAnchorRect, getControlAnchorRect, type AnchorBox } from './geometry'
 /**
  * 复制动作：找来源 → 过门控 → 写剪贴板 → 点亮标记。
  *
- * 写入是异步的，完成顺序可能与发起顺序相反；只让最新一次请求显示反馈，
- * 否则更旧的那次会把提示挪到旧位置，看起来像同时出现了多个提示。
+ * 写入是异步的，完成顺序可能与发起顺序相反；只让最新一次请求显示反馈并
+ * 拦住旧写入的结果，旧写入后完成时不再上报成功——此时剪贴板里若还有旧文字，
+ * 那也是写入器自己的行为，而不是脚本又写了一次。
  */
 
 /** 复制动作需要的设置子集；测试里不必构造完整设置。 */
@@ -86,13 +87,16 @@ export function createCopyAction(
     const current = ++requestId;
     let written = false;
     try {
-      written = await options.clipboard.copy(source.text);
+      // 先判“还是不是最新一次”：旧写入即使后完成，也不再覆盖反馈，
+      // 返回值同样按过期处理，调用方不会把旧文字当成这次的结果。
+      const latest = await options.clipboard.copy(source.text);
+      if (current !== requestId) return 'skipped';
+      written = latest;
     } catch {
       // 写入器按约定不抛错；自定义实现抛错时仍要给用户一个明确结果。
+      if (current !== requestId) return 'skipped';
     }
-    if (current === requestId) {
-      options.showFeedback({ variant: written ? 'success' : 'failure', rect: source.rect });
-    }
+    options.showFeedback({ variant: written ? 'success' : 'failure', rect: source.rect });
     return written ? 'copied' : 'failed';
   };
 }

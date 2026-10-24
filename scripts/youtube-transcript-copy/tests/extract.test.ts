@@ -80,9 +80,9 @@ describe('extractFromJson3', () => {
     expect(
       extractFromJson3({
         events: [
-          { tStartMs: 0, segs: [{ utf8: 'Hello' }, { utf8: 'world' }] },
+          { tStartMs: 0, segs: [{ utf8: 'Hello' }, { utf8: ' world' }] },
           { tStartMs: 1_200, segs: [{ utf8: '  ' }] },
-          { tStartMs: 2_400, segs: [{ utf8: '再见' }] },
+          { tStartMs: 2_400, segs: [{ utf8: '再' }, { utf8: '见' }] },
         ],
       }),
     ).toEqual([
@@ -94,6 +94,42 @@ describe('extractFromJson3', () => {
   it('空数据返回 null', () => {
     expect(extractFromJson3({ events: [] })).toBeNull();
     expect(extractFromJson3('nope')).toBeNull();
+  });
+
+  it('runs[] 结构不丢字，中日文不插空格', () => {
+    expect(
+      extractFromPanelResponse({
+        engagementPanels: [
+          {
+            engagementPanelSectionListRenderer: {
+              panelIdentifier: 'engagement-panel-searchable-transcript',
+              content: {
+                transcriptRenderer: {
+                  body: {
+                    transcriptBodyRenderer: {
+                      cueGroups: [
+                        {
+                          transcriptCueGroupRenderer: {
+                            cues: [
+                              {
+                                transcriptCueRenderer: {
+                                  startOffsetMs: 0,
+                                  cue: { runs: [{ text: '你' }, { text: '好' }] },
+                                },
+                              },
+                            ],
+                          },
+                        },
+                      ],
+                    },
+                  },
+                },
+              },
+            },
+          },
+        ],
+      }),
+    ).toEqual([{ start: 0, text: '你好' }]);
   });
 });
 

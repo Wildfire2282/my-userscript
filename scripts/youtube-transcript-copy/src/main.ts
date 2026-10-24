@@ -11,6 +11,7 @@ import { installNetworkCapture } from './transcript/network';
 import { openTranscriptPanel } from './transcript/open-panel';
 import { createTranscriptService } from './transcript/service';
 import { createTranscriptButtonApp, type CopyOutcome } from './ui/app';
+import { readVideoId } from './transcript/network';
 
 /**
  * 入口：先装网络钩子（越早越好），DOM 就绪后再建悬浮按钮、挂 SPA 与播放状态监听。
@@ -31,16 +32,17 @@ function start(): void {
   const gm = createGmApi();
   const store = createStore(gm);
   const clipboard = createClipboard();
-  const currentVideoId = (): string => new URLSearchParams(location.search).get('v') ?? '';
+  const currentVideoId = (): string => readVideoId(location.search, location.pathname);
   // 把当前视频交给网络钩子：页面还会为别的视频和翻译字幕发同样的请求，那些不能留。
   const network = installNetworkCapture(window, { currentVideoId });
 
-  // `document-start` 时播放器响应还没挂到 window 上，等 DOMContentLoaded 再读一次。
+  // `document-start` 时播放器响应还没有挂到 window 上，等 DOMContentLoaded 再读一次。
   // 记下它属于哪个视频：SPA 换视频后不能再拿旧视频的字幕轨。
   let initialTrack: { videoId: string; track: CaptionTrack } | null = null;
   const captureInitialTrack = (): void => {
     const track = readInitialTrack((window as YtWindow).ytInitialPlayerResponse);
-    if (track) initialTrack = { videoId: currentVideoId(), track };
+    // 新视频没有字幕时也要清空，否则策略记忆会让旧视频的轨一直占着第一位。
+    initialTrack = track ? { videoId: currentVideoId(), track } : null;
   };
 
   const service = createTranscriptService({
@@ -100,6 +102,8 @@ function start(): void {
       if (videoId !== lastVideoId) {
         lastVideoId = videoId;
         network.clear();
+        // 新视频有自己的首条字幕轨，重读一次；否则旧轨的失败记忆会拖慢每次复制。
+        captureInitialTrack();
       }
       app.sync();
     });

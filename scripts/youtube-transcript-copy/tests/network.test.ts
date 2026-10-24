@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { nextCapture, parseCapturedResponse } from '../src/transcript/network';
+import { nextCapture, parseCapturedResponse, readVideoId } from '../src/transcript/network';
 
 const TIMEDTEXT = {
   events: [
@@ -60,6 +60,16 @@ describe('parseCapturedResponse', () => {
     expect(
       parseCapturedResponse('https://www.youtube.com/youtubei/v1/get_transcript', { actions: [] }),
     ).toBeNull();
+  });
+});
+
+describe('readVideoId', () => {
+  it('watch、shorts、embed、live 都能读到视频 ID', () => {
+    expect(readVideoId('?v=abc', '/watch')).toBe('abc');
+    expect(readVideoId('', '/shorts/xyz')).toBe('xyz');
+    expect(readVideoId('', '/embed/xyz')).toBe('xyz');
+    expect(readVideoId('', '/live/xyz')).toBe('xyz');
+    expect(readVideoId('', '/watch')).toBe('');
   });
 });
 

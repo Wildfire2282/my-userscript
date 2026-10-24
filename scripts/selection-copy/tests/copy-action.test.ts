@@ -223,4 +223,30 @@ describe('createCopyAction', () => {
       }),
     );
   });
+
+  it('旧写入后完成时按过期处理，不再上报成功', async () => {
+    const first = document.createElement('p');
+    first.textContent = '第一次';
+    const second = document.createElement('p');
+    second.textContent = '第二次';
+    document.body.append(first, second);
+
+    const resolvers: Array<(value: boolean) => void> = [];
+    const clipboard: Clipboard = {
+      copy: () => new Promise<boolean>((resolve) => resolvers.push(resolve)),
+    };
+    const showFeedback = vi.fn();
+    const action = makeAction(clipboard, showFeedback);
+
+    select(first);
+    const older = action(first);
+    select(second);
+    const newer = action(second);
+
+    resolvers[1]?.(true);
+    await expect(newer).resolves.toBe('copied');
+    resolvers[0]?.(true);
+    await expect(older).resolves.toBe('skipped');
+    expect(showFeedback).toHaveBeenCalledTimes(1);
+  });
 });

@@ -45,6 +45,20 @@ function readCapturedUrl(url: string): { videoId: string; translated: boolean } 
 }
 
 /**
+ * 当前视频 ID：先读 `?v=`，再认 `/shorts/…`、`/embed/…`、`/live/…` 的路径。
+ *
+ * 只读 `?v=` 时这三种页面得到空串，网络捕获与 API 兜底会全部失效。
+ *
+ * @param search 地址栏查询串，如 `location.search`
+ * @param pathname 地址栏路径，如 `location.pathname`
+ */
+export function readVideoId(search: string, pathname: string): string {
+  const fromQuery = (new URLSearchParams(search).get('v') ?? '').trim();
+  if (fromQuery !== '') return fromQuery;
+  return (/^\/(?:shorts|embed|live)\/([^/?#]+)/.exec(pathname)?.[1] ?? '').trim();
+}
+
+/**
  * 决定这次抓到的内容要不要留下。
  *
  * 页面同一时刻只留一份：播放器会为别的视频（下一个视频、迷你播放器）和翻译字幕
@@ -103,7 +117,7 @@ export function installNetworkCapture(
 ): NetworkCapture {
   const globals = win as unknown as HookGlobals;
   const currentVideoId =
-    options.currentVideoId ?? (() => new URLSearchParams(win.location.search).get('v') ?? '');
+    options.currentVideoId ?? (() => readVideoId(win.location.search, win.location.pathname));
 
   const read = (): Segment[] | null => {
     const state = globals.__ytTxNetSegments ?? null;

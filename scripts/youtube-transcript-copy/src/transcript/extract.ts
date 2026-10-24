@@ -65,11 +65,20 @@ export function extractFromPanelResponse(data: unknown): Segment[] | null {
         const cueRecord = asRecord(cue);
         if (!cueRecord) continue;
         const renderer = asRecord(cueRecord.transcriptCueRenderer);
+        const cueRecord2 = asRecord(renderer?.cue) ?? asRecord(cueRecord.cue);
+        // 新版把一行拆成 `runs[]`（每段一个对象），只读 simpleText 会整段丢掉。
+        const runs = asArray(cueRecord2?.runs ?? renderer?.runs)
+          .map((run) => asString(asRecord(run)?.text))
+          .join('');
         const text =
-          asString(renderer?.simpleText) || asString(asRecord(renderer?.cue)?.simpleText);
+          runs !== '' && clean(runs) !== ''
+            ? clean(runs)
+            : asString(renderer?.simpleText) ||
+              asString(cueRecord2?.simpleText) ||
+              asString(asRecord(renderer?.cue)?.simpleText);
         if (!text) continue;
         segments.push({
-          start: numberOr(renderer?.startOffsetMs) ?? numberOr(cueRecord.startOffsetMs) ?? 0,
+          start: numberOr(renderer?.startOffsetMs) ?? numberOr(cueRecord.startOffsetMs),
           text: clean(text),
         });
       }
@@ -77,6 +86,27 @@ export function extractFromPanelResponse(data: unknown): Segment[] | null {
   }
 
   return segments.length > 0 ? segments : null;
+}
+
+/** 中日韩文字之间没有空格分隔：两边都是 CJK 字符时直接拼接，否则补一个空格。 */
+function isCjk(char: string): boolean {
+  return /[\u2e80-\u9fff\uac00-\ud7af\uf900-\ufaff]/.test(char);
+}
+
+function joinSegs(parts: string[]): string {
+  let out = '';
+  for (const part of parts) {
+    if (part === '') continue;
+    if (out === '') {
+      out = part;
+      continue;
+    }
+    const prev = out[out.length - 1] ?? '';
+    const next = part[0] ?? '';
+    out += isCjk(prev) && isCjk(next) ? part : ` ${part}`;
+  }
+  // 首段自带的前导空格（如英文 ' hello'）留给外层的 clean 处理。
+  return out;
 }
 
 /** json3 字幕（captionTracks[0].baseUrl + `fmt=json3`）里的转写。 */
@@ -88,13 +118,13 @@ export function extractFromJson3(data: unknown): Segment[] | null {
   for (const event of asArray(root.events)) {
     const record = asRecord(event);
     if (!record) continue;
+    // 中日文字幕的 segs 之间没有空格，用空格拼接会插进多余空格；
+    // 按“两边都是 CJK 就不加空格”拼接，英文仍保留单词间空格。
     const text = clean(
-      asArray(record.segs)
-        .map((part) => asString(asRecord(part)?.utf8))
-        .join(' '),
+      joinSegs(asArray(record.segs).map((part) => asString(asRecord(part)?.utf8))),
     );
     if (!text) continue;
-    segments.push({ start: numberOr(record.tStartMs) ?? 0, text });
+    segments.push({ start: numberOr(record.tStartMs), text });
   }
   return segments.length > 0 ? segments : null;
 }
@@ -127,7 +157,9 @@ export function extractFromViewModel(root: ParentNode): Segment[] | null {
       findLeafWithText(host);
     const text = clean(textNode?.textContent);
     if (text && text !== timestamp) {
-      segments.push({ start: tsToSec(timestamp) * 1000, text });
+      // 时间戳认不出时记 null：formatLines 会只印文字，不会伪造一个 `[0:00]`。
+      const seconds = tsToSec(timestamp);
+      segments.push({ start: seconds === null ? null : seconds * 1000, text });
     }
   }
   const fromNodes = dedupeSegments(segments);
@@ -156,7 +188,8 @@ export function extractFromViewModel(root: ParentNode): Segment[] | null {
     const text = blockText.replace(/^\d{1,2}(:\d{2}){1,2}/, '').trim();
     // 不要求英文字母：纯中文转写（“你好世界”）也要收进来。
     if (text.length > 1) {
-      segments.push({ start: tsToSec(timestamp) * 1000, text });
+      const seconds = tsToSec(timestamp);
+      segments.push({ start: seconds === null ? null : seconds * 1000, text });
     }
   }
   const unique = dedupeSegments(segments);
@@ -173,7 +206,8 @@ export function extractFromPanelDump(root: ParentNode): Segment[] | null {
     if (!linePattern.test(content)) continue;
     const match = /^(\d{1,2}(?::\d{2}){1,2})\s+(.*)$/.exec(content);
     if (!match?.[1] || match[2] === undefined) continue;
-    segments.push({ start: tsToSec(match[1]) * 1000, text: clean(match[2]) });
+    const seconds = tsToSec(match[1]);
+    segments.push({ start: seconds === null ? null : seconds * 1000, text: clean(match[2]) });
   }
   return segments.length > 0 ? segments : null;
 }

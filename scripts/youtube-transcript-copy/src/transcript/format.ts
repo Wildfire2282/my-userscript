@@ -1,10 +1,11 @@
 import type { Segment } from './types';
 
 /**
- * 转写文稿的文本处理：清洗、时间戳互转、输出格式。
+ * 转写文稿的文本处理：清洗、时间戳互换、输出格式。
  *
  * 输出格式与线上旧版逐字一致：每条一行，有时间戳时加 `[分:秒] ` 前缀。
- * 时间戳只到分钟（`90:00` 表示 90 分钟），旧版没有小时位，这里保持不改。
+ * 一小时以内沿用旧版的 `分:秒`（如 `1:05`），一小时及以上用 `时:分:秒`
+ * （如 `1:30:00`）：旧版无小时位，90 分钟的视频会印成 `90:00` 看不懂。
  */
 
 export function clean(text: string | null | undefined): string {
@@ -15,9 +16,9 @@ export function clean(text: string | null | undefined): string {
  * 把页面上的时间戳文字换算成毫秒。
  *
  * @param text `m:ss` 或 `h:mm:ss`
- * @returns 毫秒；格式不认识时按 0 处理
+ * @returns 毫秒；格式不认识时返回 null，调用方跳过这条而不是印成 `[0:00]`
  */
-export function tsToSec(text: string): number {
+export function tsToSec(text: string): number | null {
   const parts = text.split(':').map(Number);
   if (parts.length === 2) {
     const [minutes, seconds] = parts;
@@ -28,7 +29,7 @@ export function tsToSec(text: string): number {
       !Number.isFinite(minutes) ||
       !Number.isFinite(seconds)
     ) {
-      return 0;
+      return null;
     }
     return minutes * 60 + seconds;
   }
@@ -42,20 +43,23 @@ export function tsToSec(text: string): number {
       !Number.isFinite(minutes) ||
       !Number.isFinite(seconds)
     ) {
-      return 0;
+      return null;
     }
     return hours * 3600 + minutes * 60 + seconds;
   }
-  return 0;
+  return null;
 }
 
-/** 毫秒 → 复制到剪贴板里的 `分:秒`；未知时间戳返回空串。 */
+/** 毫秒 → 复制到剪贴板里的时间戳；一小时及以上带小时位，未知返回空串。 */
 export function fmtTs(ms: number | null): string {
   if (ms === null || !Number.isFinite(ms)) return '';
   const total = Math.max(0, Math.floor(ms / 1000));
+  const hours = Math.floor(total / 3600);
   const minutes = Math.floor(total / 60);
   const seconds = total % 60;
-  return `${minutes}:${String(seconds).padStart(2, '0')}`;
+  return hours > 0
+    ? `${hours}:${String(minutes % 60).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
+    : `${minutes}:${String(seconds).padStart(2, '0')}`;
 }
 
 /** 每条一行；没有时间戳的片段只输出文字。 */

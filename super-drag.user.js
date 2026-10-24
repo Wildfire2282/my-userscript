@@ -2,7 +2,7 @@
 // @name         拖拽打开
 // @name:en      Drag to Open
 // @namespace    https://github.com/Wildfire2282
-// @version      2.7.0
+// @version      2.8.1
 // @description  拖拽文本搜索，拖拽链接在新标签页打开，拖拽图片查看
 // @description:en Drag text to search, links to open, and images to view
 // @author       Wildfire2282 (https://github.com/Wildfire2282)
@@ -104,6 +104,29 @@
 		return api.setValue(key, value);
 	}
 	//#endregion
+	//#region packages/shared/src/settings-store.ts
+	/**
+	* 创建设置仓库。
+	*
+	* @param options GM 适配层、存储键与收敛函数；测试里传假实现即可
+	*/
+	function createSettingsStore$1(options) {
+		/** 写入失败后的内存副本；非 null 时不再相信存储里的旧值。 */
+		let pending = null;
+		const get = () => pending ?? options.normalize(options.api.getValue(options.key, null));
+		return {
+			get,
+			update(patch) {
+				const next = options.normalize({
+					...get(),
+					...patch
+				});
+				pending = saveStoredSettings(options.api, options.key, next) ? null : next;
+				return next;
+			}
+		};
+	}
+	//#endregion
 	//#region scripts/super-drag/src/settings.ts
 	/** 「自定义」引擎在 `defaultEngine` 里的取值；`engines` 里不会有这个键。 */
 	var CUSTOM_ENGINE_ID = "custom";
@@ -169,28 +192,16 @@
 		};
 	}
 	/**
-	* 创建设置仓库。
+	* 创建设置仓库；读取与写回的通用逻辑在 `@shared`。
 	*
 	* @param api GM 适配层；测试里可以传入假实现
 	*/
 	function createSettingsStore(api = createGmApi()) {
-		let cache = null;
-		const get = () => {
-			if (!cache) cache = normalizeSettings(api.getValue(SETTINGS_KEY, null));
-			return cache;
-		};
-		return {
-			get,
-			update(patch) {
-				const next = {
-					...get(),
-					...patch
-				};
-				cache = next;
-				saveStoredSettings(api, SETTINGS_KEY, next);
-				return next;
-			}
-		};
+		return createSettingsStore$1({
+			api,
+			key: SETTINGS_KEY,
+			normalize: normalizeSettings
+		});
 	}
 	//#endregion
 	//#region scripts/super-drag/src/search.ts
@@ -554,6 +565,11 @@
 	//#region scripts/super-drag/src/features/dnd.ts
 	var CLICK_SWALLOW_MS = 400;
 	var GHOST_PIXEL_SRC = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
+	/** 事件发生处最里层的元素；Shadow DOM 内的拖拽要拿到内部节点而不是宿主。 */
+	function targetOf(event) {
+		const target = realTarget(event);
+		return target instanceof Element ? target : null;
+	}
 	function installDragSensor(deps) {
 		const controller = new AbortController();
 		const { signal } = controller;
@@ -565,6 +581,7 @@
 		let kind = "text";
 		let data = "";
 		let swallowClickUntil = 0;
+		let dragSource = null;
 		let ghost = null;
 		const reset = () => {
 			phase = "idle";
@@ -618,6 +635,7 @@
 			phase = "dragging";
 			kind = payload.kind;
 			data = payload.data;
+			dragSource = targetOf(event);
 		};
 		const handleDragOver = (event) => {
 			if (phase !== "dragging") return;
@@ -653,13 +671,17 @@
 		};
 		const handleClickCapture = (event) => {
 			if (swallowClickUntil !== 0 && performance.now() <= swallowClickUntil) {
-				swallowClickUntil = 0;
-				event.preventDefault();
-				event.stopPropagation();
-				event.stopImmediatePropagation();
-				return;
+				if (dragSource !== null && event.composedPath().includes(dragSource)) {
+					swallowClickUntil = 0;
+					dragSource = null;
+					event.preventDefault();
+					event.stopPropagation();
+					event.stopImmediatePropagation();
+					return;
+				}
 			}
 			swallowClickUntil = 0;
+			dragSource = null;
 			if (phase !== "idle") reset();
 		};
 		const handleKeyDown = (event) => {
@@ -667,6 +689,7 @@
 		};
 		const handlePressStart = () => {
 			swallowClickUntil = 0;
+			dragSource = null;
 		};
 		window.addEventListener("dragstart", handleDragStart, listenerOptions);
 		window.addEventListener("dragover", handleDragOver, listenerOptions);

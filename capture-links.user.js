@@ -2,7 +2,7 @@
 // @name         捕获链接
 // @name:en      Link Capture
 // @namespace    https://github.com/Wildfire2282
-// @version      1.2.0
+// @version      1.3.0
 // @description  捕获页面中的全部链接，支持关键词筛选与批量复制
 // @description:en Collect, filter, and copy all links on a page
 // @author       Wildfire2282 (https://github.com/Wildfire2282)
@@ -170,6 +170,29 @@
 		return api.setValue(key, value);
 	}
 	//#endregion
+	//#region packages/shared/src/settings-store.ts
+	/**
+	* 创建设置仓库。
+	*
+	* @param options GM 适配层、存储键与收敛函数；测试里传假实现即可
+	*/
+	function createSettingsStore$1(options) {
+		/** 写入失败后的内存副本；非 null 时不再相信存储里的旧值。 */
+		let pending = null;
+		const get = () => pending ?? options.normalize(options.api.getValue(options.key, null));
+		return {
+			get,
+			update(patch) {
+				const next = options.normalize({
+					...get(),
+					...patch
+				});
+				pending = saveStoredSettings(options.api, options.key, next) ? null : next;
+				return next;
+			}
+		};
+	}
+	//#endregion
 	//#region scripts/capture-links/src/settings.ts
 	/** 线上旧键，按 AGENTS.md 6.4 不改名，否则老用户设置会丢。 */
 	var SETTINGS_KEY = "settings";
@@ -196,28 +219,16 @@
 		};
 	}
 	/**
-	* 创建设置仓库。
+	* 创建设置仓库；读取与写回的通用逻辑在 `@shared`。
 	*
 	* @param api GM 适配层；测试里可以传入假实现
 	*/
 	function createSettingsStore(api = createGmApi()) {
-		let cache = null;
-		const get = () => {
-			if (!cache) cache = normalizeSettings(api.getValue(SETTINGS_KEY, null));
-			return cache;
-		};
-		return {
-			get,
-			update(patch) {
-				const next = {
-					...get(),
-					...patch
-				};
-				cache = next;
-				saveStoredSettings(api, SETTINGS_KEY, next);
-				return next;
-			}
-		};
+		return createSettingsStore$1({
+			api,
+			key: SETTINGS_KEY,
+			normalize: normalizeSettings
+		});
 	}
 	//#endregion
 	//#region packages/userscript-ui/src/styles/base.css?inline
@@ -1823,7 +1834,7 @@
 		let filteredItems = [];
 		let selectedIds = /* @__PURE__ */ new Set();
 		let shownCount = PAGE_SIZE;
-		/** 勾选状态按事件委托记在列表上：行会被反复重建，逐行挂监听无法可靠清理。 */
+		/** 勾选状态与“显示更多”都用事件委托：行会被反复重建，逐行挂监听会随重画次数累积。 */
 		list.addEventListener("change", (event) => {
 			const target = event.target;
 			if (!(target instanceof HTMLInputElement) || target.type !== "checkbox") return;
@@ -1832,6 +1843,12 @@
 			if (target.checked) selectedIds.add(id);
 			else selectedIds.delete(id);
 			updateStats();
+		}, { signal: ui.signal });
+		list.addEventListener("click", (event) => {
+			const target = event.target;
+			if (!(target instanceof Element) || !target.closest(".cl-more")) return;
+			shownCount += PAGE_SIZE;
+			render();
 		}, { signal: ui.signal });
 		function updateStats() {
 			const chosen = filteredItems.filter((item) => selectedIds.has(item.id)).length;
@@ -1875,10 +1892,6 @@
 					more.type = "button";
 					more.className = "cl-more";
 					more.textContent = `显示更多（剩余 ${filteredItems.length - shownCount} 条）`;
-					more.addEventListener("click", () => {
-						shownCount += PAGE_SIZE;
-						render();
-					}, { signal: ui.signal });
 					list.appendChild(more);
 				}
 			}

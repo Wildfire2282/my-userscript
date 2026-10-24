@@ -2,7 +2,7 @@
 // @name         选中复制
 // @name:en      Copy on Select
 // @namespace    https://github.com/Wildfire2282
-// @version      1.4.0
+// @version      1.4.1
 // @description  选中文本后自动纯文本复制到剪贴板，去除首尾空白
 // @description:en Copy selected text as plain text with whitespace trimmed
 // @author       Wildfire2282 (https://github.com/Wildfire2282)
@@ -168,6 +168,29 @@
 		return api.setValue(key, value);
 	}
 	//#endregion
+	//#region packages/shared/src/settings-store.ts
+	/**
+	* 创建设置仓库。
+	*
+	* @param options GM 适配层、存储键与收敛函数；测试里传假实现即可
+	*/
+	function createSettingsStore$1(options) {
+		/** 写入失败后的内存副本；非 null 时不再相信存储里的旧值。 */
+		let pending = null;
+		const get = () => pending ?? options.normalize(options.api.getValue(options.key, null));
+		return {
+			get,
+			update(patch) {
+				const next = options.normalize({
+					...get(),
+					...patch
+				});
+				pending = saveStoredSettings(options.api, options.key, next) ? null : next;
+				return next;
+			}
+		};
+	}
+	//#endregion
 	//#region scripts/selection-copy/src/settings.ts
 	/** 新键按 AGENTS.md 6.4 的 `<slug>:<area>.<key>` 命名。 */
 	var SETTINGS_KEY = "selection-copy:config.settings";
@@ -276,35 +299,16 @@
 		});
 	}
 	/**
-	* 创建设置仓库。
+	* 创建设置仓库；读取与写回的通用逻辑在 `@shared`。
 	*
 	* @param api GM 适配层；测试里可以传入假实现
 	*/
 	function createSettingsStore(api = createGmApi()) {
-		let cache = null;
-		let writeFailed = false;
-		const get = () => {
-			if (!cache) cache = normalizeSettings(api.getValue(SETTINGS_KEY, null));
-			return cache;
-		};
-		return {
-			get,
-			snapshot() {
-				if (writeFailed) return get();
-				const stored = api.getValue(SETTINGS_KEY, null);
-				if (stored !== null && stored !== void 0) cache = normalizeSettings(stored);
-				return get();
-			},
-			update(patch) {
-				const next = normalizeSettings({
-					...get(),
-					...patch
-				});
-				cache = next;
-				writeFailed = !saveStoredSettings(api, SETTINGS_KEY, next);
-				return next;
-			}
-		};
+		return createSettingsStore$1({
+			api,
+			key: SETTINGS_KEY,
+			normalize: normalizeSettings
+		});
 	}
 	//#endregion
 	//#region scripts/selection-copy/src/selection.ts
@@ -1787,7 +1791,7 @@ dragThresholdPx: 3 };
 		const app = createUiHost();
 		const copy = createCopyAction({
 			clipboard: createClipboard(),
-			getSettings: store.snapshot,
+			getSettings: store.get,
 			site,
 			showFeedback: app.showFeedback
 		});

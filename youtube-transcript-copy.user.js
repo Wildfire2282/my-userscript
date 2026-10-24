@@ -2,7 +2,7 @@
 // @name         YouTube 转写文稿复制
 // @name:en      YouTube Transcript Copy
 // @namespace    https://github.com/Wildfire2282
-// @version      1.4.0
+// @version      1.4.4
 // @description  视频播放页面出现可拖拽悬浮按钮，可一键复制转写文稿（transcript），支持英语等多语言界面
 // @description:en Add a draggable button to copy YouTube transcripts
 // @author       Wildfire2282 (https://github.com/Wildfire2282)
@@ -599,10 +599,59 @@
 	function parseCapturedResponse(url, data) {
 		return TIMEDTEXT_PATTERN.test(url) ? extractFromJson3(data) : extractFromPanelResponse(data);
 	}
-	function installNetworkCapture(win = window) {
+	/** 地址里能读到的信息：`v=` 是视频 ID，`tlang` 表示这是翻译字幕。 */
+	function readCapturedUrl(url) {
+		try {
+			const parsed = new URL(url, "https://www.youtube.com");
+			return {
+				videoId: parsed.searchParams.get("v") ?? "",
+				translated: parsed.searchParams.get("tlang") !== null
+			};
+		} catch {
+			return {
+				videoId: "",
+				translated: false
+			};
+		}
+	}
+	/**
+	* 决定这次抓到的内容要不要留下。
+	*
+	* 页面同一时刻只留一份：播放器会为别的视频（下一个视频、迷你播放器）和翻译字幕
+	* 也发同样的请求，谁的响应后到就覆盖谁的做法会让人复制到别的内容。
+	*
+	* @param state 已缓存的内容
+	* @param currentVideoId 当前地址栏里的视频
+	* @param url 这次响应的地址
+	* @param segments 这次解析出的片段；null 表示这份响应没有文稿
+	* @returns 新的缓存内容；`null` 表示丢掉这次响应
+	*/
+	function nextCapture(state, currentVideoId, url, segments) {
+		if (!segments || segments.length === 0 || currentVideoId === "") return null;
+		const { videoId, translated } = readCapturedUrl(url);
+		const fromPanel = !TIMEDTEXT_PATTERN.test(url);
+		if (videoId !== "" && videoId !== currentVideoId) return null;
+		if (!fromPanel && translated) return null;
+		if (state?.fromPanel && !fromPanel) return null;
+		return {
+			videoId: currentVideoId,
+			fromPanel,
+			segments
+		};
+	}
+	function installNetworkCapture(win = window, options = {}) {
 		const globals = win;
+		const currentVideoId = options.currentVideoId ?? (() => new URLSearchParams(win.location.search).get("v") ?? "");
+		const read = () => {
+			const state = globals.__ytTxNetSegments ?? null;
+			return state !== null && state.videoId === currentVideoId() ? state.segments : null;
+		};
+		const accept = (url, data) => {
+			const next = nextCapture(globals.__ytTxNetSegments ?? null, currentVideoId(), url, parseCapturedResponse(url, data));
+			if (next) globals.__ytTxNetSegments = next;
+		};
 		if (globals.__ytTxNetHooked) return {
-			get: () => globals.__ytTxNetSegments ?? null,
+			get: read,
 			clear: () => {
 				globals.__ytTxNetSegments = null;
 			},
@@ -617,8 +666,7 @@
 			const request = originalFetch(...args);
 			if (CAPTURE_PATTERN.test(url)) request.then(async (response) => {
 				try {
-					const data = await response.clone().json();
-					globals.__ytTxNetSegments = parseCapturedResponse(url, data) ?? globals.__ytTxNetSegments ?? null;
+					accept(url, await response.clone().json());
 				} catch {}
 			}).catch(() => void 0);
 			return request;
@@ -631,7 +679,7 @@
 			if (CAPTURE_PATTERN.test(target)) this.addEventListener("load", () => {
 				try {
 					const data = this.responseType === "json" ? this.response : JSON.parse(this.responseText);
-					globals.__ytTxNetSegments = parseCapturedResponse(target, data) ?? globals.__ytTxNetSegments ?? null;
+					accept(target, data);
 				} catch {}
 			});
 			Reflect.apply(originalOpen, this, [
@@ -642,7 +690,7 @@
 		};
 		proto.open = wrappedOpen;
 		return {
-			get: () => globals.__ytTxNetSegments ?? null,
+			get: read,
 			clear() {
 				globals.__ytTxNetSegments = null;
 			},
@@ -1814,7 +1862,11 @@
 		});
 		wrap.appendChild(button.el);
 		ui.mount(wrap);
+		/** 已写进样式的坐标；定时校正每次都会调用，值没变就不碰 DOM（写样式会触发重排）。 */
+		let applied = null;
 		const applyPosition = () => {
+			if (applied?.right === position.right && applied.top === position.top) return;
+			applied = { ...position };
 			wrap.style.right = `${position.right}px`;
 			wrap.style.top = `${position.top}px`;
 		};
@@ -1859,8 +1911,8 @@
 				scope.abort();
 				dragScope = null;
 				wrap.dataset.dragging = "false";
-				options.onMoveEnd(position);
 				if (!moved) return;
+				options.onMoveEnd(position);
 				suppressClick = true;
 				window.setTimeout(() => {
 					suppressClick = false;
@@ -1935,7 +1987,7 @@
 		};
 		/** 抓取并复制；按钮和面板共用，同一时刻只跑一个。 */
 		const copy = async () => {
-			if (busy) return "error";
+			if (busy) return "skipped";
 			busy = true;
 			try {
 				return await options.activate();
@@ -1977,6 +2029,7 @@
 					copyButton.setLoading(true);
 					copy().then((outcome) => {
 						copyButton.setLoading(false);
+						if (outcome === "skipped") return;
 						if (outcome === "success") {
 							notify.success("已复制转写文稿");
 							actions.close();
@@ -2073,7 +2126,6 @@
 			openSettings() {
 				ensurePanels().settings.open();
 			},
-			isMounted: () => button !== null,
 			destroy() {
 				if (settleTimer !== void 0) {
 					window.clearTimeout(settleTimer);
@@ -2103,8 +2155,8 @@
 		const gm = createGmApi();
 		const store = createStore(gm);
 		const clipboard = createClipboard();
-		const network = installNetworkCapture(window);
 		const currentVideoId = () => new URLSearchParams(location.search).get("v") ?? "";
+		const network = installNetworkCapture(window, { currentVideoId });
 		let initialTrack = null;
 		const captureInitialTrack = () => {
 			const track = readInitialTrack(window.ytInitialPlayerResponse);

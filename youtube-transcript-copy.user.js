@@ -2,7 +2,7 @@
 // @name         YouTube 转写文稿复制
 // @name:en      YouTube Transcript Copy
 // @namespace    https://github.com/Wildfire2282
-// @version      1.4.4
+// @version      1.4.5
 // @description  视频播放页面出现可拖拽悬浮按钮，可一键复制转写文稿（transcript），支持英语等多语言界面
 // @description:en Add a draggable button to copy YouTube transcripts
 // @author       Wildfire2282 (https://github.com/Wildfire2282)
@@ -67,9 +67,6 @@
 			get GM_setClipboard() {
 				return typeof globals.GM_setClipboard === "function" ? globals.GM_setClipboard.bind(globals) : void 0;
 			},
-			get GM() {
-				return globals.GM;
-			},
 			get clipboard() {
 				return browser.navigator?.clipboard;
 			},
@@ -81,7 +78,17 @@
 	/** textarea 兜底：必须在用户手势的同一个任务里同步执行，跨 await 会失去写权限。 */
 	function copyWithTextarea(document, text) {
 		if (!document?.body) return false;
-		const active = document.activeElement;
+		let active = document.activeElement;
+		while (active?.shadowRoot?.activeElement) active = active.shadowRoot.activeElement;
+		const control = active?.tagName === "INPUT" || active?.tagName === "TEXTAREA" ? active : null;
+		const controlStart = control?.selectionStart;
+		const controlEnd = control?.selectionEnd;
+		const controlDirection = control?.selectionDirection;
+		const selection = document.getSelection();
+		const anchor = selection?.anchorNode;
+		const focus = selection?.focusNode;
+		const anchorOffset = selection?.anchorOffset ?? 0;
+		const focusOffset = selection?.focusOffset ?? 0;
 		const area = document.createElement("textarea");
 		area.value = text;
 		area.setAttribute("readonly", "");
@@ -95,6 +102,8 @@
 		} finally {
 			area.remove();
 			active?.focus?.();
+			if (anchor?.isConnected && focus?.isConnected) selection?.setBaseAndExtent(anchor, anchorOffset, focus, focusOffset);
+			if (controlStart != null && controlEnd != null) control?.setSelectionRange(controlStart, controlEnd, controlDirection ?? void 0);
 		}
 	}
 	/**
@@ -108,10 +117,6 @@
 			try {
 				if (typeof scope.GM_setClipboard === "function") {
 					await scope.GM_setClipboard(text, "text");
-					return true;
-				}
-				if (typeof scope.GM?.setClipboard === "function") {
-					await scope.GM.setClipboard(text, "text");
 					return true;
 				}
 			} catch {}
@@ -129,7 +134,7 @@
 		return Math.min(Math.max(value, min), max);
 	}
 	/** 把位置收回视口内；视口比按钮还小时贴住左上角。 */
-	function clampPosition(position, viewport, size = 40) {
+	function clampPosition(position, viewport, size = 36) {
 		return {
 			right: clamp(position.right, 0, viewport.width - size),
 			top: clamp(position.top, 0, viewport.height - size)
@@ -205,7 +210,7 @@
 		const fullscreenElement = fullscreen === void 0 ? doc.fullscreenElement : fullscreen;
 		return {
 			exists: findVideo(doc) !== null,
-			fullscreen: fullscreenElement !== null
+			fullscreen: fullscreenElement != null
 		};
 	}
 	/**
@@ -320,10 +325,11 @@
 	//#endregion
 	//#region scripts/youtube-transcript-copy/src/transcript/format.ts
 	/**
-	* 转写文稿的文本处理：清洗、时间戳互转、输出格式。
+	* 转写文稿的文本处理：清洗、时间戳互换、输出格式。
 	*
 	* 输出格式与线上旧版逐字一致：每条一行，有时间戳时加 `[分:秒] ` 前缀。
-	* 时间戳只到分钟（`90:00` 表示 90 分钟），旧版没有小时位，这里保持不改。
+	* 一小时以内沿用旧版的 `分:秒`（如 `1:05`），一小时及以上用 `时:分:秒`
+	* （如 `1:30:00`）：旧版无小时位，90 分钟的视频会印成 `90:00` 看不懂。
 	*/
 	function clean(text) {
 		return (text ?? "").replace(/\s+/g, " ").trim();
@@ -332,29 +338,30 @@
 	* 把页面上的时间戳文字换算成毫秒。
 	*
 	* @param text `m:ss` 或 `h:mm:ss`
-	* @returns 毫秒；格式不认识时按 0 处理
+	* @returns 毫秒；格式不认识时返回 null，调用方跳过这条而不是印成 `[0:00]`
 	*/
 	function tsToSec(text) {
 		const parts = text.split(":").map(Number);
 		if (parts.length === 2) {
 			const [minutes, seconds] = parts;
-			if (minutes === void 0 || seconds === void 0 || !Number.isFinite(minutes) || !Number.isFinite(seconds)) return 0;
+			if (minutes === void 0 || seconds === void 0 || !Number.isFinite(minutes) || !Number.isFinite(seconds)) return null;
 			return minutes * 60 + seconds;
 		}
 		if (parts.length === 3) {
 			const [hours, minutes, seconds] = parts;
-			if (hours === void 0 || minutes === void 0 || seconds === void 0 || !Number.isFinite(hours) || !Number.isFinite(minutes) || !Number.isFinite(seconds)) return 0;
+			if (hours === void 0 || minutes === void 0 || seconds === void 0 || !Number.isFinite(hours) || !Number.isFinite(minutes) || !Number.isFinite(seconds)) return null;
 			return hours * 3600 + minutes * 60 + seconds;
 		}
-		return 0;
+		return null;
 	}
-	/** 毫秒 → 复制到剪贴板里的 `分:秒`；未知时间戳返回空串。 */
+	/** 毫秒 → 复制到剪贴板里的时间戳；一小时及以上带小时位，未知返回空串。 */
 	function fmtTs(ms) {
 		if (ms === null || !Number.isFinite(ms)) return "";
 		const total = Math.max(0, Math.floor(ms / 1e3));
+		const hours = Math.floor(total / 3600);
 		const minutes = Math.floor(total / 60);
 		const seconds = total % 60;
-		return `${minutes}:${String(seconds).padStart(2, "0")}`;
+		return hours > 0 ? `${hours}:${String(minutes % 60).padStart(2, "0")}:${String(seconds).padStart(2, "0")}` : `${minutes}:${String(seconds).padStart(2, "0")}`;
 	}
 	/** 每条一行；没有时间戳的片段只输出文字。 */
 	function formatLines(segments) {
@@ -377,16 +384,43 @@
 	function numberOr(value) {
 		return typeof value === "number" && Number.isFinite(value) ? value : null;
 	}
-	/** `engagementPanels[*]...cueGroups` 里的转写；返回 null 表示这份响应没有文稿。 */
+	/**
+	* 面板里是否出现 cueGroup：直接按 key 找，比整块 JSON.stringify 快得多。
+	* 面板响应可能很大，每份都序列化一次会拖慢每次复制。
+	*/
+	function hasCueGroup(value, depth = 0) {
+		if (depth > 6) return false;
+		if (Array.isArray(value)) return value.some((entry) => hasCueGroup(entry, depth + 1));
+		if (typeof value !== "object" || value === null) return false;
+		const record = value;
+		if ("transcriptCueGroupRenderer" in record || "cueGroup" in record) return true;
+		return Object.values(record).some((entry) => hasCueGroup(entry, depth + 1));
+	}
+	/** 面板与 get_transcript actions 里的转写；没有文稿时返回 null。 */
 	function extractFromPanelResponse(data) {
 		const root = asRecord$1(data);
 		if (!root) return null;
 		const segments = [];
+		for (const entry of asArray(root.actions)) {
+			const list = asRecord$1(asRecord$1(asRecord$1(asRecord$1(asRecord$1(asRecord$1(asRecord$1(asRecord$1(entry)?.updateEngagementPanelAction)?.content)?.transcriptRenderer)?.content)?.transcriptSearchPanelRenderer)?.body)?.transcriptSegmentListRenderer);
+			for (const segment of asArray(list?.initialSegments)) {
+				const item = asRecord$1(asRecord$1(segment)?.transcriptSegmentRenderer);
+				const text = clean(asArray(asRecord$1(item?.snippet)?.runs).map((run) => asString(asRecord$1(run)?.text)).join(""));
+				if (!text) continue;
+				const start = item?.startMs;
+				const startMs = numberOr(start) ?? (typeof start === "string" && start.trim() !== "" ? numberOr(Number(start)) : null);
+				const seconds = startMs === null ? tsToSec(asString(asRecord$1(item?.startTimeText)?.simpleText)) : null;
+				segments.push({
+					start: startMs ?? (seconds === null ? null : seconds * 1e3),
+					text
+				});
+			}
+		}
 		for (const entry of asArray(root.engagementPanels)) {
 			const wrapper = asRecord$1(entry);
 			if (!wrapper) continue;
 			const panel = asRecord$1(wrapper.engagementPanelSectionListRenderer) ?? asRecord$1(wrapper.engagementPanel) ?? wrapper;
-			if (!/transcript/i.test(asString(panel.panelIdentifier)) && !/cueGroup/i.test(JSON.stringify(panel))) continue;
+			if (!/transcript/i.test(asString(panel.panelIdentifier)) && !hasCueGroup(panel)) continue;
 			const bodyRenderer = asRecord$1(asRecord$1(asRecord$1(asRecord$1(panel.content)?.transcriptRenderer)?.body)?.transcriptBodyRenderer);
 			for (const group of asArray(bodyRenderer?.cueGroups)) {
 				const groupRecord = asRecord$1(group);
@@ -397,16 +431,36 @@
 					const cueRecord = asRecord$1(cue);
 					if (!cueRecord) continue;
 					const renderer = asRecord$1(cueRecord.transcriptCueRenderer);
-					const text = asString(renderer?.simpleText) || asString(asRecord$1(renderer?.cue)?.simpleText);
+					const cueRecord2 = asRecord$1(renderer?.cue) ?? asRecord$1(cueRecord.cue);
+					const runs = asArray(cueRecord2?.runs ?? renderer?.runs).map((run) => asString(asRecord$1(run)?.text)).join("");
+					const text = runs !== "" && clean(runs) !== "" ? clean(runs) : asString(renderer?.simpleText) || asString(cueRecord2?.simpleText) || asString(asRecord$1(renderer?.cue)?.simpleText);
 					if (!text) continue;
 					segments.push({
-						start: numberOr(renderer?.startOffsetMs) ?? numberOr(cueRecord.startOffsetMs) ?? 0,
+						start: numberOr(renderer?.startOffsetMs) ?? numberOr(cueRecord.startOffsetMs),
 						text: clean(text)
 					});
 				}
 			}
 		}
 		return segments.length > 0 ? segments : null;
+	}
+	/** 中日韩文字之间没有空格分隔：两边都是 CJK 字符时直接拼接，否则补一个空格。 */
+	function isCjk(char) {
+		return /[\u2e80-\u9fff\uac00-\ud7af\uf900-\ufaff]/.test(char);
+	}
+	function joinSegs(parts) {
+		let out = "";
+		for (const part of parts) {
+			if (part === "") continue;
+			if (out === "") {
+				out = part;
+				continue;
+			}
+			const prev = out[out.length - 1] ?? "";
+			const next = part[0] ?? "";
+			out += isCjk(prev) && isCjk(next) ? part : ` ${part}`;
+		}
+		return out;
 	}
 	/** json3 字幕（captionTracks[0].baseUrl + `fmt=json3`）里的转写。 */
 	function extractFromJson3(data) {
@@ -416,10 +470,10 @@
 		for (const event of asArray(root.events)) {
 			const record = asRecord$1(event);
 			if (!record) continue;
-			const text = clean(asArray(record.segs).map((part) => asString(asRecord$1(part)?.utf8)).join(" "));
+			const text = clean(joinSegs(asArray(record.segs).map((part) => asString(asRecord$1(part)?.utf8))));
 			if (!text) continue;
 			segments.push({
-				start: numberOr(record.tStartMs) ?? 0,
+				start: numberOr(record.tStartMs),
 				text
 			});
 		}
@@ -443,10 +497,13 @@
 		for (const host of root.querySelectorAll("transcript-segment-view-model, ytd-transcript-segment-renderer")) {
 			const timestamp = (host.querySelector(".ytwTranscriptSegmentViewModelTimestamp, #timestamp, .segment-timestamp, [aria-hidden=\"true\"]")?.textContent ?? "").trim();
 			const text = clean((host.querySelector("span[role=\"text\"], #segment-text, .segment-text") ?? findLeafWithText(host))?.textContent);
-			if (text && text !== timestamp) segments.push({
-				start: tsToSec(timestamp) * 1e3,
-				text
-			});
+			if (text && text !== timestamp) {
+				const seconds = tsToSec(timestamp);
+				segments.push({
+					start: seconds === null ? null : seconds * 1e3,
+					text
+				});
+			}
 		}
 		const fromNodes = dedupeSegments(segments);
 		if (fromNodes.length > 0) return fromNodes;
@@ -463,10 +520,13 @@
 			const blockText = clean(block.textContent);
 			if (timestampPattern.test(blockText) && blockText.length < 30) continue;
 			const text = blockText.replace(/^\d{1,2}(:\d{2}){1,2}/, "").trim();
-			if (text.length > 1) segments.push({
-				start: tsToSec(timestamp) * 1e3,
-				text
-			});
+			if (text.length > 1) {
+				const seconds = tsToSec(timestamp);
+				segments.push({
+					start: seconds === null ? null : seconds * 1e3,
+					text
+				});
+			}
 		}
 		const unique = dedupeSegments(segments);
 		return unique.length > 0 ? unique : null;
@@ -481,12 +541,14 @@
 			if (!linePattern.test(content)) continue;
 			const match = /^(\d{1,2}(?::\d{2}){1,2})\s+(.*)$/.exec(content);
 			if (!match?.[1] || match[2] === void 0) continue;
+			const seconds = tsToSec(match[1]);
 			segments.push({
-				start: tsToSec(match[1]) * 1e3,
+				start: seconds === null ? null : seconds * 1e3,
 				text: clean(match[2])
 			});
 		}
-		return segments.length > 0 ? segments : null;
+		const unique = dedupeSegments(segments);
+		return unique.length > 0 ? unique : null;
 	}
 	/** 转写面板容器：兜底扫描只在这里面找，找不到才退回全页。
 	*
@@ -510,7 +572,7 @@
 	* 这是最后一条路：前面的网络缓存与 DOM 都拿不到时才发请求。客户端版本优先读
 	* 页面自己的配置，读不到才用写死的兜底，这样 YouTube 升级后主路径不受影响。
 	*/
-	var PANEL_URL = "https://www.youtube.com/youtubei/v1/get_panel?prettyPrint=false";
+	var API_ROOT = "https://www.youtube.com/youtubei/v1/";
 	var FALLBACK_CLIENT_VERSION = "2.20260710.06.00";
 	/** 读页面当前的客户端版本，读不到返回 null（调用方用写死的兜底）。 */
 	function readPageClientVersion(scope = globalThis) {
@@ -531,17 +593,25 @@
 	async function requestPanel(videoId, fetchImpl = fetch, clientVersion = readPageClientVersion() ?? FALLBACK_CLIENT_VERSION) {
 		if (videoId === "") return null;
 		try {
-			return extractFromPanelResponse(await (await fetchImpl(PANEL_URL, {
-				method: "POST",
-				headers: { "content-type": "application/json" },
-				body: JSON.stringify({
-					context: { client: {
-						clientName: "WEB",
-						clientVersion
-					} },
-					panelIdentifier: "engagement-panel-searchable-transcript"
-				})
-			})).json());
+			const context = { client: {
+				clientName: "WEB",
+				clientVersion
+			} };
+			const request = async (endpoint, payload) => {
+				return (await fetchImpl(`${API_ROOT}${endpoint}?prettyPrint=false`, {
+					method: "POST",
+					headers: { "content-type": "application/json" },
+					body: JSON.stringify({
+						context,
+						...payload
+					})
+				})).json();
+			};
+			const panels = (await request("next", { videoId }))?.engagementPanels;
+			if (!Array.isArray(panels)) return null;
+			const params = (panels.find((entry) => entry?.engagementPanelSectionListRenderer?.panelIdentifier === "engagement-panel-searchable-transcript")?.engagementPanelSectionListRenderer)?.content?.continuationItemRenderer?.continuationEndpoint?.getTranscriptEndpoint?.params;
+			if (typeof params !== "string" || params === "") return null;
+			return extractFromPanelResponse(await request("get_transcript", { params }));
 		} catch {
 			return null;
 		}
@@ -558,10 +628,19 @@
 	* @returns 有 `baseUrl` 的字幕轨；没有字幕时返回 null
 	*/
 	function readInitialTrack(response) {
-		const tracklist = asRecord(asRecord(asRecord(response)?.captions)?.playerCaptionsTracklistRenderer);
+		const root = asRecord(response);
+		const tracklist = asRecord(asRecord(root?.captions)?.playerCaptionsTracklistRenderer);
 		const first = asRecord((Array.isArray(tracklist?.captionTracks) ? tracklist.captionTracks : [])[0]);
 		const baseUrl = typeof first?.baseUrl === "string" ? first.baseUrl : "";
-		return baseUrl === "" ? null : { baseUrl };
+		const details = asRecord(root?.videoDetails);
+		let videoId = typeof details?.videoId === "string" ? details.videoId : "";
+		if (!videoId && baseUrl) try {
+			videoId = new URL(baseUrl).searchParams.get("v") ?? "";
+		} catch {}
+		return baseUrl && videoId ? {
+			baseUrl,
+			videoId
+		} : null;
 	}
 	/**
 	* 下载并解析字幕轨。
@@ -615,6 +694,19 @@
 		}
 	}
 	/**
+	* 当前视频 ID：先读 `?v=`，再认 `/shorts/…`、`/embed/…`、`/live/…` 的路径。
+	*
+	* 只读 `?v=` 时这三种页面得到空串，网络捕获与 API 兜底会全部失效。
+	*
+	* @param search 地址栏查询串，如 `location.search`
+	* @param pathname 地址栏路径，如 `location.pathname`
+	*/
+	function readVideoId(search, pathname) {
+		const fromQuery = (new URLSearchParams(search).get("v") ?? "").trim();
+		if (fromQuery !== "") return fromQuery;
+		return (/^\/(?:shorts|embed|live)\/([^/?#]+)/.exec(pathname)?.[1] ?? "").trim();
+	}
+	/**
 	* 决定这次抓到的内容要不要留下。
 	*
 	* 页面同一时刻只留一份：播放器会为别的视频（下一个视频、迷你播放器）和翻译字幕
@@ -632,56 +724,66 @@
 		const fromPanel = !TIMEDTEXT_PATTERN.test(url);
 		if (videoId !== "" && videoId !== currentVideoId) return null;
 		if (!fromPanel && translated) return null;
-		if (state?.fromPanel && !fromPanel) return null;
+		if (state?.videoId === currentVideoId && state.fromPanel && !fromPanel) return null;
 		return {
 			videoId: currentVideoId,
 			fromPanel,
 			segments
 		};
 	}
+	var captures = /* @__PURE__ */ new WeakMap();
 	function installNetworkCapture(win = window, options = {}) {
-		const globals = win;
-		const currentVideoId = options.currentVideoId ?? (() => new URLSearchParams(win.location.search).get("v") ?? "");
+		const existing = captures.get(win);
+		if (existing) return existing;
+		let state = null;
+		let active = true;
+		const currentVideoId = options.currentVideoId ?? (() => readVideoId(win.location.search, win.location.pathname));
 		const read = () => {
-			const state = globals.__ytTxNetSegments ?? null;
 			return state !== null && state.videoId === currentVideoId() ? state.segments : null;
 		};
-		const accept = (url, data) => {
-			const next = nextCapture(globals.__ytTxNetSegments ?? null, currentVideoId(), url, parseCapturedResponse(url, data));
-			if (next) globals.__ytTxNetSegments = next;
+		const accept = (url, data, videoIdAtRequest) => {
+			if (!active) return;
+			const next = nextCapture(state, videoIdAtRequest, url, parseCapturedResponse(url, data));
+			if (next) state = next;
 		};
-		if (globals.__ytTxNetHooked) return {
-			get: read,
-			clear: () => {
-				globals.__ytTxNetSegments = null;
-			},
-			restore: () => void 0
-		};
-		globals.__ytTxNetHooked = true;
-		globals.__ytTxNetSegments = null;
-		const originalFetch = win.fetch.bind(win);
+		const originalFetch = win.fetch;
 		const wrappedFetch = (...args) => {
 			const input = args[0];
 			const url = typeof input === "string" ? input : input instanceof Request ? input.url : input instanceof URL ? input.href : "";
-			const request = originalFetch(...args);
-			if (CAPTURE_PATTERN.test(url)) request.then(async (response) => {
-				try {
-					accept(url, await response.clone().json());
-				} catch {}
-			}).catch(() => void 0);
+			const request = Reflect.apply(originalFetch, win, args);
+			if (CAPTURE_PATTERN.test(url)) {
+				const videoIdAtRequest = currentVideoId();
+				request.then(async (response) => {
+					try {
+						accept(url, await response.clone().json(), videoIdAtRequest);
+					} catch {}
+				}).catch(() => void 0);
+			}
 			return request;
 		};
 		win.fetch = wrappedFetch;
 		const proto = win.XMLHttpRequest.prototype;
 		const originalOpen = proto.open;
+		const listeners = /* @__PURE__ */ new WeakMap();
 		const wrappedOpen = function(method, url, ...rest) {
+			const previous = listeners.get(this);
+			if (previous) {
+				this.removeEventListener("load", previous);
+				listeners.delete(this);
+			}
 			const target = typeof url === "string" ? url : url.href;
-			if (CAPTURE_PATTERN.test(target)) this.addEventListener("load", () => {
-				try {
-					const data = this.responseType === "json" ? this.response : JSON.parse(this.responseText);
-					accept(target, data);
-				} catch {}
-			});
+			if (CAPTURE_PATTERN.test(target)) {
+				const videoIdAtRequest = currentVideoId();
+				const listener = () => {
+					listeners.delete(this);
+					try {
+						const data = this.responseType === "json" ? this.response : JSON.parse(this.responseText);
+						accept(target, data, videoIdAtRequest);
+					} catch {}
+				};
+				listeners.set(this, listener);
+				this.addEventListener("load", listener, { once: true });
+			}
 			Reflect.apply(originalOpen, this, [
 				method,
 				url,
@@ -689,17 +791,22 @@
 			]);
 		};
 		proto.open = wrappedOpen;
-		return {
+		const capture = {
 			get: read,
 			clear() {
-				globals.__ytTxNetSegments = null;
+				state = null;
 			},
 			restore() {
+				if (!active) return;
+				active = false;
+				state = null;
 				win.fetch = originalFetch;
 				proto.open = originalOpen;
-				globals.__ytTxNetHooked = false;
+				captures.delete(win);
 			}
 		};
+		captures.set(win, capture);
+		return capture;
 	}
 	//#endregion
 	//#region scripts/youtube-transcript-copy/src/transcript/open-panel.ts
@@ -773,7 +880,10 @@
 	/**
 	* 打开转写面板。
 	*
-	* 每轮：展开描述 → 等界面稳定 → 点按钮 → 最多等 3.6 秒让面板渲染。
+	* 每轮：展开描述 → 等界面稳定 → 点一次按钮 → 等面板渲染。
+	* 只点一次：click() 与合成 MouseEvent 会各触发一次面板切换，连点两次等于又关上。
+	* 第一轮给足 3.6 秒（面板首次展开最慢）；之后每轮只等 1.2 秒，避免打不开时
+	* 每次点击都卡十几秒。
 	*
 	* @returns 面板是否真的打开
 	*/
@@ -782,20 +892,31 @@
 		const sleep = options.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
 		const attempts = options.attempts ?? 4;
 		for (let attempt = 0; attempt < attempts && !isPanelOpen(doc); attempt += 1) {
+			const waits = attempt === 0 ? 12 : 4;
 			expandDescription(doc);
 			await sleep(400);
-			const trigger = findTranscriptTrigger(doc);
-			if (!trigger) continue;
+			const candidate = findTranscriptTrigger(doc);
+			if (!candidate) continue;
+			const trigger = candidate.querySelector("button, [role=\"button\"], tp-yt-paper-button") ?? candidate;
+			let clicked = false;
 			try {
 				trigger.click();
+				clicked = true;
 			} catch {}
+			if (clicked) {
+				for (let wait = 0; wait < waits; wait += 1) {
+					await sleep(300);
+					if (isPanelOpen(doc)) return true;
+				}
+				continue;
+			}
 			try {
 				trigger.dispatchEvent(new MouseEvent("click", {
 					bubbles: true,
 					cancelable: true
 				}));
 			} catch {}
-			for (let wait = 0; wait < 12; wait += 1) {
+			for (let wait = 0; wait < waits; wait += 1) {
 				await sleep(300);
 				if (isPanelOpen(doc)) return true;
 			}
@@ -838,6 +959,7 @@
 		};
 		return { async fetchTranscript() {
 			const videoId = deps.videoId();
+			if (videoId === "") return [];
 			if (cache !== null && cache.videoId === videoId) return cache.segments;
 			const fromNetwork = await runStrategies("net", [deps.fromInitialTrack, () => deps.fromNetworkCache()]);
 			if (deps.videoId() !== videoId) return [];
@@ -848,19 +970,24 @@
 				};
 				return fromNetwork;
 			}
-			if (!await deps.ensurePanelOpen()) return [];
+			const panelOpen = await deps.ensurePanelOpen();
 			if (deps.videoId() !== videoId) return [];
-			const fromDom = await runStrategies("dom", [() => deps.fromViewModel(), () => deps.fromPanelDump()]);
-			if (deps.videoId() !== videoId) return [];
-			if (fromDom) {
+			const captured = deps.fromNetworkCache();
+			if (captured && captured.length > 0) {
 				cache = {
 					videoId,
-					segments: fromDom
+					segments: captured
 				};
-				return fromDom;
+				return captured;
+			}
+			if (panelOpen) {
+				const fromDom = await runStrategies("dom", [() => deps.fromViewModel(), () => deps.fromPanelDump()]);
+				if (deps.videoId() !== videoId) return [];
+				if (fromDom) return fromDom;
 			}
 			try {
 				const fromApi = await deps.fromApi(videoId);
+				if (deps.videoId() !== videoId) return [];
 				if (fromApi && fromApi.length > 0) {
 					cache = {
 						videoId,
@@ -880,12 +1007,13 @@
 	var themes_default = ":host,\n:host([data-ds-theme='light']) {\n  --ds-background: #ffffff;\n  --ds-foreground: #18181b;\n  --ds-card: #ffffff;\n  --ds-card-foreground: #18181b;\n  --ds-primary: #18181b;\n  --ds-primary-foreground: #fafafa;\n  --ds-secondary: #f4f4f5;\n  --ds-secondary-foreground: #18181b;\n  --ds-muted: #f4f4f5;\n  --ds-muted-foreground: #6b6b74;\n  --ds-border: #e4e4e7;\n  --ds-input: #8e8e97;\n  --ds-track: #8e8e97;\n  --ds-ring: #71717a;\n  --ds-destructive: #dc2626;\n  --ds-destructive-foreground: #fafafa;\n  --ds-success: #16a34a;\n  --ds-warning: #d97706;\n  --ds-switch-thumb: #ffffff;\n  --ds-overlay: rgb(9 9 11 / 0.45);\n}\n\n/* 深色主题遵循与浅色同一套语义 Token，只替换取值。\n   取值原则：\n   - 不使用纯黑/纯白：画布 #09090b，抬升表面 #18181b，正文 #fafafa。\n   - 深色下用“更亮的灰”表达层级：卡片 #18181b 浮于画布之上，边框 #2b2b31 与之分离。\n   - 状态色在深色背景上提亮，保证文字对比度 ≥ 4.5:1（destructive 改用亮红 + 深色前景）。 */\n:host([data-ds-theme='dark']) {\n  --ds-background: #09090b;\n  --ds-foreground: #fafafa;\n  --ds-card: #18181b;\n  --ds-card-foreground: #fafafa;\n  --ds-primary: #fafafa;\n  --ds-primary-foreground: #18181b;\n  --ds-secondary: #27272a;\n  --ds-secondary-foreground: #fafafa;\n  --ds-muted: #27272a;\n  --ds-muted-foreground: #a1a1aa;\n  --ds-border: #2b2b31;\n  --ds-input: #70707a;\n  --ds-track: #6b6b74;\n  --ds-ring: #d4d4d8;\n  --ds-destructive: #f87171;\n  --ds-destructive-foreground: #450a0a;\n  --ds-success: #4ade80;\n  --ds-warning: #fbbf24;\n  --ds-switch-thumb: #fafafa;\n  --ds-overlay: rgb(0 0 0 / 0.7);\n\n  --ds-shadow-sm: 0 1px 2px rgb(0 0 0 / 0.5);\n  --ds-shadow-md: 0 4px 14px rgb(0 0 0 / 0.6);\n  --ds-shadow-lg: 0 16px 40px rgb(0 0 0 / 0.72);\n}\n";
 	//#endregion
 	//#region packages/userscript-ui/src/tokens/tokens.css?inline
-	var tokens_default = ":host {\n  --ds-font-sans:\n    ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,\n    'Helvetica Neue', Arial, 'Noto Sans', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei',\n    sans-serif;\n  --ds-font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace;\n\n  --ds-text-xs: 12px;\n  --ds-text-sm: 13px;\n  --ds-text-base: 14px;\n  --ds-text-lg: 16px;\n  --ds-text-xl: 18px;\n\n  --ds-weight-normal: 400;\n  --ds-weight-medium: 500;\n  --ds-weight-semibold: 600;\n\n  --ds-leading-tight: 1.25;\n  --ds-leading-snug: 1.4;\n  --ds-leading-normal: 1.5;\n\n  --ds-space-0-5: 2px;\n  --ds-space-1: 4px;\n  --ds-space-1-5: 6px;\n  --ds-space-2: 8px;\n  --ds-space-2-5: 10px;\n  --ds-space-3: 12px;\n  --ds-space-4: 16px;\n  --ds-space-5: 20px;\n  --ds-space-6: 24px;\n  --ds-space-8: 32px;\n\n  --ds-control-h-sm: 28px;\n  --ds-control-h: 32px;\n  --ds-control-h-lg: 36px;\n  --ds-textarea-min-h: 72px;\n\n  --ds-icon-sm: 14px;\n  --ds-icon-xs: 12px;\n  --ds-icon: 16px;\n  --ds-accent-width: 3px;\n\n  --ds-radius-sm: 4px;\n  --ds-radius-md: 6px;\n  --ds-radius-lg: 8px;\n  --ds-radius-xl: 12px;\n  --ds-radius-full: 9999px;\n\n  --ds-border-width: 1px;\n  --ds-ring-width: 2px;\n  --ds-ring-offset: 2px;\n\n  --ds-shadow-sm: 0 1px 2px rgb(0 0 0 / 0.05);\n  --ds-shadow-md: 0 4px 12px rgb(0 0 0 / 0.08);\n  --ds-shadow-lg: 0 12px 32px rgb(0 0 0 / 0.16);\n\n  --ds-duration-fast: 120ms;\n  --ds-duration-base: 180ms;\n  --ds-duration-slow: 240ms;\n  --ds-ease: cubic-bezier(0.2, 0, 0, 1);\n\n  --ds-panel-width: 360px;\n  --ds-panel-width-wide: 440px;\n  --ds-panel-padding: var(--ds-space-4);\n  --ds-panel-max-h: 70vh;\n  --ds-dialog-width: 440px;\n  --ds-dialog-max-h: 640px;\n  --ds-dialog-max-h-vh: 80vh;\n  --ds-dialog-inset: 32px;\n  --ds-switch-width: 36px;\n  --ds-switch-height: 20px;\n  --ds-switch-thumb-size: 16px;\n  --ds-checkbox-size: 16px;\n  --ds-launcher-size: 40px;\n  --ds-launcher-offset: 20px;\n  --ds-launcher-icon: 18px;\n  --ds-toast-width: 320px;\n  --ds-tooltip-max-w: 240px;\n  --ds-tooltip-arrow-size: 8px;\n  --ds-scroll-hint-height: 56px;\n}\n";
+	var tokens_default = ":host {\n  --ds-font-sans:\n    ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,\n    'Helvetica Neue', Arial, 'Noto Sans', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei',\n    sans-serif;\n  --ds-font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace;\n\n  --ds-text-xs: 12px;\n  --ds-text-sm: 13px;\n  --ds-text-base: 14px;\n  --ds-text-lg: 16px;\n  --ds-text-xl: 18px;\n\n  --ds-weight-normal: 400;\n  --ds-weight-medium: 500;\n  --ds-weight-semibold: 600;\n\n  --ds-leading-tight: 1.25;\n  --ds-leading-snug: 1.4;\n  --ds-leading-normal: 1.5;\n\n  --ds-space-0-5: 2px;\n  --ds-space-1: 4px;\n  --ds-space-1-5: 6px;\n  --ds-space-2: 8px;\n  --ds-space-2-5: 10px;\n  --ds-space-3: 12px;\n  --ds-space-4: 16px;\n  --ds-space-5: 20px;\n  --ds-space-6: 24px;\n  --ds-space-8: 32px;\n\n  --ds-control-h-sm: 28px;\n  --ds-control-h: 32px;\n  --ds-control-h-lg: 36px;\n  --ds-textarea-min-h: 72px;\n\n  --ds-icon-sm: 14px;\n  --ds-icon-xs: 12px;\n  --ds-icon: 16px;\n  --ds-accent-width: 3px;\n\n  --ds-radius-sm: 4px;\n  --ds-radius-md: 6px;\n  --ds-radius-lg: 8px;\n  --ds-radius-xl: 12px;\n  --ds-radius-full: 9999px;\n\n  --ds-border-width: 1px;\n  --ds-ring-width: 2px;\n  --ds-ring-offset: 2px;\n\n  --ds-shadow-sm: 0 1px 2px rgb(0 0 0 / 0.05);\n  --ds-shadow-md: 0 4px 12px rgb(0 0 0 / 0.08);\n  --ds-shadow-lg: 0 12px 32px rgb(0 0 0 / 0.16);\n\n  --ds-duration-fast: 120ms;\n  --ds-duration-base: 180ms;\n  --ds-duration-slow: 240ms;\n  --ds-ease: cubic-bezier(0.2, 0, 0, 1);\n\n  /* Panel sizes: compact settings surface, wider operation surface, and a\n     slightly wider settings panel when centered. */\n  --ds-panel-width-settings: 360px;\n  --ds-panel-width-wide: 440px;\n  --ds-panel-width-operation: 560px;\n  /* Backwards-compatible alias for the settings size. */\n  --ds-panel-width: var(--ds-panel-width-settings);\n  --ds-panel-padding: var(--ds-space-4);\n  --ds-panel-max-h-settings: 70vh;\n  --ds-panel-max-h-operation: 80vh;\n  --ds-panel-max-h: var(--ds-panel-max-h-settings);\n  --ds-dialog-width: 440px;\n  --ds-dialog-max-h: 640px;\n  --ds-dialog-max-h-vh: 80vh;\n  --ds-dialog-inset: 32px;\n  --ds-switch-width: 36px;\n  --ds-switch-height: 20px;\n  --ds-switch-thumb-size: 16px;\n  --ds-checkbox-size: 16px;\n  --ds-launcher-size: 40px;\n  --ds-launcher-offset: 20px;\n  --ds-launcher-icon: 18px;\n  --ds-toast-width: 320px;\n  --ds-tooltip-max-w: 240px;\n  --ds-tooltip-arrow-size: 8px;\n  --ds-scroll-hint-height: 56px;\n}\n";
 	//#endregion
 	//#region packages/userscript-ui/src/core/labels.ts
 	var DEFAULT_LABELS = {
 		close: "Close",
 		settings: "Settings",
+		operation: "Operations",
 		notifications: "Notifications",
 		dismissNotification: "Dismiss notification",
 		closeSettings: "Close settings",
@@ -907,22 +1035,24 @@
 	}
 	//#endregion
 	//#region packages/userscript-ui/src/core/styles.ts
-	var seenByRoot = /* @__PURE__ */ new WeakMap();
-	var sheetCache = /* @__PURE__ */ new Map();
+	var stylesByRoot = /* @__PURE__ */ new WeakMap();
 	function useStyles(root, css) {
-		let seen = seenByRoot.get(root);
-		if (!seen) {
-			seen = /* @__PURE__ */ new Set();
-			seenByRoot.set(root, seen);
+		let entry = stylesByRoot.get(root);
+		if (!entry) {
+			entry = {
+				seen: /* @__PURE__ */ new Set(),
+				sheets: /* @__PURE__ */ new Map()
+			};
+			stylesByRoot.set(root, entry);
 		}
-		if (seen.has(css)) return;
-		seen.add(css);
+		if (entry.seen.has(css)) return;
+		entry.seen.add(css);
 		if (canAdopt(root)) try {
-			let sheet = sheetCache.get(css);
+			let sheet = entry.sheets.get(css);
 			if (!sheet) {
 				sheet = new CSSStyleSheet();
 				sheet.replaceSync(css);
-				sheetCache.set(css, sheet);
+				entry.sheets.set(css, sheet);
 			}
 			if (!root.adoptedStyleSheets.includes(sheet)) root.adoptedStyleSheets = [...root.adoptedStyleSheets, sheet];
 			return;
@@ -1038,6 +1168,7 @@
 				for (const callback of [...destroyCallbacks].reverse()) try {
 					callback();
 				} catch {}
+				destroyCallbacks.clear();
 				controller.abort();
 				host.remove();
 			}
@@ -1101,14 +1232,14 @@
 	//#endregion
 	//#region packages/userscript-ui/src/components/button.ts
 	function createButton(ui, options = {}) {
-		ui.useStyles(button_default);
 		assertAlive(ui, "button");
-		const scope = createScope(ui);
 		const iconOnly = options.size === "icon" || options.iconOnly === true;
 		const variant = options.variant ?? "primary";
 		const size = options.size ?? "md";
 		if (iconOnly && !options.ariaLabel) throw new Error("Icon-only buttons require an ariaLabel.");
 		if (!iconOnly && (options.label == null || typeof options.label === "string" && options.label.trim() === "")) throw new Error("Buttons require a label.");
+		const scope = createScope(ui);
+		ui.useStyles(button_default);
 		const el = document.createElement("button");
 		el.type = options.type ?? "button";
 		el.className = `ds-button ds-button--${variant} ds-button--${size}`;
@@ -1173,6 +1304,17 @@
 			if (item == null) continue;
 			parent.appendChild(typeof item === "string" ? document.createTextNode(item) : item);
 		}
+	}
+	/**
+	* 合并 `aria-describedby`：保留外部已有的 ID，只增删自己负责的那几个。
+	* field、panel、tooltip 各写一份后改一处会漏两处，收到这里只留一份。
+	*/
+	function syncDescribedBy(element, owned, active) {
+		const ids = new Set((element.getAttribute("aria-describedby") ?? "").split(/\s+/).filter(Boolean));
+		for (const id of owned) ids.delete(id);
+		for (const id of active) ids.add(id);
+		if (ids.size > 0) element.setAttribute("aria-describedby", [...ids].join(" "));
+		else element.removeAttribute("aria-describedby");
 	}
 	//#endregion
 	//#region packages/userscript-ui/src/core/focus.ts
@@ -1310,15 +1452,12 @@
 				mutations.disconnect();
 				resize?.disconnect();
 				el.remove();
-				mutations.disconnect();
-				resize?.disconnect();
-				el.remove();
 			}
 		};
 	}
 	//#endregion
 	//#region packages/userscript-ui/src/components/panel.css?inline
-	var panel_default = ".ds-panel {\n  position: fixed;\n  z-index: 1;\n  display: flex;\n  flex-direction: column;\n  width: min(var(--ds-panel-width), calc(100vw - 2 * var(--ds-launcher-offset)));\n  max-height: min(var(--ds-panel-max-h), calc(100vh - 2 * var(--ds-launcher-offset)));\n  overflow: hidden;\n  border: var(--ds-border-width) solid var(--ds-border);\n  border-radius: var(--ds-radius-lg);\n  background: var(--ds-card);\n  color: var(--ds-card-foreground);\n  box-shadow: var(--ds-shadow-lg);\n  pointer-events: auto;\n}\n\n/* 居中位置不跟 Launcher 的角落偏移；左右用 auto 外边距居中，避免 transform 影响 RTL。 */\n.ds-panel[data-position='center'] {\n  inset-block-start: 50%;\n  inset-inline: 0;\n  width: min(var(--ds-panel-width-wide), calc(100vw - 2 * var(--ds-launcher-offset)));\n  margin-inline: auto;\n  transform: translateY(-50%);\n}\n\n.ds-panel[data-position='bottom-right'] {\n  inset-block-end: calc(\n    var(--ds-launcher-offset) + env(safe-area-inset-bottom, 0px) + var(--ds-launcher-size) +\n      var(--ds-space-2)\n  );\n  inset-inline-end: calc(var(--ds-launcher-offset) + env(safe-area-inset-right, 0px));\n}\n\n.ds-panel[data-position='bottom-left'] {\n  inset-block-end: calc(\n    var(--ds-launcher-offset) + env(safe-area-inset-bottom, 0px) + var(--ds-launcher-size) +\n      var(--ds-space-2)\n  );\n  inset-inline-start: calc(var(--ds-launcher-offset) + env(safe-area-inset-left, 0px));\n}\n\n.ds-panel[data-position='top-right'] {\n  inset-block-start: calc(\n    var(--ds-launcher-offset) + env(safe-area-inset-top, 0px) + var(--ds-launcher-size) +\n      var(--ds-space-2)\n  );\n  inset-inline-end: calc(var(--ds-launcher-offset) + env(safe-area-inset-right, 0px));\n}\n\n.ds-panel[data-position='top-left'] {\n  inset-block-start: calc(\n    var(--ds-launcher-offset) + env(safe-area-inset-top, 0px) + var(--ds-launcher-size) +\n      var(--ds-space-2)\n  );\n  inset-inline-start: calc(var(--ds-launcher-offset) + env(safe-area-inset-left, 0px));\n}\n\n.ds-panel-header {\n  display: flex;\n  align-items: flex-start;\n  gap: var(--ds-space-3);\n  padding: var(--ds-panel-padding);\n  border-bottom: var(--ds-border-width) solid var(--ds-border);\n}\n\n.ds-panel-heading {\n  display: flex;\n  flex: 1;\n  flex-direction: column;\n  gap: var(--ds-space-0-5);\n  min-width: 0;\n}\n\n.ds-panel-title {\n  margin: 0;\n  font-size: var(--ds-text-lg);\n  font-weight: var(--ds-weight-semibold);\n  line-height: var(--ds-leading-tight);\n}\n\n.ds-panel-description {\n  margin: 0;\n  color: var(--ds-muted-foreground);\n  font-size: var(--ds-text-xs);\n  line-height: var(--ds-leading-snug);\n}\n\n.ds-panel-close {\n  flex: none;\n  margin-block-start: calc(-1 * var(--ds-space-1));\n  margin-inline-end: calc(-1 * var(--ds-space-1));\n}\n\n.ds-panel-content {\n  position: relative;\n  display: flex;\n  flex: 1;\n  flex-direction: column;\n  min-height: 0;\n}\n\n.ds-panel-body {\n  display: flex;\n  flex: 1;\n  flex-direction: column;\n  gap: var(--ds-space-4);\n  min-height: 0;\n  padding: var(--ds-panel-padding);\n  overflow-y: auto;\n  overscroll-behavior: contain;\n  scrollbar-width: thin;\n  scrollbar-color: var(--ds-border) transparent;\n}\n\n.ds-panel-body::-webkit-scrollbar {\n  width: var(--ds-space-2);\n}\n\n.ds-panel-body::-webkit-scrollbar-track {\n  background: transparent;\n}\n\n.ds-panel-body::-webkit-scrollbar-thumb {\n  border-radius: var(--ds-radius-full);\n  background: var(--ds-border);\n}\n\n.ds-panel-footer {\n  display: flex;\n  flex-wrap: wrap;\n  justify-content: flex-end;\n  gap: var(--ds-space-2);\n  padding: var(--ds-space-3) var(--ds-panel-padding);\n  border-top: var(--ds-border-width) solid var(--ds-border);\n}\n";
+	var panel_default = ".ds-panel {\n  position: fixed;\n  z-index: 1;\n  display: flex;\n  flex-direction: column;\n  width: min(var(--ds-panel-width), calc(100vw - 2 * var(--ds-launcher-offset)));\n  max-height: min(var(--ds-panel-max-h), calc(100vh - 2 * var(--ds-launcher-offset)));\n  overflow: hidden;\n  border: var(--ds-border-width) solid var(--ds-border);\n  border-radius: var(--ds-radius-lg);\n  background: var(--ds-card);\n  color: var(--ds-card-foreground);\n  box-shadow: var(--ds-shadow-lg);\n  pointer-events: auto;\n}\n\n/* Operation panels host script functions, so they get a wider working area and\n   a taller scroll region. Padding, typography and the footer stay identical. */\n.ds-panel[data-size='operation'] {\n  width: min(var(--ds-panel-width-operation), calc(100vw - 2 * var(--ds-launcher-offset)));\n  max-height: min(var(--ds-panel-max-h-operation), calc(100vh - 2 * var(--ds-launcher-offset)));\n}\n\n/* 居中位置不跟 Launcher 的角落偏移；左右用 auto 外边距居中，避免 transform 影响 RTL。 */\n.ds-panel[data-position='center'] {\n  inset-block-start: 50%;\n  inset-inline: 0;\n  margin-inline: auto;\n  transform: translateY(-50%);\n}\n\n/* 居中时设置面板放宽到 440px；操作面板保留自己的 560px 画布。 */\n.ds-panel[data-position='center'][data-size='settings'] {\n  width: min(var(--ds-panel-width-wide), calc(100vw - 2 * var(--ds-launcher-offset)));\n}\n\n.ds-panel[data-position='bottom-right'] {\n  inset-block-end: calc(\n    var(--ds-launcher-offset) + env(safe-area-inset-bottom, 0px) + var(--ds-launcher-size) +\n      var(--ds-space-2)\n  );\n  inset-inline-end: calc(var(--ds-launcher-offset) + env(safe-area-inset-right, 0px));\n}\n\n.ds-panel[data-position='bottom-left'] {\n  inset-block-end: calc(\n    var(--ds-launcher-offset) + env(safe-area-inset-bottom, 0px) + var(--ds-launcher-size) +\n      var(--ds-space-2)\n  );\n  inset-inline-start: calc(var(--ds-launcher-offset) + env(safe-area-inset-left, 0px));\n}\n\n.ds-panel[data-position='top-right'] {\n  inset-block-start: calc(\n    var(--ds-launcher-offset) + env(safe-area-inset-top, 0px) + var(--ds-launcher-size) +\n      var(--ds-space-2)\n  );\n  inset-inline-end: calc(var(--ds-launcher-offset) + env(safe-area-inset-right, 0px));\n}\n\n.ds-panel[data-position='top-left'] {\n  inset-block-start: calc(\n    var(--ds-launcher-offset) + env(safe-area-inset-top, 0px) + var(--ds-launcher-size) +\n      var(--ds-space-2)\n  );\n  inset-inline-start: calc(var(--ds-launcher-offset) + env(safe-area-inset-left, 0px));\n}\n\n.ds-panel-header {\n  display: flex;\n  align-items: flex-start;\n  gap: var(--ds-space-3);\n  padding: var(--ds-panel-padding);\n  border-bottom: var(--ds-border-width) solid var(--ds-border);\n}\n\n.ds-panel-heading {\n  display: flex;\n  flex: 1;\n  flex-direction: column;\n  gap: var(--ds-space-0-5);\n  min-width: 0;\n}\n\n.ds-panel-title {\n  margin: 0;\n  font-size: var(--ds-text-lg);\n  font-weight: var(--ds-weight-semibold);\n  line-height: var(--ds-leading-tight);\n}\n\n.ds-panel-description {\n  margin: 0;\n  color: var(--ds-muted-foreground);\n  font-size: var(--ds-text-xs);\n  line-height: var(--ds-leading-snug);\n}\n\n.ds-panel-close {\n  flex: none;\n  margin-block-start: calc(-1 * var(--ds-space-1));\n  margin-inline-end: calc(-1 * var(--ds-space-1));\n}\n\n.ds-panel-content {\n  position: relative;\n  display: flex;\n  flex: 1;\n  flex-direction: column;\n  min-height: 0;\n}\n\n.ds-panel-body {\n  display: flex;\n  flex: 1;\n  flex-direction: column;\n  gap: var(--ds-space-4);\n  min-height: 0;\n  padding: var(--ds-panel-padding);\n  overflow-y: auto;\n  overscroll-behavior: contain;\n  scrollbar-width: thin;\n  scrollbar-color: var(--ds-border) transparent;\n}\n\n.ds-panel-body::-webkit-scrollbar {\n  width: var(--ds-space-2);\n}\n\n.ds-panel-body::-webkit-scrollbar-track {\n  background: transparent;\n}\n\n.ds-panel-body::-webkit-scrollbar-thumb {\n  border-radius: var(--ds-radius-full);\n  background: var(--ds-border);\n}\n\n.ds-panel-footer {\n  display: flex;\n  flex-wrap: wrap;\n  justify-content: flex-end;\n  gap: var(--ds-space-2);\n  padding: var(--ds-space-3) var(--ds-panel-padding);\n  border-top: var(--ds-border-width) solid var(--ds-border);\n}\n";
 	//#endregion
 	//#region packages/userscript-ui/src/components/panel.ts
 	function createPanel(ui, options = {}) {
@@ -1333,6 +1472,8 @@
 		el.dataset.position = options.position ?? "bottom-right";
 		el.setAttribute("role", "region");
 		el.tabIndex = -1;
+		let panelSize = options.size ?? "settings";
+		el.dataset.size = panelSize;
 		const header = document.createElement("header");
 		header.className = "ds-panel-header";
 		const heading = document.createElement("div");
@@ -1375,6 +1516,7 @@
 				listener(open);
 			}
 		};
+		const fallbackLabel = () => options.ariaLabel ?? (panelSize === "operation" ? ui.labels.operation : ui.labels.settings);
 		const setTitle = (next) => {
 			title.textContent = next ?? "";
 			title.hidden = !next;
@@ -1384,18 +1526,19 @@
 				el.removeAttribute("aria-label");
 			} else {
 				el.removeAttribute("aria-labelledby");
-				el.setAttribute("aria-label", options.ariaLabel ?? ui.labels.settings);
+				el.setAttribute("aria-label", fallbackLabel());
 			}
+		};
+		const setSize = (next) => {
+			panelSize = next;
+			el.dataset.size = next;
+			if (title.hidden) el.setAttribute("aria-label", fallbackLabel());
 		};
 		const setDescription = (next) => {
 			description.textContent = next ?? "";
 			description.hidden = !next;
 			heading.hidden = title.hidden && description.hidden;
-			const ids = new Set((el.getAttribute("aria-describedby") ?? "").split(/\s+/).filter(Boolean));
-			if (next) ids.add(descriptionId);
-			else ids.delete(descriptionId);
-			if (ids.size) el.setAttribute("aria-describedby", [...ids].join(" "));
-			else el.removeAttribute("aria-describedby");
+			syncDescribedBy(el, [descriptionId], next ? [descriptionId] : []);
 		};
 		const setFooter = (next) => {
 			footer.replaceChildren();
@@ -1460,7 +1603,7 @@
 			}
 		}, { signal: scope.signal });
 		if (options.title) el.setAttribute("aria-labelledby", titleId);
-		else el.setAttribute("aria-label", options.ariaLabel ?? ui.labels.settings);
+		else el.setAttribute("aria-label", fallbackLabel());
 		setDescription(options.description);
 		if (options.footer) setFooter(options.footer);
 		el.hidden = options.open === false;
@@ -1514,7 +1657,9 @@
 			setPosition(position) {
 				el.dataset.position = position;
 			},
+			setSize,
 			onOpenChange(listener) {
+				if (destroyed) return () => {};
 				openListeners.add(listener);
 				return () => openListeners.delete(listener);
 			},
@@ -1632,9 +1777,23 @@
 			assertive: createAnnouncer("assertive")
 		};
 		viewport.append(announcers.polite, announcers.assertive);
+		const announcementVersions = {
+			polite: 0,
+			assertive: 0
+		};
 		const announce = (variant, title, description) => {
-			const target = variant === "error" ? announcers.assertive : announcers.polite;
-			target.textContent = [title, description].filter(Boolean).join(" ");
+			const politeness = variant === "error" ? "assertive" : "polite";
+			const target = announcers[politeness];
+			const version = ++announcementVersions[politeness];
+			const message = [title, description].filter(Boolean).join(" ");
+			if (target.textContent === message) {
+				target.textContent = "";
+				queueMicrotask(() => {
+					if (!destroyed && announcementVersions[politeness] === version) target.textContent = message;
+				});
+				return;
+			}
+			target.textContent = message;
 		};
 		const attachViewport = () => {
 			if (destroyed) return;
@@ -1668,6 +1827,7 @@
 			if (!toastOptions.title && !toastOptions.description) throw new Error("Toasts require a title or description.");
 			const id = toastOptions.id ?? uid("ds-toast");
 			dismiss(id);
+			if (destroyed) throw new Error("Cannot show a toast after its controller is destroyed.");
 			const variant = toastOptions.variant ?? "info";
 			const duration = toastOptions.duration ?? DEFAULT_DURATION[variant];
 			const autoDismiss = duration > 0;
@@ -1767,8 +1927,8 @@
 			records.unshift(record);
 			viewport.prepend(el);
 			announce(variant, toastOptions.title, toastOptions.description);
-			while (records.length > max) records[records.length - 1]?.remove();
 			startTimer();
+			while (records.length > max) records[records.length - 1]?.remove();
 			return record;
 		};
 		const teardown = () => {
@@ -1889,15 +2049,38 @@
 			const startTop = rect.top;
 			const startX = event.clientX;
 			const startY = event.clientY;
+			const pointerId = event.pointerId;
 			let moved = false;
+			let captured = false;
+			const capture = () => {
+				if (captured) return;
+				try {
+					wrap.setPointerCapture?.(pointerId);
+					captured = true;
+				} catch {}
+			};
+			const release = () => {
+				if (!captured) return;
+				captured = false;
+				try {
+					wrap.releasePointerCapture?.(pointerId);
+				} catch {}
+			};
 			dragScope?.abort();
 			const scope = new AbortController();
 			dragScope = scope;
 			const { signal } = scope;
 			const onMove = (moveEvent) => {
+				if (moveEvent.buttons === 0) {
+					finish(true);
+					return;
+				}
 				const dx = moveEvent.clientX - startX;
 				const dy = moveEvent.clientY - startY;
-				if (Math.abs(dx) > DRAG_THRESHOLD_PX || Math.abs(dy) > DRAG_THRESHOLD_PX) moved = true;
+				if (Math.abs(dx) > DRAG_THRESHOLD_PX || Math.abs(dy) > DRAG_THRESHOLD_PX) {
+					moved = true;
+					capture();
+				}
 				position = clampPosition({
 					right: startRight - dx,
 					top: startTop + dy
@@ -1907,10 +2090,13 @@
 				});
 				applyPosition();
 			};
-			const onUp = () => {
+			/** 结束这次拖动；`save` 为 false 表示被系统取消（触摸滚动），位置不落存储。 */
+			const finish = (save) => {
+				release();
 				scope.abort();
 				dragScope = null;
 				wrap.dataset.dragging = "false";
+				if (!save) return;
 				if (!moved) return;
 				options.onMoveEnd(position);
 				suppressClick = true;
@@ -1918,9 +2104,12 @@
 					suppressClick = false;
 				}, CLICK_SUPPRESS_MS);
 			};
+			const onUp = () => finish(true);
+			const onCancel = () => finish(false);
 			wrap.dataset.dragging = "true";
 			document.addEventListener("pointermove", onMove, { signal });
 			document.addEventListener("pointerup", onUp, { signal });
+			document.addEventListener("pointercancel", onCancel, { signal });
 		});
 		const cleanup = () => {
 			if (resetTimer !== void 0) window.clearTimeout(resetTimer);
@@ -1944,6 +2133,7 @@
 				applyPosition();
 			},
 			getPosition: () => position,
+			isDragging: () => dragScope !== null,
 			destroy() {
 				cleanup();
 				button.destroy();
@@ -2003,14 +2193,12 @@
 			const outcome = await copy();
 			target.setState(outcome === "success" ? "success" : "error");
 		};
-		/** 回到视口右上角 30px，并清掉位置记忆。 */
+		/** 回到播放器右上角并清掉位置记忆：之后重新跟着播放器走。 */
 		const resetPosition = () => {
-			autoPosition = false;
+			autoPosition = true;
 			options.clearSavedPosition();
-			button?.setPosition({
-				right: 30,
-				top: 30
-			});
+			const next = options.getDefaultPosition();
+			if (next) button?.setPosition(next);
 		};
 		const ensurePanels = () => {
 			if (panels) return panels;
@@ -2080,6 +2268,7 @@
 			const current = mount();
 			if (!current) return;
 			current.setVisible(visible);
+			if (current.isDragging()) return;
 			current.setPosition(autoPosition ? options.getDefaultPosition() ?? current.getPosition() : current.getPosition());
 		}
 		function mount() {
@@ -2118,6 +2307,7 @@
 			sync,
 			setVisible(next) {
 				visible = next;
+				if (next && !button) sync();
 				button?.setVisible(next);
 			},
 			openActions() {
@@ -2155,19 +2345,15 @@
 		const gm = createGmApi();
 		const store = createStore(gm);
 		const clipboard = createClipboard();
-		const currentVideoId = () => new URLSearchParams(location.search).get("v") ?? "";
+		const currentVideoId = () => readVideoId(location.search, location.pathname);
 		const network = installNetworkCapture(window, { currentVideoId });
 		let initialTrack = null;
 		const captureInitialTrack = () => {
-			const track = readInitialTrack(window.ytInitialPlayerResponse);
-			if (track) initialTrack = {
-				videoId: currentVideoId(),
-				track
-			};
+			initialTrack = readInitialTrack(window.ytInitialPlayerResponse);
 		};
 		const service = createTranscriptService({
 			videoId: currentVideoId,
-			fromInitialTrack: () => initialTrack && initialTrack.videoId === currentVideoId() ? fetchInitialTrack(initialTrack.track) : Promise.resolve(null),
+			fromInitialTrack: () => initialTrack && initialTrack.videoId === currentVideoId() ? fetchInitialTrack(initialTrack) : Promise.resolve(null),
 			fromNetworkCache: () => network.get(),
 			ensurePanelOpen: () => openTranscriptPanel(),
 			fromViewModel: () => extractFromViewModel(document.body),
@@ -2198,8 +2384,20 @@
 		const register = (label, run) => {
 			if (!gm.registerMenuCommand(label, run)) console.warn(`[youtube-transcript-copy] 菜单命令不可用：${label}`);
 		};
-		register(MENU_ACTIONS, () => app.openActions());
-		register(MENU_SETTINGS, () => app.openSettings());
+		register(MENU_ACTIONS, () => {
+			try {
+				app.openActions();
+			} catch (error) {
+				console.error("[youtube-transcript-copy] 打开操作面板失败", error);
+			}
+		});
+		register(MENU_SETTINGS, () => {
+			try {
+				app.openSettings();
+			} catch (error) {
+				console.error("[youtube-transcript-copy] 打开设置面板失败", error);
+			}
+		});
 		const boot = () => {
 			app.sync();
 			watchVisibility((visible) => app.setVisible(visible));
@@ -2209,6 +2407,7 @@
 				if (videoId !== lastVideoId) {
 					lastVideoId = videoId;
 					network.clear();
+					captureInitialTrack();
 				}
 				app.sync();
 			});

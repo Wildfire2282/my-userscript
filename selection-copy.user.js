@@ -2,7 +2,7 @@
 // @name         选中复制
 // @name:en      Copy on Select
 // @namespace    https://github.com/Wildfire2282
-// @version      1.4.1
+// @version      1.4.2
 // @description  选中文本后自动纯文本复制到剪贴板，去除首尾空白
 // @description:en Copy selected text as plain text with whitespace trimmed
 // @author       Wildfire2282 (https://github.com/Wildfire2282)
@@ -66,9 +66,6 @@
 			get GM_setClipboard() {
 				return typeof globals.GM_setClipboard === "function" ? globals.GM_setClipboard.bind(globals) : void 0;
 			},
-			get GM() {
-				return globals.GM;
-			},
 			get clipboard() {
 				return browser.navigator?.clipboard;
 			},
@@ -80,7 +77,17 @@
 	/** textarea 兜底：必须在用户手势的同一个任务里同步执行，跨 await 会失去写权限。 */
 	function copyWithTextarea(document, text) {
 		if (!document?.body) return false;
-		const active = document.activeElement;
+		let active = document.activeElement;
+		while (active?.shadowRoot?.activeElement) active = active.shadowRoot.activeElement;
+		const control = active?.tagName === "INPUT" || active?.tagName === "TEXTAREA" ? active : null;
+		const controlStart = control?.selectionStart;
+		const controlEnd = control?.selectionEnd;
+		const controlDirection = control?.selectionDirection;
+		const selection = document.getSelection();
+		const anchor = selection?.anchorNode;
+		const focus = selection?.focusNode;
+		const anchorOffset = selection?.anchorOffset ?? 0;
+		const focusOffset = selection?.focusOffset ?? 0;
 		const area = document.createElement("textarea");
 		area.value = text;
 		area.setAttribute("readonly", "");
@@ -94,6 +101,8 @@
 		} finally {
 			area.remove();
 			active?.focus?.();
+			if (anchor?.isConnected && focus?.isConnected) selection?.setBaseAndExtent(anchor, anchorOffset, focus, focusOffset);
+			if (controlStart != null && controlEnd != null) control?.setSelectionRange(controlStart, controlEnd, controlDirection ?? void 0);
 		}
 	}
 	/**
@@ -107,10 +116,6 @@
 			try {
 				if (typeof scope.GM_setClipboard === "function") {
 					await scope.GM_setClipboard(text, "text");
-					return true;
-				}
-				if (typeof scope.GM?.setClipboard === "function") {
-					await scope.GM.setClipboard(text, "text");
 					return true;
 				}
 			} catch {}
@@ -141,12 +146,22 @@
 	function mergeValue(defaultValue, storedValue) {
 		if (storedValue == null) return isRecord(defaultValue) ? mergeRecords(defaultValue, {}) : clone(defaultValue);
 		if (isRecord(defaultValue) && isRecord(storedValue)) return mergeRecords(defaultValue, storedValue);
-		return storedValue;
+		return clone(storedValue);
 	}
 	function mergeRecords(defaults, stored) {
 		const merged = {};
-		for (const [key, value] of Object.entries(defaults)) merged[key] = Object.hasOwn(stored, key) ? mergeValue(value, stored[key]) : mergeValue(value, void 0);
-		for (const [key, value] of Object.entries(stored)) if (!Object.hasOwn(merged, key)) merged[key] = value;
+		for (const [key, value] of Object.entries(defaults)) Object.defineProperty(merged, key, {
+			value: Object.hasOwn(stored, key) ? mergeValue(value, stored[key]) : mergeValue(value, void 0),
+			enumerable: true,
+			writable: true,
+			configurable: true
+		});
+		for (const [key, value] of Object.entries(stored)) if (!Object.hasOwn(merged, key)) Object.defineProperty(merged, key, {
+			value: clone(value),
+			enumerable: true,
+			writable: true,
+			configurable: true
+		});
 		return merged;
 	}
 	/**
@@ -161,31 +176,51 @@
 		if (!isRecord(stored)) return mergeRecords(defaults, {});
 		return mergeRecords(defaults, stored);
 	}
-	/**
-	* 写入设置；失败时返回 false，由调用方决定是否保留内存副本。
-	*/
-	function saveStoredSettings(api, key, value) {
-		return api.setValue(key, value);
-	}
 	//#endregion
 	//#region packages/shared/src/settings-store.ts
+	/**
+	* 写失败时的基线比较：存储值变了就说明别处写过，本页副本作废。
+	*
+	* 必须逐层比较：GM 每次返回的是新反序列化对象，且设置里普遍有数组
+	* （`disabledSites`）与嵌套对象（`engines`、`dragKinds`）。只看一层引用的话，
+	* 写失败后的第一个 `get()` 就会把内存里的新值丢掉，用户改的设置当场失效。
+	*/
+	function sameValue(left, right) {
+		if (left === right) return true;
+		if (typeof left !== "object" || typeof right !== "object" || left === null || right === null) return false;
+		if (Array.isArray(left) || Array.isArray(right)) {
+			if (!Array.isArray(left) || !Array.isArray(right) || left.length !== right.length) return false;
+			return left.every((value, index) => sameValue(value, right[index]));
+		}
+		const leftEntries = Object.entries(left);
+		const rightRecord = right;
+		if (leftEntries.length !== Object.keys(rightRecord).length) return false;
+		return leftEntries.every(([key, value]) => Object.hasOwn(rightRecord, key) && sameValue(value, rightRecord[key]));
+	}
 	/**
 	* 创建设置仓库。
 	*
 	* @param options GM 适配层、存储键与收敛函数；测试里传假实现即可
 	*/
 	function createSettingsStore$1(options) {
-		/** 写入失败后的内存副本；非 null 时不再相信存储里的旧值。 */
 		let pending = null;
-		const get = () => pending ?? options.normalize(options.api.getValue(options.key, null));
+		const get = () => {
+			const raw = options.api.getValue(options.key, null);
+			if (pending && !sameValue(raw, pending.base)) pending = null;
+			return pending?.value ?? options.normalize(raw);
+		};
 		return {
 			get,
 			update(patch) {
+				const raw = options.api.getValue(options.key, null);
 				const next = options.normalize({
 					...get(),
 					...patch
 				});
-				pending = saveStoredSettings(options.api, options.key, next) ? null : next;
+				pending = options.api.setValue(options.key, next) ? null : {
+					value: next,
+					base: raw
+				};
 				return next;
 			}
 		};
@@ -357,8 +392,8 @@
 		return false;
 	}
 	/** 焦点可能落在 Shadow Root 内部，`document.activeElement` 只会给出宿主元素。 */
-	function getActiveElement() {
-		let element = document.activeElement;
+	function getActiveElement(doc = document) {
+		let element = doc.activeElement;
 		while (element?.shadowRoot?.activeElement) element = element.shadowRoot.activeElement;
 		return element;
 	}
@@ -424,7 +459,7 @@
 			if (isTextControl(elementOf(target))) return true;
 			if (isTextControl(elementOf(selection?.anchorNode))) return true;
 			if (isTextControl(elementOf(selection?.focusNode))) return true;
-			if (control !== null) return true;
+			if (control !== null && target === null) return true;
 		}
 		if (!scope.copyInEditors) {
 			if (isInsideEditable(elementOf(target))) return true;
@@ -451,10 +486,10 @@
 		return rect.left + rect.width / 2;
 	}
 	/** 焦点处的零宽插入点；浏览器还没算出布局时返回 null。 */
-	function getCaretRect(selection) {
+	function getCaretRect(selection, doc) {
 		const node = selection.focusNode;
 		if (!node) return null;
-		const range = document.createRange();
+		const range = doc.createRange();
 		try {
 			range.setStart(node, selection.focusOffset);
 			range.collapse(true);
@@ -481,10 +516,10 @@
 			return null;
 		}
 	}
-	function getFallbackRect(selection, range) {
+	function getFallbackRect(selection, range, doc) {
 		const anchorElement = elementOf(selection.anchorNode);
-		const activeElement = !anchorElement || anchorElement === document.body || anchorElement === document.documentElement ? getActiveElement() : null;
-		if (activeElement && activeElement !== document.body && activeElement !== document.documentElement) {
+		const activeElement = !anchorElement || anchorElement === doc.body || anchorElement === doc.documentElement ? getActiveElement(doc) : null;
+		if (activeElement && activeElement !== doc.body && activeElement !== doc.documentElement) {
 			const activeRect = activeElement.getBoundingClientRect();
 			if (activeRect.width > 0 || activeRect.height > 0) return pointAt(activeRect, centerX(activeRect));
 		}
@@ -500,14 +535,15 @@
 	* 取标记要贴住的位置。
 	*
 	* @param selection 当前文档选区
+	* @param doc 选区所属文档；默认当前页面
 	* @returns 焦点处的插入点或兜底矩形；都没有时返回 null（标记会落在视口中央）
 	*/
-	function getAnchorRect(selection) {
-		const caret = getCaretRect(selection);
+	function getAnchorRect(selection, doc = document) {
+		const caret = getCaretRect(selection, doc);
 		if (caret) return caret;
 		const range = selection.rangeCount > 0 ? selection.getRangeAt(0) : null;
-		if (!range) return getFallbackRect(selection, null);
-		return getSelectionEndRect(selection, range) ?? getFallbackRect(selection, range);
+		if (!range) return getFallbackRect(selection, null, doc);
+		return getSelectionEndRect(selection, range) ?? getFallbackRect(selection, range, doc);
 	}
 	/**
 	* 文本框没有可读的插入点矩形，只能贴住控件本身。
@@ -547,7 +583,7 @@
 		if (text === "") return null;
 		return {
 			text,
-			rect: getAnchorRect(selection)
+			rect: getAnchorRect(selection, doc)
 		};
 	}
 	function createCopyAction(options) {
@@ -561,9 +597,13 @@
 			const current = ++requestId;
 			let written = false;
 			try {
-				written = await options.clipboard.copy(source.text);
-			} catch {}
-			if (current === requestId) options.showFeedback({
+				const latest = await options.clipboard.copy(source.text);
+				if (current !== requestId) return "skipped";
+				written = latest;
+			} catch {
+				if (current !== requestId) return "skipped";
+			}
+			options.showFeedback({
 				variant: written ? "success" : "failure",
 				rect: source.rect
 			});
@@ -635,7 +675,8 @@ dragThresholdPx: 3 };
 	function shouldCopyOnKeyUp(event) {
 		if (!event.isTrusted || event.altKey) return false;
 		const extendsSelection = event.shiftKey && SELECTION_EXTEND_KEYS.has(event.key);
-		const selectsAll = event.ctrlKey && !event.shiftKey && event.key.toLowerCase() === "a";
+		const isA = event.code === "KeyA" || event.key.toLowerCase() === "a";
+		const selectsAll = event.ctrlKey && !event.shiftKey && isA;
 		return extendsSelection || selectsAll;
 	}
 	//#endregion
@@ -666,7 +707,7 @@ dragThresholdPx: 3 };
 			options.onCopy(null);
 		};
 		const onMouseLeave = (event) => {
-			if (event.target === doc || event.target === doc.documentElement || event.target === doc.body) gesture = null;
+			if (event.relatedTarget === null) gesture = null;
 		};
 		const reset = () => {
 			gesture = null;
@@ -692,12 +733,13 @@ dragThresholdPx: 3 };
 	var themes_default = ":host,\n:host([data-ds-theme='light']) {\n  --ds-background: #ffffff;\n  --ds-foreground: #18181b;\n  --ds-card: #ffffff;\n  --ds-card-foreground: #18181b;\n  --ds-primary: #18181b;\n  --ds-primary-foreground: #fafafa;\n  --ds-secondary: #f4f4f5;\n  --ds-secondary-foreground: #18181b;\n  --ds-muted: #f4f4f5;\n  --ds-muted-foreground: #6b6b74;\n  --ds-border: #e4e4e7;\n  --ds-input: #8e8e97;\n  --ds-track: #8e8e97;\n  --ds-ring: #71717a;\n  --ds-destructive: #dc2626;\n  --ds-destructive-foreground: #fafafa;\n  --ds-success: #16a34a;\n  --ds-warning: #d97706;\n  --ds-switch-thumb: #ffffff;\n  --ds-overlay: rgb(9 9 11 / 0.45);\n}\n\n/* 深色主题遵循与浅色同一套语义 Token，只替换取值。\n   取值原则：\n   - 不使用纯黑/纯白：画布 #09090b，抬升表面 #18181b，正文 #fafafa。\n   - 深色下用“更亮的灰”表达层级：卡片 #18181b 浮于画布之上，边框 #2b2b31 与之分离。\n   - 状态色在深色背景上提亮，保证文字对比度 ≥ 4.5:1（destructive 改用亮红 + 深色前景）。 */\n:host([data-ds-theme='dark']) {\n  --ds-background: #09090b;\n  --ds-foreground: #fafafa;\n  --ds-card: #18181b;\n  --ds-card-foreground: #fafafa;\n  --ds-primary: #fafafa;\n  --ds-primary-foreground: #18181b;\n  --ds-secondary: #27272a;\n  --ds-secondary-foreground: #fafafa;\n  --ds-muted: #27272a;\n  --ds-muted-foreground: #a1a1aa;\n  --ds-border: #2b2b31;\n  --ds-input: #70707a;\n  --ds-track: #6b6b74;\n  --ds-ring: #d4d4d8;\n  --ds-destructive: #f87171;\n  --ds-destructive-foreground: #450a0a;\n  --ds-success: #4ade80;\n  --ds-warning: #fbbf24;\n  --ds-switch-thumb: #fafafa;\n  --ds-overlay: rgb(0 0 0 / 0.7);\n\n  --ds-shadow-sm: 0 1px 2px rgb(0 0 0 / 0.5);\n  --ds-shadow-md: 0 4px 14px rgb(0 0 0 / 0.6);\n  --ds-shadow-lg: 0 16px 40px rgb(0 0 0 / 0.72);\n}\n";
 	//#endregion
 	//#region packages/userscript-ui/src/tokens/tokens.css?inline
-	var tokens_default = ":host {\n  --ds-font-sans:\n    ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,\n    'Helvetica Neue', Arial, 'Noto Sans', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei',\n    sans-serif;\n  --ds-font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace;\n\n  --ds-text-xs: 12px;\n  --ds-text-sm: 13px;\n  --ds-text-base: 14px;\n  --ds-text-lg: 16px;\n  --ds-text-xl: 18px;\n\n  --ds-weight-normal: 400;\n  --ds-weight-medium: 500;\n  --ds-weight-semibold: 600;\n\n  --ds-leading-tight: 1.25;\n  --ds-leading-snug: 1.4;\n  --ds-leading-normal: 1.5;\n\n  --ds-space-0-5: 2px;\n  --ds-space-1: 4px;\n  --ds-space-1-5: 6px;\n  --ds-space-2: 8px;\n  --ds-space-2-5: 10px;\n  --ds-space-3: 12px;\n  --ds-space-4: 16px;\n  --ds-space-5: 20px;\n  --ds-space-6: 24px;\n  --ds-space-8: 32px;\n\n  --ds-control-h-sm: 28px;\n  --ds-control-h: 32px;\n  --ds-control-h-lg: 36px;\n  --ds-textarea-min-h: 72px;\n\n  --ds-icon-sm: 14px;\n  --ds-icon-xs: 12px;\n  --ds-icon: 16px;\n  --ds-accent-width: 3px;\n\n  --ds-radius-sm: 4px;\n  --ds-radius-md: 6px;\n  --ds-radius-lg: 8px;\n  --ds-radius-xl: 12px;\n  --ds-radius-full: 9999px;\n\n  --ds-border-width: 1px;\n  --ds-ring-width: 2px;\n  --ds-ring-offset: 2px;\n\n  --ds-shadow-sm: 0 1px 2px rgb(0 0 0 / 0.05);\n  --ds-shadow-md: 0 4px 12px rgb(0 0 0 / 0.08);\n  --ds-shadow-lg: 0 12px 32px rgb(0 0 0 / 0.16);\n\n  --ds-duration-fast: 120ms;\n  --ds-duration-base: 180ms;\n  --ds-duration-slow: 240ms;\n  --ds-ease: cubic-bezier(0.2, 0, 0, 1);\n\n  --ds-panel-width: 360px;\n  --ds-panel-width-wide: 440px;\n  --ds-panel-padding: var(--ds-space-4);\n  --ds-panel-max-h: 70vh;\n  --ds-dialog-width: 440px;\n  --ds-dialog-max-h: 640px;\n  --ds-dialog-max-h-vh: 80vh;\n  --ds-dialog-inset: 32px;\n  --ds-switch-width: 36px;\n  --ds-switch-height: 20px;\n  --ds-switch-thumb-size: 16px;\n  --ds-checkbox-size: 16px;\n  --ds-launcher-size: 40px;\n  --ds-launcher-offset: 20px;\n  --ds-launcher-icon: 18px;\n  --ds-toast-width: 320px;\n  --ds-tooltip-max-w: 240px;\n  --ds-tooltip-arrow-size: 8px;\n  --ds-scroll-hint-height: 56px;\n}\n";
+	var tokens_default = ":host {\n  --ds-font-sans:\n    ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,\n    'Helvetica Neue', Arial, 'Noto Sans', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei',\n    sans-serif;\n  --ds-font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace;\n\n  --ds-text-xs: 12px;\n  --ds-text-sm: 13px;\n  --ds-text-base: 14px;\n  --ds-text-lg: 16px;\n  --ds-text-xl: 18px;\n\n  --ds-weight-normal: 400;\n  --ds-weight-medium: 500;\n  --ds-weight-semibold: 600;\n\n  --ds-leading-tight: 1.25;\n  --ds-leading-snug: 1.4;\n  --ds-leading-normal: 1.5;\n\n  --ds-space-0-5: 2px;\n  --ds-space-1: 4px;\n  --ds-space-1-5: 6px;\n  --ds-space-2: 8px;\n  --ds-space-2-5: 10px;\n  --ds-space-3: 12px;\n  --ds-space-4: 16px;\n  --ds-space-5: 20px;\n  --ds-space-6: 24px;\n  --ds-space-8: 32px;\n\n  --ds-control-h-sm: 28px;\n  --ds-control-h: 32px;\n  --ds-control-h-lg: 36px;\n  --ds-textarea-min-h: 72px;\n\n  --ds-icon-sm: 14px;\n  --ds-icon-xs: 12px;\n  --ds-icon: 16px;\n  --ds-accent-width: 3px;\n\n  --ds-radius-sm: 4px;\n  --ds-radius-md: 6px;\n  --ds-radius-lg: 8px;\n  --ds-radius-xl: 12px;\n  --ds-radius-full: 9999px;\n\n  --ds-border-width: 1px;\n  --ds-ring-width: 2px;\n  --ds-ring-offset: 2px;\n\n  --ds-shadow-sm: 0 1px 2px rgb(0 0 0 / 0.05);\n  --ds-shadow-md: 0 4px 12px rgb(0 0 0 / 0.08);\n  --ds-shadow-lg: 0 12px 32px rgb(0 0 0 / 0.16);\n\n  --ds-duration-fast: 120ms;\n  --ds-duration-base: 180ms;\n  --ds-duration-slow: 240ms;\n  --ds-ease: cubic-bezier(0.2, 0, 0, 1);\n\n  /* Panel sizes: compact settings surface, wider operation surface, and a\n     slightly wider settings panel when centered. */\n  --ds-panel-width-settings: 360px;\n  --ds-panel-width-wide: 440px;\n  --ds-panel-width-operation: 560px;\n  /* Backwards-compatible alias for the settings size. */\n  --ds-panel-width: var(--ds-panel-width-settings);\n  --ds-panel-padding: var(--ds-space-4);\n  --ds-panel-max-h-settings: 70vh;\n  --ds-panel-max-h-operation: 80vh;\n  --ds-panel-max-h: var(--ds-panel-max-h-settings);\n  --ds-dialog-width: 440px;\n  --ds-dialog-max-h: 640px;\n  --ds-dialog-max-h-vh: 80vh;\n  --ds-dialog-inset: 32px;\n  --ds-switch-width: 36px;\n  --ds-switch-height: 20px;\n  --ds-switch-thumb-size: 16px;\n  --ds-checkbox-size: 16px;\n  --ds-launcher-size: 40px;\n  --ds-launcher-offset: 20px;\n  --ds-launcher-icon: 18px;\n  --ds-toast-width: 320px;\n  --ds-tooltip-max-w: 240px;\n  --ds-tooltip-arrow-size: 8px;\n  --ds-scroll-hint-height: 56px;\n}\n";
 	//#endregion
 	//#region packages/userscript-ui/src/core/labels.ts
 	var DEFAULT_LABELS = {
 		close: "Close",
 		settings: "Settings",
+		operation: "Operations",
 		notifications: "Notifications",
 		dismissNotification: "Dismiss notification",
 		closeSettings: "Close settings",
@@ -719,22 +761,24 @@ dragThresholdPx: 3 };
 	}
 	//#endregion
 	//#region packages/userscript-ui/src/core/styles.ts
-	var seenByRoot = /* @__PURE__ */ new WeakMap();
-	var sheetCache = /* @__PURE__ */ new Map();
+	var stylesByRoot = /* @__PURE__ */ new WeakMap();
 	function useStyles(root, css) {
-		let seen = seenByRoot.get(root);
-		if (!seen) {
-			seen = /* @__PURE__ */ new Set();
-			seenByRoot.set(root, seen);
+		let entry = stylesByRoot.get(root);
+		if (!entry) {
+			entry = {
+				seen: /* @__PURE__ */ new Set(),
+				sheets: /* @__PURE__ */ new Map()
+			};
+			stylesByRoot.set(root, entry);
 		}
-		if (seen.has(css)) return;
-		seen.add(css);
+		if (entry.seen.has(css)) return;
+		entry.seen.add(css);
 		if (canAdopt(root)) try {
-			let sheet = sheetCache.get(css);
+			let sheet = entry.sheets.get(css);
 			if (!sheet) {
 				sheet = new CSSStyleSheet();
 				sheet.replaceSync(css);
-				sheetCache.set(css, sheet);
+				entry.sheets.set(css, sheet);
 			}
 			if (!root.adoptedStyleSheets.includes(sheet)) root.adoptedStyleSheets = [...root.adoptedStyleSheets, sheet];
 			return;
@@ -850,6 +894,7 @@ dragThresholdPx: 3 };
 				for (const callback of [...destroyCallbacks].reverse()) try {
 					callback();
 				} catch {}
+				destroyCallbacks.clear();
 				controller.abort();
 				host.remove();
 			}
@@ -913,14 +958,14 @@ dragThresholdPx: 3 };
 	//#endregion
 	//#region packages/userscript-ui/src/components/button.ts
 	function createButton(ui, options = {}) {
-		ui.useStyles(button_default);
 		assertAlive(ui, "button");
-		const scope = createScope(ui);
 		const iconOnly = options.size === "icon" || options.iconOnly === true;
 		const variant = options.variant ?? "primary";
 		const size = options.size ?? "md";
 		if (iconOnly && !options.ariaLabel) throw new Error("Icon-only buttons require an ariaLabel.");
 		if (!iconOnly && (options.label == null || typeof options.label === "string" && options.label.trim() === "")) throw new Error("Buttons require a label.");
+		const scope = createScope(ui);
+		ui.useStyles(button_default);
 		const el = document.createElement("button");
 		el.type = options.type ?? "button";
 		el.className = `ds-button ds-button--${variant} ds-button--${size}`;
@@ -985,6 +1030,17 @@ dragThresholdPx: 3 };
 			if (item == null) continue;
 			parent.appendChild(typeof item === "string" ? document.createTextNode(item) : item);
 		}
+	}
+	/**
+	* 合并 `aria-describedby`：保留外部已有的 ID，只增删自己负责的那几个。
+	* field、panel、tooltip 各写一份后改一处会漏两处，收到这里只留一份。
+	*/
+	function syncDescribedBy(element, owned, active) {
+		const ids = new Set((element.getAttribute("aria-describedby") ?? "").split(/\s+/).filter(Boolean));
+		for (const id of owned) ids.delete(id);
+		for (const id of active) ids.add(id);
+		if (ids.size > 0) element.setAttribute("aria-describedby", [...ids].join(" "));
+		else element.removeAttribute("aria-describedby");
 	}
 	//#endregion
 	//#region packages/userscript-ui/src/core/focus.ts
@@ -1105,15 +1161,12 @@ dragThresholdPx: 3 };
 				mutations.disconnect();
 				resize?.disconnect();
 				el.remove();
-				mutations.disconnect();
-				resize?.disconnect();
-				el.remove();
 			}
 		};
 	}
 	//#endregion
 	//#region packages/userscript-ui/src/components/panel.css?inline
-	var panel_default = ".ds-panel {\n  position: fixed;\n  z-index: 1;\n  display: flex;\n  flex-direction: column;\n  width: min(var(--ds-panel-width), calc(100vw - 2 * var(--ds-launcher-offset)));\n  max-height: min(var(--ds-panel-max-h), calc(100vh - 2 * var(--ds-launcher-offset)));\n  overflow: hidden;\n  border: var(--ds-border-width) solid var(--ds-border);\n  border-radius: var(--ds-radius-lg);\n  background: var(--ds-card);\n  color: var(--ds-card-foreground);\n  box-shadow: var(--ds-shadow-lg);\n  pointer-events: auto;\n}\n\n/* 居中位置不跟 Launcher 的角落偏移；左右用 auto 外边距居中，避免 transform 影响 RTL。 */\n.ds-panel[data-position='center'] {\n  inset-block-start: 50%;\n  inset-inline: 0;\n  width: min(var(--ds-panel-width-wide), calc(100vw - 2 * var(--ds-launcher-offset)));\n  margin-inline: auto;\n  transform: translateY(-50%);\n}\n\n.ds-panel[data-position='bottom-right'] {\n  inset-block-end: calc(\n    var(--ds-launcher-offset) + env(safe-area-inset-bottom, 0px) + var(--ds-launcher-size) +\n      var(--ds-space-2)\n  );\n  inset-inline-end: calc(var(--ds-launcher-offset) + env(safe-area-inset-right, 0px));\n}\n\n.ds-panel[data-position='bottom-left'] {\n  inset-block-end: calc(\n    var(--ds-launcher-offset) + env(safe-area-inset-bottom, 0px) + var(--ds-launcher-size) +\n      var(--ds-space-2)\n  );\n  inset-inline-start: calc(var(--ds-launcher-offset) + env(safe-area-inset-left, 0px));\n}\n\n.ds-panel[data-position='top-right'] {\n  inset-block-start: calc(\n    var(--ds-launcher-offset) + env(safe-area-inset-top, 0px) + var(--ds-launcher-size) +\n      var(--ds-space-2)\n  );\n  inset-inline-end: calc(var(--ds-launcher-offset) + env(safe-area-inset-right, 0px));\n}\n\n.ds-panel[data-position='top-left'] {\n  inset-block-start: calc(\n    var(--ds-launcher-offset) + env(safe-area-inset-top, 0px) + var(--ds-launcher-size) +\n      var(--ds-space-2)\n  );\n  inset-inline-start: calc(var(--ds-launcher-offset) + env(safe-area-inset-left, 0px));\n}\n\n.ds-panel-header {\n  display: flex;\n  align-items: flex-start;\n  gap: var(--ds-space-3);\n  padding: var(--ds-panel-padding);\n  border-bottom: var(--ds-border-width) solid var(--ds-border);\n}\n\n.ds-panel-heading {\n  display: flex;\n  flex: 1;\n  flex-direction: column;\n  gap: var(--ds-space-0-5);\n  min-width: 0;\n}\n\n.ds-panel-title {\n  margin: 0;\n  font-size: var(--ds-text-lg);\n  font-weight: var(--ds-weight-semibold);\n  line-height: var(--ds-leading-tight);\n}\n\n.ds-panel-description {\n  margin: 0;\n  color: var(--ds-muted-foreground);\n  font-size: var(--ds-text-xs);\n  line-height: var(--ds-leading-snug);\n}\n\n.ds-panel-close {\n  flex: none;\n  margin-block-start: calc(-1 * var(--ds-space-1));\n  margin-inline-end: calc(-1 * var(--ds-space-1));\n}\n\n.ds-panel-content {\n  position: relative;\n  display: flex;\n  flex: 1;\n  flex-direction: column;\n  min-height: 0;\n}\n\n.ds-panel-body {\n  display: flex;\n  flex: 1;\n  flex-direction: column;\n  gap: var(--ds-space-4);\n  min-height: 0;\n  padding: var(--ds-panel-padding);\n  overflow-y: auto;\n  overscroll-behavior: contain;\n  scrollbar-width: thin;\n  scrollbar-color: var(--ds-border) transparent;\n}\n\n.ds-panel-body::-webkit-scrollbar {\n  width: var(--ds-space-2);\n}\n\n.ds-panel-body::-webkit-scrollbar-track {\n  background: transparent;\n}\n\n.ds-panel-body::-webkit-scrollbar-thumb {\n  border-radius: var(--ds-radius-full);\n  background: var(--ds-border);\n}\n\n.ds-panel-footer {\n  display: flex;\n  flex-wrap: wrap;\n  justify-content: flex-end;\n  gap: var(--ds-space-2);\n  padding: var(--ds-space-3) var(--ds-panel-padding);\n  border-top: var(--ds-border-width) solid var(--ds-border);\n}\n";
+	var panel_default = ".ds-panel {\n  position: fixed;\n  z-index: 1;\n  display: flex;\n  flex-direction: column;\n  width: min(var(--ds-panel-width), calc(100vw - 2 * var(--ds-launcher-offset)));\n  max-height: min(var(--ds-panel-max-h), calc(100vh - 2 * var(--ds-launcher-offset)));\n  overflow: hidden;\n  border: var(--ds-border-width) solid var(--ds-border);\n  border-radius: var(--ds-radius-lg);\n  background: var(--ds-card);\n  color: var(--ds-card-foreground);\n  box-shadow: var(--ds-shadow-lg);\n  pointer-events: auto;\n}\n\n/* Operation panels host script functions, so they get a wider working area and\n   a taller scroll region. Padding, typography and the footer stay identical. */\n.ds-panel[data-size='operation'] {\n  width: min(var(--ds-panel-width-operation), calc(100vw - 2 * var(--ds-launcher-offset)));\n  max-height: min(var(--ds-panel-max-h-operation), calc(100vh - 2 * var(--ds-launcher-offset)));\n}\n\n/* 居中位置不跟 Launcher 的角落偏移；左右用 auto 外边距居中，避免 transform 影响 RTL。 */\n.ds-panel[data-position='center'] {\n  inset-block-start: 50%;\n  inset-inline: 0;\n  margin-inline: auto;\n  transform: translateY(-50%);\n}\n\n/* 居中时设置面板放宽到 440px；操作面板保留自己的 560px 画布。 */\n.ds-panel[data-position='center'][data-size='settings'] {\n  width: min(var(--ds-panel-width-wide), calc(100vw - 2 * var(--ds-launcher-offset)));\n}\n\n.ds-panel[data-position='bottom-right'] {\n  inset-block-end: calc(\n    var(--ds-launcher-offset) + env(safe-area-inset-bottom, 0px) + var(--ds-launcher-size) +\n      var(--ds-space-2)\n  );\n  inset-inline-end: calc(var(--ds-launcher-offset) + env(safe-area-inset-right, 0px));\n}\n\n.ds-panel[data-position='bottom-left'] {\n  inset-block-end: calc(\n    var(--ds-launcher-offset) + env(safe-area-inset-bottom, 0px) + var(--ds-launcher-size) +\n      var(--ds-space-2)\n  );\n  inset-inline-start: calc(var(--ds-launcher-offset) + env(safe-area-inset-left, 0px));\n}\n\n.ds-panel[data-position='top-right'] {\n  inset-block-start: calc(\n    var(--ds-launcher-offset) + env(safe-area-inset-top, 0px) + var(--ds-launcher-size) +\n      var(--ds-space-2)\n  );\n  inset-inline-end: calc(var(--ds-launcher-offset) + env(safe-area-inset-right, 0px));\n}\n\n.ds-panel[data-position='top-left'] {\n  inset-block-start: calc(\n    var(--ds-launcher-offset) + env(safe-area-inset-top, 0px) + var(--ds-launcher-size) +\n      var(--ds-space-2)\n  );\n  inset-inline-start: calc(var(--ds-launcher-offset) + env(safe-area-inset-left, 0px));\n}\n\n.ds-panel-header {\n  display: flex;\n  align-items: flex-start;\n  gap: var(--ds-space-3);\n  padding: var(--ds-panel-padding);\n  border-bottom: var(--ds-border-width) solid var(--ds-border);\n}\n\n.ds-panel-heading {\n  display: flex;\n  flex: 1;\n  flex-direction: column;\n  gap: var(--ds-space-0-5);\n  min-width: 0;\n}\n\n.ds-panel-title {\n  margin: 0;\n  font-size: var(--ds-text-lg);\n  font-weight: var(--ds-weight-semibold);\n  line-height: var(--ds-leading-tight);\n}\n\n.ds-panel-description {\n  margin: 0;\n  color: var(--ds-muted-foreground);\n  font-size: var(--ds-text-xs);\n  line-height: var(--ds-leading-snug);\n}\n\n.ds-panel-close {\n  flex: none;\n  margin-block-start: calc(-1 * var(--ds-space-1));\n  margin-inline-end: calc(-1 * var(--ds-space-1));\n}\n\n.ds-panel-content {\n  position: relative;\n  display: flex;\n  flex: 1;\n  flex-direction: column;\n  min-height: 0;\n}\n\n.ds-panel-body {\n  display: flex;\n  flex: 1;\n  flex-direction: column;\n  gap: var(--ds-space-4);\n  min-height: 0;\n  padding: var(--ds-panel-padding);\n  overflow-y: auto;\n  overscroll-behavior: contain;\n  scrollbar-width: thin;\n  scrollbar-color: var(--ds-border) transparent;\n}\n\n.ds-panel-body::-webkit-scrollbar {\n  width: var(--ds-space-2);\n}\n\n.ds-panel-body::-webkit-scrollbar-track {\n  background: transparent;\n}\n\n.ds-panel-body::-webkit-scrollbar-thumb {\n  border-radius: var(--ds-radius-full);\n  background: var(--ds-border);\n}\n\n.ds-panel-footer {\n  display: flex;\n  flex-wrap: wrap;\n  justify-content: flex-end;\n  gap: var(--ds-space-2);\n  padding: var(--ds-space-3) var(--ds-panel-padding);\n  border-top: var(--ds-border-width) solid var(--ds-border);\n}\n";
 	//#endregion
 	//#region packages/userscript-ui/src/components/panel.ts
 	function createPanel(ui, options = {}) {
@@ -1128,6 +1181,8 @@ dragThresholdPx: 3 };
 		el.dataset.position = options.position ?? "bottom-right";
 		el.setAttribute("role", "region");
 		el.tabIndex = -1;
+		let panelSize = options.size ?? "settings";
+		el.dataset.size = panelSize;
 		const header = document.createElement("header");
 		header.className = "ds-panel-header";
 		const heading = document.createElement("div");
@@ -1170,6 +1225,7 @@ dragThresholdPx: 3 };
 				listener(open);
 			}
 		};
+		const fallbackLabel = () => options.ariaLabel ?? (panelSize === "operation" ? ui.labels.operation : ui.labels.settings);
 		const setTitle = (next) => {
 			title.textContent = next ?? "";
 			title.hidden = !next;
@@ -1179,18 +1235,19 @@ dragThresholdPx: 3 };
 				el.removeAttribute("aria-label");
 			} else {
 				el.removeAttribute("aria-labelledby");
-				el.setAttribute("aria-label", options.ariaLabel ?? ui.labels.settings);
+				el.setAttribute("aria-label", fallbackLabel());
 			}
+		};
+		const setSize = (next) => {
+			panelSize = next;
+			el.dataset.size = next;
+			if (title.hidden) el.setAttribute("aria-label", fallbackLabel());
 		};
 		const setDescription = (next) => {
 			description.textContent = next ?? "";
 			description.hidden = !next;
 			heading.hidden = title.hidden && description.hidden;
-			const ids = new Set((el.getAttribute("aria-describedby") ?? "").split(/\s+/).filter(Boolean));
-			if (next) ids.add(descriptionId);
-			else ids.delete(descriptionId);
-			if (ids.size) el.setAttribute("aria-describedby", [...ids].join(" "));
-			else el.removeAttribute("aria-describedby");
+			syncDescribedBy(el, [descriptionId], next ? [descriptionId] : []);
 		};
 		const setFooter = (next) => {
 			footer.replaceChildren();
@@ -1255,7 +1312,7 @@ dragThresholdPx: 3 };
 			}
 		}, { signal: scope.signal });
 		if (options.title) el.setAttribute("aria-labelledby", titleId);
-		else el.setAttribute("aria-label", options.ariaLabel ?? ui.labels.settings);
+		else el.setAttribute("aria-label", fallbackLabel());
 		setDescription(options.description);
 		if (options.footer) setFooter(options.footer);
 		el.hidden = options.open === false;
@@ -1309,7 +1366,9 @@ dragThresholdPx: 3 };
 			setPosition(position) {
 				el.dataset.position = position;
 			},
+			setSize,
 			onOpenChange(listener) {
+				if (destroyed) return () => {};
 				openListeners.add(listener);
 				return () => openListeners.delete(listener);
 			},
@@ -1407,49 +1466,46 @@ dragThresholdPx: 3 };
 		error.setAttribute("role", "alert");
 		error.hidden = true;
 		root.appendChild(error);
-		const syncDescribedBy = () => {
-			const ids = new Set((input.getAttribute("aria-describedby") ?? "").split(/\s+/).filter(Boolean));
-			ids.delete(descriptionId);
-			ids.delete(errorId);
-			if (!description.hidden) ids.add(descriptionId);
-			if (!error.hidden) ids.add(errorId);
-			if (ids.size) input.setAttribute("aria-describedby", [...ids].join(" "));
-			else input.removeAttribute("aria-describedby");
+		const syncFieldDescribedBy = () => {
+			const active = [description, error].filter((node) => !node.hidden).map((node) => node.id);
+			syncDescribedBy(input, [descriptionId, errorId], active);
 		};
 		const syncInvalid = () => setFieldInvalid(input, !error.hidden);
 		const setError = (message) => {
+			if (scope.destroyed) return;
 			const hasError = Boolean(message);
 			error.textContent = message ?? "";
 			error.hidden = !hasError;
 			root.toggleAttribute("data-invalid", hasError);
 			syncInvalid();
-			syncDescribedBy();
+			syncFieldDescribedBy();
 		};
 		const setDescription = (message) => {
+			if (scope.destroyed) return;
 			description.textContent = message ?? "";
 			description.hidden = !message;
 			text.hidden = label.hidden && description.hidden;
-			syncDescribedBy();
+			syncFieldDescribedBy();
 		};
 		if (input.getAttribute("aria-invalid") === "true") input.setAttribute("data-ds-invalid", "");
 		if (options.error) setError(options.error);
 		else {
 			syncInvalid();
-			syncDescribedBy();
+			syncFieldDescribedBy();
 		}
+		scope.onDestroy(() => {
+			description.hidden = true;
+			error.hidden = true;
+			syncFieldDescribedBy();
+			setFieldInvalid(input, false);
+			root.remove();
+		});
 		return {
 			el: root,
 			control: options.control.el,
 			setError,
 			setDescription,
-			destroy() {
-				description.hidden = true;
-				error.hidden = true;
-				syncDescribedBy();
-				setFieldInvalid(input, false);
-				scope.destroy();
-				root.remove();
-			}
+			destroy: () => scope.destroy()
 		};
 	}
 	//#endregion

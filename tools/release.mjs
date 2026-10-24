@@ -42,9 +42,11 @@ async function exists(target) {
   }
 }
 
-/** 从元数据块里取 @version。 */
+/** 从元数据块里取 @version；只在 banner 内找，避免匹配到正文里的同名注释。 */
 function parseVersion(text) {
-  const match = /^\/\/\s*@version\s+(\S+)/m.exec(text);
+  const end = text.indexOf('// ==/UserScript==');
+  const banner = end === -1 ? text : text.slice(0, end);
+  const match = /^\/\/\s*@version\s+(\S+)/m.exec(banner);
   return match?.[1] ?? null;
 }
 

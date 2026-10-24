@@ -34,10 +34,11 @@ function centerX(rect: DOMRect): number {
 }
 
 /** 焦点处的零宽插入点；浏览器还没算出布局时返回 null。 */
-function getCaretRect(selection: Selection): AnchorBox | null {
+function getCaretRect(selection: Selection, doc: Document): AnchorBox | null {
   const node = selection.focusNode;
   if (!node) return null;
-  const range = document.createRange();
+  // Range 必须来自选区所在的文档：用全局 document 建的范围装不进别的文档的节点。
+  const range = doc.createRange();
   try {
     range.setStart(node, selection.focusOffset);
     range.collapse(true);
@@ -72,17 +73,17 @@ function getSelectionEndRect(selection: Selection, range: Range): AnchorBox | nu
   }
 }
 
-function getFallbackRect(selection: Selection, range: Range | null): AnchorBox | null {
+function getFallbackRect(
+  selection: Selection,
+  range: Range | null,
+  doc: Document,
+): AnchorBox | null {
   const anchorElement = elementOf(selection.anchorNode);
   const documentBox =
-    !anchorElement || anchorElement === document.body || anchorElement === document.documentElement;
+    !anchorElement || anchorElement === doc.body || anchorElement === doc.documentElement;
 
-  const activeElement = documentBox ? getActiveElement() : null;
-  if (
-    activeElement &&
-    activeElement !== document.body &&
-    activeElement !== document.documentElement
-  ) {
+  const activeElement = documentBox ? getActiveElement(doc) : null;
+  if (activeElement && activeElement !== doc.body && activeElement !== doc.documentElement) {
     const activeRect = activeElement.getBoundingClientRect();
     if (activeRect.width > 0 || activeRect.height > 0) {
       return pointAt(activeRect, centerX(activeRect));
@@ -107,14 +108,15 @@ function getFallbackRect(selection: Selection, range: Range | null): AnchorBox |
  * 取标记要贴住的位置。
  *
  * @param selection 当前文档选区
+ * @param doc 选区所属文档；默认当前页面
  * @returns 焦点处的插入点或兜底矩形；都没有时返回 null（标记会落在视口中央）
  */
-export function getAnchorRect(selection: Selection): AnchorBox | null {
-  const caret = getCaretRect(selection);
+export function getAnchorRect(selection: Selection, doc: Document = document): AnchorBox | null {
+  const caret = getCaretRect(selection, doc);
   if (caret) return caret;
   const range = selection.rangeCount > 0 ? selection.getRangeAt(0) : null;
-  if (!range) return getFallbackRect(selection, null);
-  return getSelectionEndRect(selection, range) ?? getFallbackRect(selection, range);
+  if (!range) return getFallbackRect(selection, null, doc);
+  return getSelectionEndRect(selection, range) ?? getFallbackRect(selection, range, doc);
 }
 
 /**

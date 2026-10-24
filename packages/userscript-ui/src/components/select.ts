@@ -53,7 +53,9 @@ export function createSelect(ui: UI, options: SelectOptions): SelectHandle {
   const renderOptions = (next: SelectOption[]) => {
     select.replaceChildren();
 
-    if (options.placeholder) {
+    // 占位项占着 `value=''`：选项里已有真实的空值项时再加占位项，
+    // 那个真实选项就永远选不到了。
+    if (options.placeholder && !next.some((item) => item.value === '')) {
       const placeholder = document.createElement('option');
       placeholder.value = '';
       placeholder.textContent = options.placeholder;

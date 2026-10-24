@@ -74,7 +74,11 @@ MAX_PAGES = 30
 
 
 class FetchError(RuntimeError):
-    """下载失败且重试无效。"""
+    """下载失败且重试无效；`status` 是最后一次 HTTP 状态码（网络错误时为 None）。"""
+
+    def __init__(self, message: str, status: int | None = None) -> None:
+        super().__init__(message)
+        self.status = status
 
 
 def fetch(url: str, *, timeout: int = 30, retries: int = 3) -> bytes:
@@ -93,13 +97,14 @@ def fetch(url: str, *, timeout: int = 30, retries: int = 3) -> bytes:
                 return response.read()
         except urllib.error.HTTPError as exc:
             if exc.code in (404, 410):
-                raise FetchError(f"{url} 返回 {exc.code}") from exc
+                raise FetchError(f"{url} 返回 {exc.code}", exc.code) from exc
             last_error = exc
         except (urllib.error.URLError, TimeoutError, OSError) as exc:
             last_error = exc
         if attempt < retries:
             time.sleep(1.5 * attempt)
-    raise FetchError(f"无法下载 {url}：{last_error}") from last_error
+    status = last_error.code if isinstance(last_error, urllib.error.HTTPError) else None
+    raise FetchError(f"无法下载 {url}：{last_error}", status) from last_error
 
 
 # ---------------------------------------------------------------------------
@@ -149,9 +154,10 @@ def discover_scripts() -> dict[int, tuple[str, str]]:
         parser = ScriptLinkParser()
         try:
             parser.feed(fetch(url).decode("utf-8", "replace"))
-        except FetchError:
-            # 脚本不足一页时，Greasy Fork 对 page=2 返回 403；视为没有下一页。
-            if page == 1:
+        except FetchError as exc:
+            # 脚本不足一页时 Greasy Fork 对 page=2 返回 403，才算“没有下一页”。
+            # 其它错误（超时、5xx）不能当成末尾：那会把清单悄悄截断。
+            if page == 1 or exc.status != 403:
                 raise
             break
         new_ids = [sid for sid in parser.links if sid not in found]

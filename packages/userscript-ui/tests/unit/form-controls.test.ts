@@ -126,6 +126,22 @@ describe('Select', () => {
     expect(onChange).not.toHaveBeenCalled();
   });
 
+  it('占位项与真实空值项并存时，真实空值项仍然可选', () => {
+    const select = createSelect(ui, {
+      placeholder: 'Choose one',
+      options: [
+        { value: 'a', label: 'Alpha' },
+        { value: '', label: 'None' },
+      ],
+    });
+
+    // 不加占位项：它的 value 会占住 ''，真实选项就永远选不到。
+    expect(select.input.options).toHaveLength(2);
+    select.setValue('');
+    expect(select.input.selectedIndex).toBe(1);
+    expect(select.input.options[1]?.textContent).toBe('None');
+  });
+
   it('never selects a disabled initial value', () => {
     const select = createSelect(ui, {
       options: [

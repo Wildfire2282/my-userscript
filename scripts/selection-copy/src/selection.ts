@@ -69,8 +69,8 @@ export function isInsideEditable(element: Element | null): boolean {
 }
 
 /** 焦点可能落在 Shadow Root 内部，`document.activeElement` 只会给出宿主元素。 */
-export function getActiveElement(): Element | null {
-  let element: Element | null = document.activeElement;
+export function getActiveElement(doc: Document = document): Element | null {
+  let element: Element | null = doc.activeElement;
   while (element?.shadowRoot?.activeElement) {
     element = element.shadowRoot.activeElement;
   }

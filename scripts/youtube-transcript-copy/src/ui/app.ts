@@ -182,6 +182,8 @@ export function createTranscriptButtonApp(
     const current = mount();
     if (!current) return;
     current.setVisible(visible);
+    // 正在拖动时位置归手指，定时 sync 不能把它拽回播放器角落。
+    if (current.isDragging()) return;
     // 用户拖过：只把位置收回可视区域；没拖过：跟着播放器重新算默认位置。
     current.setPosition(
       autoPosition

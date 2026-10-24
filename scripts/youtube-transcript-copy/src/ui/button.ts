@@ -36,6 +36,8 @@ export interface TranscriptButtonHandle {
   setVisible: (visible: boolean) => void;
   setPosition: (position: ButtonPosition) => void;
   getPosition: () => ButtonPosition;
+  /** 用户正在拖动：此时位置由手指决定，外部不要再按播放器重算。 */
+  isDragging: () => boolean;
   destroy: () => void;
 }
 
@@ -209,6 +211,7 @@ export function createTranscriptButton(options: TranscriptButtonOptions): Transc
       applyPosition();
     },
     getPosition: () => position,
+    isDragging: () => dragScope !== null,
     destroy() {
       cleanup();
       // 组件有自己的 scope，先销毁再删节点，监听与按钮上的点击回调一起释放。

@@ -55,7 +55,7 @@ export function resolveCopySource(
 
   const text = readSelectionText(selection, settings.trimWhitespace);
   if (text === '') return null;
-  return { text, rect: getAnchorRect(selection) };
+  return { text, rect: getAnchorRect(selection, doc) };
 }
 
 export interface CopyActionOptions {

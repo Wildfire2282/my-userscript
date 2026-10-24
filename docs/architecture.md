@@ -22,7 +22,7 @@
 
 | 路径 | 职责 |
 | --- | --- |
-| `packages/userscript-ui/` | UI 设计体系，git submodule，只读；升级走独立提交 |
+| `packages/userscript-ui/` | UI 设计体系，git submodule，只读；升级走独立提交；仓库为私有，CI 用只读部署密钥（仓库 secret `SUBMODULE_DEPLOY_KEY`）拉取 |
 | `packages/shared/` | 跨脚本共用代码：GM 适配（`gm.ts`）、设置合并与读写（`storage.ts`）、设置仓库（`settings-store.ts`）与剪贴板写入（`clipboard.ts`） |
 | `scripts/<slug>/` | 一个脚本一个 npm workspace 包 |
 | `scripts/<slug>/userscript.meta.ts` | 静态元数据（名称、匹配、权限），不含 `@version` |

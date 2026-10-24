@@ -28,6 +28,20 @@ jobs:
   release:
     runs-on: ubuntu-latest
     steps:
+      # 界面库是私有子模块：用只读部署密钥拉取，不把访问凭证写进仓库。
+      # 撤销方式：删掉 userscript-ui 仓库里标题含“my-userscript CI”的部署密钥与
+      # 本仓库的 SUBMODULE_DEPLOY_KEY secret。
+      - name: 配置私有子模块的只读密钥
+        env:
+          SUBMODULE_DEPLOY_KEY: ${{ secrets.SUBMODULE_DEPLOY_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          printf '%s\n' "$SUBMODULE_DEPLOY_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -t ed25519 github.com >> ~/.ssh/known_hosts
+          git config --global url."git@github.com:Wildfire2282/userscript-ui.git".insteadOf "https://github.com/Wildfire2282/userscript-ui.git"
+
       - name: 检出源码与子模块
         uses: actions/checkout@v5
         with:

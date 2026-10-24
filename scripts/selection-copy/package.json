@@ -1,6 +1,6 @@
 {
   "name": "@my-userscript/selection-copy",
-  "version": "1.4.2",
+  "version": "1.4.3",
   "private": true,
   "description": "选中文本后自动纯文本复制到剪贴板，去除首尾空白",
   "type": "module",

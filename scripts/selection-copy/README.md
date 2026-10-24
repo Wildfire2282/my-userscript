@@ -5,16 +5,12 @@
 | 项目 | 值 |
 | --- | --- |
 | Greasy Fork | [582576](https://greasyfork.org/zh-CN/scripts/582576) |
-| 准备版本 | 1.4.2（待发布，2026-10-24） |
+| 当前版本 | 1.4.2（2026-10-24） |
 | 迁移状态 | 已迁移：由 `src/` 模块构建，界面使用 `@ui` |
 | 匹配站点 | `*://*/*`（`document-end`，每个 frame 独立生效） |
 | 授予权限 | `GM_setClipboard`、`GM_getValue`、`GM_setValue`、`GM_registerMenuCommand` |
 | 设置键 | `selection-copy:config.settings` |
 | 设置入口 | 脚本管理器菜单 →「功能设置」 |
-
-## 本次版本准备
-
-1.4.2 尚未发布：修复备用复制失败后文字选区消失，以及拖选经过页面边缘、焦点留在输入框时正文漏复制的问题；共享设置的读取结果不再影响原存储对象。已有设置与授予权限不变；线上验收尚未完成。
 
 ## 行为
 

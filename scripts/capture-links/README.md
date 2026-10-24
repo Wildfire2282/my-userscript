@@ -5,15 +5,11 @@
 | 项目 | 值 |
 | --- | --- |
 | Greasy Fork | [582371](https://greasyfork.org/zh-CN/scripts/582371) |
-| 准备版本 | 1.3.1（待发布，2026-10-24） |
+| 当前版本 | 1.3.1（2026-10-24） |
 | 迁移状态 | 已迁移：由 `src/` 模块构建，界面使用 `@ui` |
 | 匹配站点 | `https://*/*`、`http://*/*`（`@noframes`，`document-end`） |
 | 授予权限 | `GM_registerMenuCommand`、`GM_setClipboard`、`GM_setValue`、`GM_getValue` |
 | 设置键 | `settings`（旧键，未改名）：`showFloatButton`、`copyFormat` |
-
-## 本次版本准备
-
-1.3.1 尚未发布：修复页面指定资源目录时相对链接复制错误，以及地址里的字面实体被重复解码的问题；已有设置、复制格式与授予权限不变。自动检查已通过，线上验收尚未完成。
 
 ## 行为
 

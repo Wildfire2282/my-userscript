@@ -5,15 +5,11 @@
 | 项目 | 值 |
 | --- | --- |
 | Greasy Fork | [579560](https://greasyfork.org/zh-CN/scripts/579560) |
-| 准备版本 | 1.4.5（待发布，2026-10-24） |
+| 当前版本 | 1.4.5（2026-10-24） |
 | 迁移状态 | 已迁移：由 `src/` 模块构建，界面使用 `@ui` |
 | 匹配站点 | `https://www.youtube.com/*`（`document-start`） |
 | 授予权限 | `GM_setClipboard`、`GM_registerMenuCommand`、`GM_setValue`、`GM_getValue`、`GM_deleteValue` |
 | 设置键 | `pos`（按钮位置）、`strategy`（提取策略记忆） |
-
-## 本次版本准备
-
-1.4.5 尚未发布：修复单页换视频时误用旧字幕轨，补全新版转写响应与兜底请求的读取；不再将字幕内容挂到宿主页面全局。已有设置与授予权限不变；线上验收尚未完成。
 
 ## 行为
 

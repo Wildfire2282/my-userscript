@@ -175,7 +175,8 @@ async function discoverSlugs() {
     if (!existsSync(path.join(SCRIPTS_DIR, slug))) {
       throw new Error(`没有这个脚本：${slug}`);
     }
-    console.warn(`跳过 ${slug}：没有 tests/browser-scenarios.mjs`);
+    // 点名要跑的脚本没有场景，说明场景文件被改名或删了：不能静默通过。
+    throw new Error(`${slug} 没有 tests/browser-scenarios.mjs，无法验证`);
   }
   return slugs;
 }
@@ -190,7 +191,17 @@ function newestTime(directory) {
   let newest = 0;
   for (const entry of readdirSync(directory, { withFileTypes: true })) {
     const full = path.join(directory, entry.name);
-    newest = Math.max(newest, entry.isDirectory() ? newestTime(full) : statSync(full).mtimeMs);
+    // 坏链接或正好被删除的文件不该让整轮检查崩掉。
+    const time = entry.isDirectory()
+      ? newestTime(full)
+      : (() => {
+          try {
+            return statSync(full).mtimeMs;
+          } catch {
+            return 0;
+          }
+        })();
+    newest = Math.max(newest, time);
   }
   return newest;
 }
@@ -511,7 +522,21 @@ try {
     // 产物比源码旧时场景测的是旧代码，结果没有意义：直接判失败，别让它看起来“通过”。
     const distTime = statSync(distFile).mtimeMs;
     const srcDir = path.join(SCRIPTS_DIR, slug, 'src');
-    if (existsSync(srcDir) && newestTime(srcDir) > distTime) {
+    const pkgDir = path.join(SCRIPTS_DIR, slug);
+    // 版本号与元数据也进产物（banner），只改它们而不重新构建同样是旧产物。
+    const inputTime = Math.max(
+      existsSync(srcDir) ? newestTime(srcDir) : 0,
+      ['package.json', 'userscript.meta.ts', 'userscript.meta.js']
+        .map((name) => {
+          try {
+            return statSync(path.join(pkgDir, name)).mtimeMs;
+          } catch {
+            return 0;
+          }
+        })
+        .reduce((a, b) => Math.max(a, b), 0),
+    );
+    if (inputTime > distTime) {
       throw new Error(`${path.relative(ROOT, distFile)} 比 src 旧，先运行 npm run build ${slug}。`);
     }
     const bundle = await readFile(distFile, 'utf8');

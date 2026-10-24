@@ -340,11 +340,12 @@ export const scenarios = [
     },
   },
   {
-    name: '操作面板「重置按钮位置」→ 回到右上角并删除记忆',
+    name: '操作面板「重置按钮位置」→ 回到播放器右上角并删除记忆',
     async run(ctx) {
       const point = await ctx.evaluate(() => window.__page.center());
       await ctx.input.drag(point, { x: point.x - 120, y: point.y + 80 });
       await ctx.wait(60);
+      const expected = await ctx.evaluate(() => window.__page.expectedRightTop());
       await ctx.evaluate(() => {
         window.__page.menu('操作面板');
         window.__page.clickInPanel('重置按钮位置');
@@ -356,7 +357,7 @@ export const scenarios = [
         };
       });
       return {
-        expected: '30px / 30px / 已删除',
+        expected: `${expected.right} / ${expected.top} / 已删除`,
         actual: `${state.position.right} / ${state.position.top} / ${
           state.stored === null ? '已删除' : '仍在'
         }`,

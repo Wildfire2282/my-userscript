@@ -73,21 +73,26 @@ export function createTranscriptService(deps: TranscriptServiceDeps): Transcript
         return fromNetwork;
       }
 
-      if (!(await deps.ensurePanelOpen())) return [];
+      // 面板打不开不等于拿不到文稿：API 兜底不依赖面板，仍值得一试。
+      const panelOpen = await deps.ensurePanelOpen();
       if (deps.videoId() !== videoId) return [];
 
-      const fromDom = await runStrategies('dom', [
-        () => deps.fromViewModel(),
-        () => deps.fromPanelDump(),
-      ]);
-      if (deps.videoId() !== videoId) return [];
-      if (fromDom) {
-        cache = { videoId, segments: fromDom };
-        return fromDom;
+      if (panelOpen) {
+        const fromDom = await runStrategies('dom', [
+          () => deps.fromViewModel(),
+          () => deps.fromPanelDump(),
+        ]);
+        if (deps.videoId() !== videoId) return [];
+        if (fromDom) {
+          cache = { videoId, segments: fromDom };
+          return fromDom;
+        }
       }
 
       try {
         const fromApi = await deps.fromApi(videoId);
+        // API 也要等：等待期间换台时，这份文稿属于上一个视频。
+        if (deps.videoId() !== videoId) return [];
         if (fromApi && fromApi.length > 0) {
           cache = { videoId, segments: fromApi };
           return fromApi;

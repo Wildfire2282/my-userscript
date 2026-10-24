@@ -109,7 +109,29 @@ export function createTranscriptButton(options: TranscriptButtonOptions): Transc
     const startTop = rect.top;
     const startX = event.clientX;
     const startY = event.clientY;
+    const pointerId = event.pointerId;
     let moved = false;
+    let captured = false;
+    // 指针捕获会把后续的 click 也重定向到按钮外层，普通点击就失效了：
+    // 只有真的开始拖动后才捕获，结束时立刻释放。
+    const capture = (): void => {
+      if (captured) return;
+      try {
+        wrap.setPointerCapture?.(pointerId);
+        captured = true;
+      } catch {
+        // 不支持指针捕获的环境退化为 document 监听。
+      }
+    };
+    const release = (): void => {
+      if (!captured) return;
+      captured = false;
+      try {
+        wrap.releasePointerCapture?.(pointerId);
+      } catch {
+        // 已经释放或环境不支持：忽略。
+      }
+    };
 
     dragScope?.abort();
     const scope = new AbortController();
@@ -117,9 +139,17 @@ export function createTranscriptButton(options: TranscriptButtonOptions): Transc
     const { signal } = scope;
 
     const onMove = (moveEvent: PointerEvent): void => {
+      // 在窗口外松开时拿不到 pointerup：按键已经全部抬起就当作结束，别让按钮继续跟着光标。
+      if (moveEvent.buttons === 0) {
+        finish(true);
+        return;
+      }
       const dx = moveEvent.clientX - startX;
       const dy = moveEvent.clientY - startY;
-      if (Math.abs(dx) > DRAG_THRESHOLD_PX || Math.abs(dy) > DRAG_THRESHOLD_PX) moved = true;
+      if (Math.abs(dx) > DRAG_THRESHOLD_PX || Math.abs(dy) > DRAG_THRESHOLD_PX) {
+        moved = true;
+        capture();
+      }
       position = clampPosition(
         { right: startRight - dx, top: startTop + dy },
         { width: window.innerWidth, height: window.innerHeight },
@@ -127,10 +157,13 @@ export function createTranscriptButton(options: TranscriptButtonOptions): Transc
       applyPosition();
     };
 
-    const onUp = (): void => {
+    /** 结束这次拖动；`save` 为 false 表示被系统取消（触摸滚动），位置不落存储。 */
+    const finish = (save: boolean): void => {
+      release();
       scope.abort();
       dragScope = null;
       wrap.dataset.dragging = 'false';
+      if (!save) return;
       // 没移动就是一次普通单击：不改位置，否则会停用“跟着播放器走”。
       if (!moved) return;
       options.onMoveEnd(position);
@@ -140,9 +173,14 @@ export function createTranscriptButton(options: TranscriptButtonOptions): Transc
       }, CLICK_SUPPRESS_MS);
     };
 
+    const onUp = (): void => finish(true);
+    // 触摸拖动被浏览器接管（滚动/缩放）时只有 pointercancel，没有 pointerup。
+    const onCancel = (): void => finish(false);
+
     wrap.dataset.dragging = 'true';
     document.addEventListener('pointermove', onMove, { signal });
     document.addEventListener('pointerup', onUp, { signal });
+    document.addEventListener('pointercancel', onCancel, { signal });
   });
 
   const cleanup = (): void => {

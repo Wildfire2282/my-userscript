@@ -100,11 +100,13 @@ export function createTranscriptButtonApp(
     target.setState(outcome === 'success' ? 'success' : 'error');
   };
 
-  /** 回到视口右上角 30px，并清掉位置记忆。 */
+  /** 回到播放器右上角并清掉位置记忆：之后重新跟着播放器走。 */
   const resetPosition = (): void => {
-    autoPosition = false;
+    // 只清存储、停用自动跟随的写法会让按钮钉死在视口角落，与提示文案相反。
+    autoPosition = true;
     options.clearSavedPosition();
-    button?.setPosition({ right: 30, top: 30 });
+    const next = options.getDefaultPosition();
+    if (next) button?.setPosition(next);
   };
 
   const ensurePanels = (): { actions: PanelHandle; settings: PanelHandle } => {

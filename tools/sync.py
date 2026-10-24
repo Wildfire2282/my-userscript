@@ -198,13 +198,28 @@ def parse_metadata(text: str) -> dict[str, list[str]]:
 
 
 def extract_banner(text: str) -> str:
-    """取出文件顶部的 ==UserScript== 元数据块，用于生成 userscript.meta.js。"""
+    """取出文件顶部的 ==UserScript== 元数据块，用于生成 userscript.meta.js。
+
+    找不到结束标记时返回空串：把整份脚本体当 banner 写进 userscript.meta.js，
+    下次构建会把它当作元数据块，出来的产物直接是坏的。
+    """
     lines: list[str] = []
     for line in text.splitlines():
         lines.append(line)
         if re.match(r"^//\s*==/UserScript==$", line.strip()):
-            break
-    return "\n".join(lines) + "\n"
+            return "\n".join(lines) + "\n"
+    return ""
+
+
+def looks_like_userscript(text: str, metadata: dict[str, list[str]]) -> bool:
+    """下载到的是不是一份完整的用户脚本。
+
+    Greasy Fork 会返回 200 的 HTML（维护页、验证页、代理错误页）：直接写进
+    legacy/ 会覆盖掉好的快照，而那份快照只能从 git 历史里找回。
+    """
+    if "==UserScript==" not in text or "==/UserScript==" not in text:
+        return False
+    return bool(first(metadata, "version"))
 
 
 def first(metadata: dict[str, list[str]], key: str) -> str | None:
@@ -270,8 +285,15 @@ def ensure_package(slug: str, script_id: int, text: str, metadata: dict[str, lis
         (directory / name).exists() for name in ("userscript.meta.ts", "userscript.meta.js")
     )
     if not exists:
-        meta_file.write_text(extract_banner(text), encoding="utf-8", newline="\n")
-        print(f"  已创建 scripts/{slug}/userscript.meta.js")
+        banner = extract_banner(text)
+        if banner:
+            meta_file.write_text(banner, encoding="utf-8", newline="\n")
+            print(f"  已创建 scripts/{slug}/userscript.meta.js")
+        else:
+            print(
+                f"  警告：scripts/{slug}/ 的下载内容没有完整元数据块，未创建 userscript.meta.js",
+                file=sys.stderr,
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -391,6 +413,13 @@ def sync(*, check_only: bool, force: bool) -> int:
 
         metadata = parse_metadata(text)
         version = first(metadata, "version")
+        if not looks_like_userscript(text, metadata):
+            # 半页 HTML 或截断的响应：不覆盖快照、不写清单，等下次重跑。
+            print(
+                f"错误：scripts/{slug}/ 下载到的内容不是完整的用户脚本（缺元数据块或 @version），已中止。",
+                file=sys.stderr,
+            )
+            return 2
         old_text = path.read_text(encoding="utf-8") if path.exists() else None
         old_version = first(parse_metadata(old_text), "version") if old_text else None
         changed = force or old_text != text

@@ -34,6 +34,9 @@ const GZIP_BUDGET = 60 * 1024;
 const ENTRY_CANDIDATES = ['src/main.ts', 'src/main.js', 'src/index.ts', 'src/index.js'];
 const META_CANDIDATES = ['userscript.meta.ts', 'userscript.meta.js'];
 
+/** 解析失败的 package.json：既跳过该包，又让整轮构建失败（不能静默少一个脚本）。 */
+const manifestFailures = [];
+
 const args = process.argv.slice(2);
 const minify = args.includes('--minify');
 const only = args.filter((arg) => !arg.startsWith('-'));
@@ -55,11 +58,15 @@ async function loadPackages() {
     const dir = path.join(SCRIPTS_DIR, entry.name);
     const packageFile = path.join(dir, 'package.json');
     if (!(await exists(packageFile))) continue;
-    packages.push({
-      slug: entry.name,
-      dir,
-      manifest: JSON.parse(await readFile(packageFile, 'utf8')),
-    });
+    let manifest;
+    try {
+      manifest = JSON.parse(await readFile(packageFile, 'utf8'));
+    } catch (error) {
+      // 一个包的 manifest 坏了不该让其它三个包也构建不出来。
+      manifestFailures.push({ slug: entry.name, error });
+      continue;
+    }
+    packages.push({ slug: entry.name, dir, manifest });
   }
   return packages.sort((a, b) => a.slug.localeCompare(b.slug));
 }
@@ -110,6 +117,10 @@ function iifeName(slug) {
 }
 
 async function buildPackage(pkg) {
+  // 先判断是否已迁移：未迁移的包没有入口，不该因为缺元数据让整轮构建失败。
+  const entry = await findEntry(pkg.dir);
+  if (!entry) return { status: 'skipped' };
+
   const metaFile = await findMeta(pkg.dir);
   if (!metaFile) {
     throw new Error('缺少 userscript.meta.ts（或 .js）');
@@ -118,15 +129,14 @@ async function buildPackage(pkg) {
   if (!banner.includes('==UserScript==') || !banner.includes('==/UserScript==')) {
     throw new Error(`${path.basename(metaFile)} 不是完整的 ==UserScript== 元数据块`);
   }
-  // 少了 @name / @match 的产物能构建成功却装不上或从不触发：在构建处就拦下。
-  for (const field of ['@name', '@match']) {
-    if (!new RegExp(`^//\\s*${field}\\s+\\S`, 'm').test(banner)) {
-      throw new Error(`${path.basename(metaFile)} 缺少 ${field}`);
-    }
+  // 少了 @name 或匹配地址的产物能构建成功却装不上 / 从不触发：在构建处就拦下。
+  if (!/^\/\/\s*@name\s+\S/m.test(banner)) {
+    throw new Error(`${path.basename(metaFile)} 缺少 @name`);
   }
-
-  const entry = await findEntry(pkg.dir);
-  if (!entry) return { status: 'skipped' };
+  // @match 与 @include 任选其一：与 check-meta 的判定保持一致。
+  if (!/^\/\/\s*@(?:match|include)\s+\S/m.test(banner)) {
+    throw new Error(`${path.basename(metaFile)} 缺少 @match 或 @include`);
+  }
 
   const { build } = await import('vite');
   await build({
@@ -180,7 +190,10 @@ if (selected.length === 0) {
 
 const built = [];
 const skipped = [];
-const failed = [];
+const failed = [...manifestFailures];
+for (const failure of manifestFailures) {
+  console.error(`构建失败 ${failure.slug}: package.json 无法解析（${failure.error.message}）`);
+}
 
 for (const pkg of selected) {
   try {

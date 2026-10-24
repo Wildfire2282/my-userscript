@@ -20,7 +20,9 @@ function mount(overrides: { onClick?: () => void; onMoveEnd?: () => void } = {})
 }
 
 function pointer(type: string, x: number, y: number): PointerEvent {
-  return new PointerEvent(type, { bubbles: true, clientX: x, clientY: y, button: 0 });
+  // 真实浏览器里按住拖动时 pointermove 的 buttons 是 1，抬起后才是 0。
+  const buttons = type === 'pointerup' || type === 'pointercancel' ? 0 : 1;
+  return new PointerEvent(type, { bubbles: true, clientX: x, clientY: y, button: 0, buttons });
 }
 
 let cleanup: (() => void) | null = null;
@@ -96,6 +98,35 @@ describe('createTranscriptButton', () => {
     // 右距随鼠标向左移动而增加，上距随鼠标向下移动而增加。
     expect(onMoveEnd).toHaveBeenCalledWith({ right: 224, top: 110 });
     expect(onClick).not.toHaveBeenCalled();
+  });
+
+  it('在窗口外松开鼠标（move 时按键已抬起）→ 结束拖动并保存位置', () => {
+    const onMoveEnd = vi.fn();
+    const { handle } = setup({ onMoveEnd });
+    vi.spyOn(handle.el, 'getBoundingClientRect').mockReturnValue({
+      right: 900,
+      top: 50,
+    } as DOMRect);
+
+    handle.el.dispatchEvent(pointer('pointerdown', 500, 100));
+    document.dispatchEvent(pointer('pointermove', 400, 160));
+    // 没有 pointerup，只有一次 buttons=0 的 move。
+    document.dispatchEvent(
+      new PointerEvent('pointermove', { bubbles: true, clientX: 400, clientY: 160, buttons: 0 }),
+    );
+
+    expect(onMoveEnd).toHaveBeenCalledTimes(1);
+  });
+
+  it('触摸拖动被系统取消时不保存位置', () => {
+    const onMoveEnd = vi.fn();
+    const { handle } = setup({ onMoveEnd });
+
+    handle.el.dispatchEvent(pointer('pointerdown', 500, 100));
+    document.dispatchEvent(pointer('pointermove', 400, 160));
+    document.dispatchEvent(pointer('pointercancel', 400, 160));
+
+    expect(onMoveEnd).not.toHaveBeenCalled();
   });
 
   it('销毁后移除按钮，拖动监听不再存在', () => {

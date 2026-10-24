@@ -75,11 +75,14 @@ describe('createTranscriptService', () => {
     expect(remembered).toEqual([['dom', 1]]);
   });
 
-  it('面板打不开时直接返回空数组，不再尝试 DOM 与 API', async () => {
-    const { deps, service } = setup({ ensurePanelOpen: vi.fn(() => Promise.resolve(false)) });
-    await expect(service.fetchTranscript()).resolves.toEqual([]);
+  it('面板打不开时跳过 DOM，但仍用 API 兜底', async () => {
+    const { deps, service } = setup({
+      ensurePanelOpen: vi.fn(() => Promise.resolve(false)),
+      fromApi: vi.fn(() => Promise.resolve(E)),
+    });
+    await expect(service.fetchTranscript()).resolves.toEqual(E);
     expect(deps.fromViewModel).not.toHaveBeenCalled();
-    expect(deps.fromApi).not.toHaveBeenCalled();
+    expect(deps.fromApi).toHaveBeenCalledTimes(1);
   });
 
   it('DOM 都没有时用 API 兜底，API 结果不写入策略记忆', async () => {

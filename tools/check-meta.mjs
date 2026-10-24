@@ -19,6 +19,7 @@
 import { access, readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import ts from 'typescript';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SCRIPTS_DIR = path.join(ROOT, 'scripts');
@@ -110,94 +111,34 @@ function sortedValues(fields, key) {
 }
 
 /**
- * 剥掉注释与字符串里的文字：里面的 `GM_*` 只是文字，不是调用点。
- * 模板字符串里的 `${}` 仍保留——那是会执行的代码。
+ * 产物里真正用到的 `GM_*` 能力。
+ *
+ * 用 TypeScript 语法树，而不是在文本上剥注释与字符串：手写状态机要处理正则字面量
+ * （`/['"]/`）与模板嵌套，漏一个状态就会吞掉后面的代码，让“缺授权”检查静默失效。
+ *
+ * 三种写法都算使用：裸标识符（`GM_x()`）、属性访问（`globalThis.GM_x`、`api.GM_x`）、
+ * 以及 `globalThis['GM_x']`。共享适配层就是属性访问，只看标识符会漏掉。
  */
-function stripCommentsAndStrings(code) {
-  let out = '';
-  let index = 0;
-  let state = 'code';
-  let quote = '';
-  while (index < code.length) {
-    const char = code[index];
-    const next = code[index + 1] ?? '';
-    if (state === 'line') {
-      if (char === '\n') {
-        state = 'code';
-        out += char;
-      }
-      index += 1;
-      continue;
-    }
-    if (state === 'block') {
-      if (char === '*' && next === '/') {
-        state = 'code';
-        index += 2;
-      } else {
-        index += 1;
-      }
-      continue;
-    }
-    if (state === 'string') {
-      if (char === '\\') {
-        index += 2;
-        continue;
-      }
-      if (char === quote) state = 'code';
-      index += 1;
-      continue;
-    }
-    if (state === 'template') {
-      if (char === '\\') {
-        index += 2;
-        continue;
-      }
-      if (char === '`') {
-        state = 'code';
-        index += 1;
-        continue;
-      }
-      if (char === '$' && next === '{') {
-        let depth = 1;
-        index += 2;
-        const start = index;
-        while (index < code.length && depth > 0) {
-          if (code[index] === '{') depth += 1;
-          else if (code[index] === '}') depth -= 1;
-          index += 1;
-        }
-        out += code.slice(start, index - 1);
-        continue;
-      }
-      index += 1;
-      continue;
-    }
-    if (char === '/' && next === '/') {
-      state = 'line';
-      index += 2;
-      continue;
-    }
-    if (char === '/' && next === '*') {
-      state = 'block';
-      index += 2;
-      continue;
-    }
-    if (char === "'" || char === '"') {
-      state = 'string';
-      quote = char;
-      index += 1;
-      continue;
-    }
-    if (char === '`') {
-      state = 'template';
-      index += 1;
-      continue;
-    }
-    // 正则字面量（如 `/timedtext/i`）里的 GM_ 不可能是 API 调用：整段原样保留不影响结果。
-    out += char;
-    index += 1;
-  }
-  return out;
+function gmUsages(code) {
+  const source = ts.createSourceFile('bundle.js', code, ts.ScriptTarget.ES2022, true);
+  const names = new Set();
+  const add = (name) => {
+    if (/^GM_[A-Za-z]+$/.test(name) && name !== 'GM_info') names.add(name);
+  };
+  const visit = (node) => {
+    if (ts.isIdentifier(node)) add(node.text);
+    if (ts.isPropertyAccessExpression(node) && ts.isIdentifier(node.name)) add(node.name.text);
+    if (ts.isPropertyAssignment(node) && ts.isIdentifier(node.name)) add(node.name.text);
+    if (
+      ts.isElementAccessExpression(node) &&
+      node.argumentExpression &&
+      ts.isStringLiteral(node.argumentExpression)
+    )
+      add(node.argumentExpression.text);
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  return names;
 }
 
 function singleValue(fields, key) {
@@ -352,9 +293,15 @@ async function findLegacyMeta(dir) {
 
 async function checkPackage(slug) {
   const dir = path.join(SCRIPTS_DIR, slug);
-  const manifest = JSON.parse(await readFile(path.join(dir, 'package.json'), 'utf8'));
   const problems = [];
   const notes = [];
+  let manifest;
+  try {
+    manifest = JSON.parse(await readFile(path.join(dir, 'package.json'), 'utf8'));
+  } catch (error) {
+    // 一个包写坏了不该让其它包不检查，也不能抛栈退出。
+    return { slug, version: '?', problems: [`package.json 无法解析：${error.message}`], notes };
+  }
 
   const migrated = await hasEntry(dir);
   const source = await findSourceMeta(dir);
@@ -407,7 +354,8 @@ async function checkPackage(slug) {
   }
 
   if (code === null) {
-    if (migrated) notes.push('没有 dist 产物（先运行 npm run build）');
+    // 已迁移脚本的 grant 只能从产物判断：没有产物就什么都没验证，不能算通过。
+    if (migrated) problems.push('没有 dist 产物（先运行 npm run build）');
   } else {
     if (!code.startsWith('// ==UserScript==')) problems.push('产物元数据块不在文件第一行');
     const block = metaBlock(code);
@@ -425,13 +373,7 @@ async function checkPackage(slug) {
 
       // 只扫描元数据块之后的代码，避免把 banner 里的 @grant 当成调用点。
       const body = code.slice(code.indexOf('// ==/UserScript=='));
-      // 注释与字符串里的 GM_* 只是文字（如 JSDoc 里的“GM_openInTab 优先”），不是调用点：
-      // 剥掉它们再扫描，否则写一句注释就会逼脚本多要一个权限。
-      const used = new Set(
-        (stripCommentsAndStrings(body).match(/\bGM_[A-Za-z]+/g) ?? []).filter(
-          (name) => name !== 'GM_info',
-        ),
-      );
+      const used = gmUsages(body);
       const granted = new Set(sortedValues(fields, '@grant'));
       for (const name of used) {
         if (!granted.has(name)) problems.push(`代码用了 ${name}，但没有对应的 @grant`);
@@ -480,6 +422,13 @@ const slugs = (
   .filter(Boolean)
   .filter((slug) => only.length === 0 || only.includes(slug))
   .sort();
+
+// 指定了不存在的包名时不能静默通过：拼错一个字母就等于什么都没检查。
+const unknown = only.filter((slug) => !slugs.includes(slug));
+if (unknown.length > 0) {
+  console.error(`没有找到这些脚本包：${unknown.join('、')}`);
+  process.exit(1);
+}
 
 let failed = 0;
 for (const slug of slugs) {

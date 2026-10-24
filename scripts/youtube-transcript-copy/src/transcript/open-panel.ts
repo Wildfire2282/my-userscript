@@ -126,8 +126,10 @@ export interface OpenPanelOptions {
 /**
  * 打开转写面板。
  *
- * 每轮：展开描述 → 等界面稳定 → 点一次按钮 → 最多等 3.6 秒让面板渲染。
+ * 每轮：展开描述 → 等界面稳定 → 点一次按钮 → 等面板渲染。
  * 只点一次：click() 与合成 MouseEvent 会各触发一次面板切换，连点两次等于又关上。
+ * 第一轮给足 3.6 秒（面板首次展开最慢）；之后每轮只等 1.2 秒，避免打不开时
+ * 每次点击都卡十几秒。
  *
  * @returns 面板是否真的打开
  */
@@ -138,6 +140,7 @@ export async function openTranscriptPanel(options: OpenPanelOptions = {}): Promi
   const attempts = options.attempts ?? 4;
 
   for (let attempt = 0; attempt < attempts && !isPanelOpen(doc); attempt += 1) {
+    const waits = attempt === 0 ? 12 : 4;
     expandDescription(doc);
     await sleep(400);
     const trigger = findTranscriptTrigger(doc);
@@ -153,7 +156,7 @@ export async function openTranscriptPanel(options: OpenPanelOptions = {}): Promi
       // 继续尝试事件方式
     }
     if (clicked) {
-      for (let wait = 0; wait < 12; wait += 1) {
+      for (let wait = 0; wait < waits; wait += 1) {
         await sleep(300);
         if (isPanelOpen(doc)) return true;
       }
@@ -165,7 +168,7 @@ export async function openTranscriptPanel(options: OpenPanelOptions = {}): Promi
       // 按钮已不可点击：下一轮再试
     }
 
-    for (let wait = 0; wait < 12; wait += 1) {
+    for (let wait = 0; wait < waits; wait += 1) {
       await sleep(300);
       if (isPanelOpen(doc)) return true;
     }

@@ -23,13 +23,8 @@ export function lockPageScroll(): () => void {
   const root = document.documentElement;
   let state = scope[LOCK_KEY];
   if (!state) {
-    state = {
-      count: 0,
-      overflow: root.style.overflow,
-      overflowPriority: root.style.getPropertyPriority('overflow'),
-      padding: root.style.paddingRight,
-      paddingPriority: root.style.getPropertyPriority('padding-right'),
-    };
+    // 快照在真正加锁时（count 从 0 起）才写；这里只需要一个共享的计数槽。
+    state = { count: 0, overflow: '', overflowPriority: '', padding: '', paddingPriority: '' };
     scope[LOCK_KEY] = state;
   }
 

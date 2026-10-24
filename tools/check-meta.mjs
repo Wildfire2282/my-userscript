@@ -247,6 +247,13 @@ function validateFields(fields, { label, requireVersion, expectedVersion }) {
     }
   }
 
+  // `@grant none` 表示“不申请任何权限”，与其它 grant 并存时管理器行为未定义：
+  // 该用的 API 可能直接不存在，而脚本还以为自己拿到了权限。
+  const grants = fields.get('@grant') ?? [];
+  if (grants.includes('none') && grants.length > 1) {
+    problems.push(`${label} @grant none 不能与其它 @grant 同时出现`);
+  }
+
   for (const key of ['@description', '@description:en']) {
     const value = singleValue(fields, key);
     if (!value) continue;

@@ -1,0 +1,43 @@
+name: 检查
+
+# release.yml 只在脚本包自身变化时跑检查；UI、共享代码、工具链与测试的改动
+# 既不发布也不验证，坏了要等到下次发脚本才发现。这里补上那部分：
+# PR 一律检查，main 上非脚本路径的推送也检查（脚本路径由 release.yml 覆盖）。
+on:
+  pull_request:
+  push:
+    branches: [main]
+    paths:
+      - 'packages/**'
+      - 'tools/**'
+      - 'tests/**'
+      - '*.json'
+      - '*.mjs'
+      - '*.ts'
+      - '.github/workflows/check.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出源码
+        uses: actions/checkout@v5
+
+      - name: 准备 Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: 安装依赖
+        run: npm ci
+
+      - name: 检查与构建
+        run: npm run check

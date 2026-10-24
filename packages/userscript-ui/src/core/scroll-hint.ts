@@ -79,9 +79,6 @@ export function createScrollHint(
       mutations.disconnect();
       resize?.disconnect();
       el.remove();
-      mutations.disconnect();
-      resize?.disconnect();
-      el.remove();
     },
   };
 }

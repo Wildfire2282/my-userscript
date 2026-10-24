@@ -215,6 +215,8 @@ const unchanged = [];
 const skipped = [];
 const removed = [];
 const problems = [];
+// 先全部校验、最后才写：任何一个包出问题时，发布目录保持原样，不留半批产物。
+const pendingWrites = [];
 
 const packages = await loadPackages();
 const expected = new Set(packages.map((pkg) => `${pkg.slug}.user.js`));
@@ -280,8 +282,12 @@ for (const pkg of packages) {
     }
   }
 
-  await writeFile(target, content, 'utf8');
+  pendingWrites.push({ target, content });
   changed.push(`${pkg.slug}@${version}（${artifact.kind}）`);
+}
+
+if (problems.length === 0) {
+  for (const item of pendingWrites) await writeFile(item.target, item.content, 'utf8');
 }
 
 // 脚本包已从仓库删除时，清掉发布目录里的旧文件；有任何问题时不动，避免半成品。
@@ -293,7 +299,7 @@ if (problems.length === 0) {
   }
 }
 
-if (changed.length > 0) {
+if (changed.length > 0 && problems.length === 0) {
   console.log(`待发布 ${changed.length} 个：`);
   for (const item of changed) console.log(`  + ${item}`);
 }

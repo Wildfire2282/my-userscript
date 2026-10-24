@@ -168,7 +168,11 @@ def resolve_install_url(script_id: int) -> str:
     page = fetch(f"{BASE_URL}/zh-CN/scripts/{script_id}").decode("utf-8", "replace")
     match = re.search(
         rf"https://update\.greasyfork\.org/scripts/{script_id}/[^\"'<>\s]+\.user\.js", page
-    ) or re.search(r"https://update\.greasyfork\.org/scripts/[^\"'<>\s]+\.user\.js", page)
+    ) or re.search(
+        # 兜底同样锚定本脚本 ID：详情页里可能挂着“作者的其他脚本”，
+        # 不限定 ID 会把别人的安装地址下载进本包。
+        rf"https://update\.greasyfork\.org/scripts/{script_id}/[^\"'<>\s]*", page
+    )
     if not match:
         raise FetchError(f"无法从脚本页解析安装地址：scripts/{script_id}")
     return html.unescape(match.group(0))

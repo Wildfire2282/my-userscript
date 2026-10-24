@@ -18,7 +18,7 @@
  *   node tools/release.mjs <发布目录>
  */
 
-import { access, mkdir, readdir, readFile, unlink, writeFile } from 'node:fs/promises';
+import { access, mkdir, readdir, readFile, stat, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -134,10 +134,42 @@ function compareVersions(left, right) {
   return 0;
 }
 
+/** 源码目录里最新的修改时间；没有源码文件时返回 null。 */
+async function newestSourceTime(dir) {
+  let newest = null;
+  let entries;
+  try {
+    entries = await readdir(dir, { withFileTypes: true });
+  } catch {
+    return null;
+  }
+  for (const entry of entries) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      const nested = await newestSourceTime(full);
+      if (nested !== null && (newest === null || nested > newest)) newest = nested;
+    } else if (entry.isFile()) {
+      const mtime = (await stat(full).catch(() => null))?.mtimeMs ?? null;
+      if (mtime !== null && (newest === null || mtime > newest)) newest = mtime;
+    }
+  }
+  return newest;
+}
+
 /** 找到一个脚本当前可发布的文件：构建产物优先，其次线上原版。 */
 async function findArtifact(dir, slug) {
   const dist = path.join(dir, 'dist', `${slug}.user.js`);
-  if (await exists(dist)) return { file: dist, kind: '构建产物' };
+  if (await exists(dist)) {
+    // 直接跑发布会拿到上次构建的旧文件：产物必须比全部源码新，否则先构建再发布。
+    const [distStat, newestSrc] = await Promise.all([
+      stat(dist),
+      newestSourceTime(path.join(dir, 'src')),
+    ]);
+    if (newestSrc !== null && distStat.mtimeMs < newestSrc) {
+      return { file: dist, kind: '构建产物', stale: true };
+    }
+    return { file: dist, kind: '构建产物' };
+  }
 
   const legacyDir = path.join(dir, 'legacy');
   let entries;
@@ -180,6 +212,18 @@ for (const pkg of packages) {
   const artifact = await findArtifact(pkg.dir, pkg.slug);
   if (!artifact) {
     skipped.push(`${pkg.slug}（没有构建产物，也没有 legacy 原版）`);
+    continue;
+  }
+
+  // 已迁移脚本（有 src）绝不能用 legacy 原版发布：那是线上快照，不是本次源码。
+  if (artifact.kind === 'legacy 原版' && (await newestSourceTime(path.join(pkg.dir, 'src')))) {
+    problems.push(
+      `${pkg.slug}：有 src 源码却没有构建产物，先运行 npm run build ${pkg.slug} 再发布`,
+    );
+    continue;
+  }
+  if (artifact.stale) {
+    problems.push(`${pkg.slug}：构建产物比源码旧，先运行 npm run build ${pkg.slug} 再发布`);
     continue;
   }
 

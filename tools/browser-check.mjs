@@ -450,6 +450,20 @@ try {
       { interval: 20, what: '夹具页解析' },
     );
     await evaluateRaw(GM_STUB);
+    // 每个场景都从空存储开始：同 profile、同 target 下 localStorage 与 GM 打桩
+    // 都会带到下一个场景，不清就会出现“前一个场景搭好、后一个场景白捡”的假通过。
+    await evaluateRaw(`(() => {
+      try {
+        window.__gm.store = {};
+        window.__gm.opened = [];
+        window.__gm.menus = [];
+        window.__gm.menu = null;
+        window.__gm.menuLabel = '';
+        window.__gm.clipboard = [];
+        localStorage.clear();
+        sessionStorage.clear();
+      } catch { /* file:// 夹具禁用存储时不影响场景 */ }
+    })()`);
     // setup 在产物之前执行：模拟脚本运行前就已存在的页面状态（播放器响应、网络响应）。
     if (setupCall) await evaluateRaw(setupCall);
     await evaluateRaw(bundle);

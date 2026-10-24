@@ -109,6 +109,97 @@ function sortedValues(fields, key) {
   return [...(fields.get(key) ?? [])].sort();
 }
 
+/**
+ * 剥掉注释与字符串里的文字：里面的 `GM_*` 只是文字，不是调用点。
+ * 模板字符串里的 `${}` 仍保留——那是会执行的代码。
+ */
+function stripCommentsAndStrings(code) {
+  let out = '';
+  let index = 0;
+  let state = 'code';
+  let quote = '';
+  while (index < code.length) {
+    const char = code[index];
+    const next = code[index + 1] ?? '';
+    if (state === 'line') {
+      if (char === '\n') {
+        state = 'code';
+        out += char;
+      }
+      index += 1;
+      continue;
+    }
+    if (state === 'block') {
+      if (char === '*' && next === '/') {
+        state = 'code';
+        index += 2;
+      } else {
+        index += 1;
+      }
+      continue;
+    }
+    if (state === 'string') {
+      if (char === '\\') {
+        index += 2;
+        continue;
+      }
+      if (char === quote) state = 'code';
+      index += 1;
+      continue;
+    }
+    if (state === 'template') {
+      if (char === '\\') {
+        index += 2;
+        continue;
+      }
+      if (char === '`') {
+        state = 'code';
+        index += 1;
+        continue;
+      }
+      if (char === '$' && next === '{') {
+        let depth = 1;
+        index += 2;
+        const start = index;
+        while (index < code.length && depth > 0) {
+          if (code[index] === '{') depth += 1;
+          else if (code[index] === '}') depth -= 1;
+          index += 1;
+        }
+        out += code.slice(start, index - 1);
+        continue;
+      }
+      index += 1;
+      continue;
+    }
+    if (char === '/' && next === '/') {
+      state = 'line';
+      index += 2;
+      continue;
+    }
+    if (char === '/' && next === '*') {
+      state = 'block';
+      index += 2;
+      continue;
+    }
+    if (char === "'" || char === '"') {
+      state = 'string';
+      quote = char;
+      index += 1;
+      continue;
+    }
+    if (char === '`') {
+      state = 'template';
+      index += 1;
+      continue;
+    }
+    // 正则字面量（如 `/timedtext/i`）里的 GM_ 不可能是 API 调用：整段原样保留不影响结果。
+    out += char;
+    index += 1;
+  }
+  return out;
+}
+
 function singleValue(fields, key) {
   const values = fields.get(key) ?? [];
   return values.length === 1 ? values[0] : null;
@@ -327,8 +418,12 @@ async function checkPackage(slug) {
 
       // 只扫描元数据块之后的代码，避免把 banner 里的 @grant 当成调用点。
       const body = code.slice(code.indexOf('// ==/UserScript=='));
+      // 注释与字符串里的 GM_* 只是文字（如 JSDoc 里的“GM_openInTab 优先”），不是调用点：
+      // 剥掉它们再扫描，否则写一句注释就会逼脚本多要一个权限。
       const used = new Set(
-        (body.match(/\bGM_[A-Za-z]+/g) ?? []).filter((name) => name !== 'GM_info'),
+        (stripCommentsAndStrings(body).match(/\bGM_[A-Za-z]+/g) ?? []).filter(
+          (name) => name !== 'GM_info',
+        ),
       );
       const granted = new Set(sortedValues(fields, '@grant'));
       for (const name of used) {

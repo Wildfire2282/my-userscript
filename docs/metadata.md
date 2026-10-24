@@ -121,6 +121,8 @@
 6. 未迁移脚本的 `userscript.meta.js` 与 `legacy/` 元数据块逐字段一致；
 7. `@downloadURL` / `@updateURL` 指向 Greasy Fork。
 
+产物中的 `GM_*`、`GM.*` 与静态字符串属性访问会按各自名称核对授权；`GM_setClipboard` 不代替 `GM.setClipboard`，反之亦然。两者在管理器中需要分别声明，本仓保留已发布的 `GM_setClipboard`，不为兼容分支增加权限。动态拼接的属性名不在静态检查范围内。
+
 需要变更 `@name`、`@namespace`、`@match`、`@include`、`@grant` 时，先由维护者确认，再按 [`release-automation.md`](release-automation.md) 的元数据变更流程发布。
 
 元数据也是文件内容：修改后必须提升版本，否则 `tools/release.mjs` 会以「同版本内容不同」拒绝发布。未迁移脚本的元数据改动必须先发布再跑 `npm run sync`，否则同步会用线上版本覆盖 `legacy/`。

@@ -17,11 +17,11 @@ push main
 
 ### 触发条件
 
-只有命中下面路径的 push 才会跑发布：`scripts/*/src/**`、`scripts/*/userscript.meta.*`、`scripts/*/package.json`。
+只有命中下面路径的 push 才会跑发布：`scripts/*/src/**`、`scripts/*/userscript.meta.*`、`scripts/*/package.json`、`packages/shared/src/**`、`packages/userscript-ui/src/**`。
 
-改 UI（`packages/userscript-ui/`）、共享代码（`packages/shared/`）、工具链（`tools/`）、依赖、测试、文档与 `CHANGELOG` 都**不会**触发发布，也不会碰 `release` 分支与 Greasy Fork。
+共享运行时代码（`packages/shared/src/`、`packages/userscript-ui/src/`）变化也会进入发布校验，不能只通过检查而跳过发布校验。工具链（`tools/`）、依赖、测试、文档与 `CHANGELOG` 的变化**不会单独**触发发布，也不会单独更新 `release` 分支与 Greasy Fork。
 
-代价：改 UI / 工具链会让产物变化，但不随那次 push 发布。下次动脚本时 `tools/release.mjs` 会发现内容变了、版本没升而报错，提醒提版本——这是有意为之，避免同版本重新下载。
+Agent 修改共享运行时代码时，必须在同一批变更中给**每个实际构建产物改变的脚本**提升 patch 版本，不是只提升任意一个脚本；产物未变的脚本无需提版。不自动写版本，也不引入额外工具：继续由 `tools/release.mjs` 拒绝“版本相同、内容不同”的发布，避免同版本重新下载。工具链等非触发路径的修改若改变产物并需要上线，也须同批为每个受影响脚本提版，以命中脚本包的发布路径。
 
 新增脚本或补发已 push 的提交，用 `workflow_dispatch` 手动跑（`gh workflow run release.yml`，需要带 `[allow-meta]` 时加 `-f allow_meta_change=true`）。
 
@@ -55,12 +55,12 @@ push main
 
 ## 3. 日常发布
 
-1. 改 `scripts/<slug>/src/` 里的源码；`dist/` 与 `legacy/` 都不直接改。
-2. 提版本：改 `scripts/<slug>/package.json` 的 `version`，构建时注入；在 `CHANGELOG.md` 写一条人话。
+1. 改 `scripts/<slug>/src/` 或共享运行时代码里的源码；`dist/` 与 `legacy/` 都不直接改。
+2. 提版本：同批修改每个实际产物改变的脚本的 `scripts/<slug>/package.json` 中的 `version`，共享修复提升 patch 版本，构建时注入；不能只提任意一个脚本。在 `CHANGELOG.md` 写一条人话。
 3. 本地跑 `npm run check`（含浏览器场景）。
 4. 向维护者说明本次用户可见的变化，确认发布后提交并 push `main`；
    这次推送带元数据变化时，把 `[allow-meta]` 写进最后一个提交的信息。
-   只改 UI、工具链或文档时不会触发发布，需要上线就跟脚本一起提版本。
+   共享运行时代码变化会触发发布；工具链、测试或文档等变化不会单独触发，需要上线的产物变化须同批为每个受影响脚本提版本。
 5. Actions 通过后 `release` 分支出现新文件；webhook 触发后 Greasy Fork 通常一分钟内更新。
 6. 发布生效后跑 `npm run sync`，刷新 `scripts.json` 与根 `README.md` 的脚本表。
 

@@ -5,11 +5,15 @@
 | 项目 | 值 |
 | --- | --- |
 | Greasy Fork | [579560](https://greasyfork.org/zh-CN/scripts/579560) |
-| 当前版本 | 1.4.4 |
+| 准备版本 | 1.4.5（待发布，2026-10-24） |
 | 迁移状态 | 已迁移：由 `src/` 模块构建，界面使用 `@ui` |
 | 匹配站点 | `https://www.youtube.com/*`（`document-start`） |
 | 授予权限 | `GM_setClipboard`、`GM_registerMenuCommand`、`GM_setValue`、`GM_getValue`、`GM_deleteValue` |
 | 设置键 | `pos`（按钮位置）、`strategy`（提取策略记忆） |
+
+## 本次版本准备
+
+1.4.5 尚未发布：整理共享剪贴板实现与更新前的检查流程，日常转写复制操作和已有设置保持不变，授予权限不变。此处不代表检查已通过或线上验收已完成。
 
 ## 行为
 

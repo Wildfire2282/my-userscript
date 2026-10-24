@@ -3,14 +3,16 @@ name: 发布用户脚本
 on:
   push:
     branches: [main]
-    # 只有脚本包自身的变化才发布：其他目录（UI 库、共享代码、工具链、依赖、文档）
-    # 改了也不跑发布，避免产物变了、版本却没升时产生“同版本重新下载”。
-    # 改 UI / 工具链想上线时，连同目标脚本一起提版本（scripts/*/package.json 命中）。
+    # 脚本与共享运行时代码变化都进入发布校验；工具、依赖、测试、文档不单独触发。
+    # Agent 必须同批给每个实际产物改变的脚本提升 patch 版本；不是只提任一脚本。
+    # 未提版本由 release.mjs 现有的“同版本异内容”校验拒绝，不自动写版本。
     # 新增脚本、补发已 push 的发布走 workflow_dispatch。
     paths:
       - 'scripts/*/src/**'
       - 'scripts/*/userscript.meta.*'
       - 'scripts/*/package.json'
+      - 'packages/shared/src/**'
+      - 'packages/userscript-ui/src/**'
   workflow_dispatch:
     inputs:
       allow_meta_change:

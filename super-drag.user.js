@@ -2,7 +2,7 @@
 // @name         拖拽打开
 // @name:en      Drag to Open
 // @namespace    https://github.com/Wildfire2282
-// @version      2.8.4
+// @version      2.9.0
 // @description  拖拽文本搜索，拖拽链接在新标签页打开，拖拽图片查看
 // @description:en Drag text to search, links to open, and images to view
 // @author       Wildfire2282 (https://github.com/Wildfire2282)
@@ -639,6 +639,7 @@
 			kind = "text";
 			data = "";
 			if (ghost.isConnected) ghost.remove();
+			deps.feedback?.hide();
 		};
 		const claim = (transfer, text) => {
 			try {
@@ -685,6 +686,10 @@
 			kind = payload.kind;
 			data = payload.data;
 			dragSource = targetOf(event);
+			deps.feedback?.move({
+				x: event.clientX,
+				y: event.clientY
+			});
 		};
 		const isActiveDrag = (event) => {
 			if (!dragStart) return false;
@@ -698,6 +703,10 @@
 			if (!isActiveDrag(event)) return;
 			event.preventDefault();
 			event.stopPropagation();
+			deps.feedback?.move({
+				x: event.clientX,
+				y: event.clientY
+			});
 			try {
 				if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
 			} catch {}
@@ -1800,7 +1809,75 @@
 		};
 	}
 	//#endregion
-	//#region scripts/super-drag/src/ui/settings-panel.ts
+	//#region scripts/super-drag/src/ui/cursor-position.ts
+	/** 图标尺寸与指针留白；与 `drag-cursor.css` 的宽高保持一致。 */
+	var DRAG_MARK = {
+		sizePx: 26,
+		offsetPx: 4,
+		marginPx: 8
+	};
+	function clamp(value, min, max) {
+		if (max < min) return min;
+		return Math.min(Math.max(value, min), max);
+	}
+	/**
+	* 计算图标左上角坐标。
+	*
+	* 默认整体贴在指针左上方，右下角与指针隔一点距离；指针靠近视口左上角时
+	* 收进视口，避免图标被裁掉一半。
+	*
+	* @param point 指针的视口坐标
+	* @param viewport 视口尺寸
+	*/
+	function cursorMarkPosition(point, viewport) {
+		const maxX = viewport.width - DRAG_MARK.sizePx - DRAG_MARK.marginPx;
+		const maxY = viewport.height - DRAG_MARK.sizePx - DRAG_MARK.marginPx;
+		return {
+			x: clamp(point.x - DRAG_MARK.sizePx - DRAG_MARK.offsetPx, DRAG_MARK.marginPx, maxX),
+			y: clamp(point.y - DRAG_MARK.sizePx - DRAG_MARK.offsetPx, DRAG_MARK.marginPx, maxY)
+		};
+	}
+	//#endregion
+	//#region scripts/super-drag/src/ui/drag-cursor.css?inline
+	var drag_cursor_default = "/*\n * 拖拽反馈图标：跟着指针走的小方块，顶掉浏览器自带的低分辨率缩略图。\n * 尺寸必须与 cursor-position.ts 的 DRAG_MARK.sizePx（26）一致，否则贴边时会露出半截。\n */\n.drag-cursor-mark {\n  position: fixed;\n  top: 0;\n  left: 0;\n  z-index: 1;\n  display: grid;\n  place-items: center;\n  width: 26px;\n  height: 26px;\n  border: var(--ds-border-width) solid var(--ds-border);\n  border-radius: var(--ds-radius-md);\n  background: var(--ds-card);\n  color: var(--ds-card-foreground);\n  box-shadow: var(--ds-shadow-md);\n  font-family: var(--ds-font-sans);\n  font-size: var(--ds-text-sm);\n  line-height: 1;\n  pointer-events: none;\n  user-select: none;\n  will-change: transform;\n  opacity: 0;\n  transition: opacity var(--ds-duration-fast) var(--ds-ease);\n}\n\n.drag-cursor-mark[data-visible='true'] {\n  opacity: 1;\n}\n\n@media (prefers-reduced-motion: reduce) {\n  .drag-cursor-mark {\n    transition: none;\n  }\n}\n";
+	//#endregion
+	//#region scripts/super-drag/src/ui/drag-cursor.ts
+	/**
+	* 拖拽反馈图标：指针左上方的一个链接标记，随拖拽移动。
+	*
+	* 位置用 transform 写入而不是 left/top：拖拽期间每帧都要更新，
+	* transform 只走合成，不会触发布局。
+	*/
+	var ICON = "🔗";
+	function createDragCursor(ui) {
+		ui.useStyles(drag_cursor_default);
+		const mark = document.createElement("div");
+		mark.className = "drag-cursor-mark";
+		mark.setAttribute("aria-hidden", "true");
+		mark.textContent = ICON;
+		ui.layers.base.appendChild(mark);
+		return {
+			move(point) {
+				const at = cursorMarkPosition(point, {
+					width: window.innerWidth,
+					height: window.innerHeight
+				});
+				mark.style.transform = `translate(${at.x}px, ${at.y}px)`;
+				mark.dataset.visible = "true";
+			},
+			hide() {
+				mark.dataset.visible = "false";
+			}
+		};
+	}
+	//#endregion
+	//#region scripts/super-drag/src/ui/app.ts
+	/**
+	* 页面级界面宿主：拖拽图标与设置面板共用一个 `@ui` Shadow Root。
+	*
+	* 第一次真的需要界面时才挂载：不拖拽、不开设置时页面里没有任何节点和样式。
+	* 挂载发生在第一次拖拽的 dragstart 里，之后整个页面复用同一个宿主。
+	*/
 	var LABELS = {
 		close: "关闭",
 		settings: "设置",
@@ -1811,11 +1888,35 @@
 		cancel: "取消",
 		confirm: "确定"
 	};
+	function createDragUiHost() {
+		let ui = null;
+		let cursor = null;
+		const ensure = () => {
+			if (!ui) ui = mountUI({
+				theme: "system",
+				labels: LABELS
+			});
+			return ui;
+		};
+		return {
+			ensure,
+			move(point) {
+				try {
+					if (!cursor) cursor = createDragCursor(ensure());
+					cursor.move(point);
+				} catch (error) {
+					console.error("[super-drag] 拖拽图标显示失败", error);
+				}
+			},
+			hide() {
+				cursor?.hide();
+			}
+		};
+	}
+	//#endregion
+	//#region scripts/super-drag/src/ui/settings-panel.ts
 	function createSettingsPanel(options) {
-		const ui = mountUI({
-			theme: "system",
-			labels: LABELS
-		});
+		const { ui } = options;
 		const initial = options.getSettings();
 		const panel = createPanel(ui, {
 			title: "功能设置",
@@ -2007,23 +2108,26 @@
 	/**
 	* 入口：挂拖拽监听、注册菜单项。
 	*
-	* 设置面板与 UI 都在第一次打开设置时才创建，所以普通页面只有几条事件监听，
-	* 不注入样式、不生成节点。
+	* 界面在第一次拖拽或第一次打开设置时才创建，所以只浏览不拖拽的页面
+	* 只有几条事件监听，不注入样式、不生成节点。
 	*/
 	var MENU_LABEL = "功能设置";
 	function start() {
 		const gm = createGmApi();
 		const store = createSettingsStore(gm);
 		const openers = createOpeners();
+		const dragUi = createDragUiHost();
 		installDragSensor({
 			getSettings: store.get,
 			openUrl: openers.openUrl,
-			openImage: openers.openImage
+			openImage: openers.openImage,
+			feedback: dragUi
 		});
 		let panel = null;
 		const openSettings = () => {
 			try {
 				if (!panel) panel = createSettingsPanel({
+					ui: dragUi.ensure(),
 					getSettings: store.get,
 					save: (patch) => void store.update(patch)
 				});

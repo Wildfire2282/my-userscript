@@ -512,23 +512,25 @@ export const scenarios = [
         const tip = root.querySelector('.ds-tooltip');
         const tr = tip.getBoundingClientRect();
         const lr = root.querySelector('.ds-launcher').getBoundingClientRect();
-        return {
-          pageClicks: window.pageClicks,
-          visible: !tip.hidden,
-          placement: tip.dataset.placement,
-          gap: lr.left - tr.right,
-          rect: [tr.left, tr.top, tr.right, tr.bottom],
-          viewport: [innerWidth, innerHeight],
-          launcher: [lr.left, lr.top, lr.right, lr.bottom],
-          active: root.activeElement?.className ?? '',
-        };
+        return (
+          window.pageClicks === 0 &&
+          !tip.hidden &&
+          tip.dataset.placement === 'left' &&
+          // 提示宽度由字体度量决定，可能是小数；只校验 8px 间距在 1px 内。
+          Math.abs(lr.left - tr.right - 8) <= 1 &&
+          tr.left >= 0 &&
+          tr.top >= 0 &&
+          tr.right <= innerWidth &&
+          tr.bottom <= innerHeight
+        );
       });
       await ctx.input.mouseMove({ x: 500, y: 400 });
       await ctx.wait(250);
-      const hidden = await ctx.evaluate(
-        () => window.uiTest.root().querySelector('.ds-tooltip').hidden,
+      return result(
+        state.anchored &&
+          hovered &&
+          (await ctx.evaluate(() => window.uiTest.root().querySelector('.ds-tooltip').hidden)),
       );
-      return result({ anchored: state.anchored, hovered, hidden });
     },
   },
   ...['light', 'dark'].map((theme) => ({

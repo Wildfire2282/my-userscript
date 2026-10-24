@@ -11,7 +11,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function clone<T>(value: T): T {
-  // 目标平台（Chrome 111+ / Node 20+）一定有 structuredClone，不再做 JSON 兜底。
+  // 目标平台一定有 structuredClone，不再做 JSON 兜底。
   return structuredClone(value);
 }
 
@@ -20,7 +20,7 @@ function mergeValue(defaultValue: unknown, storedValue: unknown): unknown {
     return isRecord(defaultValue) ? mergeRecords(defaultValue, {}) : clone(defaultValue);
   if (isRecord(defaultValue) && isRecord(storedValue))
     return mergeRecords(defaultValue, storedValue);
-  return storedValue;
+  return clone(storedValue);
 }
 
 function mergeRecords(
@@ -29,13 +29,25 @@ function mergeRecords(
 ): Record<string, unknown> {
   const merged: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(defaults)) {
-    merged[key] = Object.hasOwn(stored, key)
-      ? mergeValue(value, stored[key])
-      : mergeValue(value, undefined);
+    Object.defineProperty(merged, key, {
+      value: Object.hasOwn(stored, key)
+        ? mergeValue(value, stored[key])
+        : mergeValue(value, undefined),
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    });
   }
   for (const [key, value] of Object.entries(stored)) {
     // 存储里多出来的键按引用挂上后，调用方改合并结果会污染读缓存：深拷贝一份。
-    if (!Object.hasOwn(merged, key)) merged[key] = clone(value);
+    // defineProperty 保留 __proto__ 等旧键，但不调用原型 setter。
+    if (!Object.hasOwn(merged, key))
+      Object.defineProperty(merged, key, {
+        value: clone(value),
+        enumerable: true,
+        writable: true,
+        configurable: true,
+      });
   }
   return merged;
 }

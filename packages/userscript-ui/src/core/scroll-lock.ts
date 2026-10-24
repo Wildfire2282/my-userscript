@@ -13,8 +13,8 @@ const scope = globalThis as unknown as {
 };
 
 /**
- * Locks page scrolling while a modal dialog is open. The state is shared
- * through a global symbol so two userscripts do not unlock each other.
+ * 锁定模态期间的页面滚动；同一 globalThis 中的 UI 通过 Symbol 共享计数，
+ * 不保证不同 userscript 沙箱之间共享状态。
  *
  * The scrollbar width is compensated with padding, otherwise the page content
  * shifts horizontally the moment a dialog opens.
@@ -39,7 +39,7 @@ export function lockPageScroll(): () => void {
     if (scrollbar > 0) {
       root.style.setProperty(
         'padding-right',
-        `calc(${holder.padding || '0px'} + ${scrollbar}px)`,
+        `calc(${getComputedStyle(root).paddingRight} + ${scrollbar}px)`,
         'important',
       );
     }

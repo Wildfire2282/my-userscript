@@ -168,6 +168,7 @@ apiField.setDescription('新的说明');
 - 输入类 / Select 用默认 stacked 布局；Switch / Checkbox 用 `inline: true`。
 - 错误会设置 `aria-invalid`，并把错误文字加入 `aria-describedby`。
 - `setDescription()` 支持创建后再添加或移除说明；Field 只管理自己的描述/错误 ID，不覆盖外部 `aria-describedby` 关联。
+- `destroy()` 与 `ui.destroy()` 都会清除该 Field 的描述和错误关联，但不销毁传入的控件句柄；控件复用后，旧 Field 的重复销毁或迟到更新不会影响新 Field。
 - 不要在 Field 里再手写 label 或错误提示。
 
 ## Button
@@ -291,6 +292,7 @@ const theme = createSelect(ui, {
 - `el` 是外层定位容器，`input` 是原生 select；Field 会自动使用 `input` 建立 label。
 - `setOptions` 会尽量保留当前值；没有匹配项时回到 placeholder 或第一项。
 - 空字符串也是合法选项值；有 placeholder 时可用 `setValue('')` 恢复占位状态。程序更新不触发 `onChange`，disabled 或不存在的值不会覆盖当前选择；初始 `value` 也不会选中 disabled 项。
+- 选项里已有真实空值项时不再插入 placeholder；该空值项若被禁用，初始化和更新选项会选择第一个可用项（全禁用则不选），`setValue('')` 不会绕过禁用状态。
 - 不实现自定义下拉菜单；选项很多时仍应优先考虑搜索框或拆分设置。
 
 ## Switch
@@ -375,8 +377,10 @@ toast.clear();
 
 - Toast 容器固定在右上，不抢焦点。同一 UI 打开 Dialog 时，容器会移动到最上层 Dialog 内，保证模态期间仍可见、可关闭。
 - 可视 Toast 本身不声明 live role；控制器内有两个常驻播报区，普通通知走 `aria-live="polite"`，错误走 `aria-live="assertive"`，避免“先有内容、后插入 live region”的漏播风险。
+- 连续重复通知会重新播报；同一轮有更新的通知时，旧通知的延迟播报不会覆盖新内容。
 - 悬停与焦点都结束后才恢复剩余时长；`duration: 0` 的常驻通知不会因为悬停或失焦被移除；移除通知立即清理其监听器和计时器。
 - `destroy()` 后不得继续 `show()` 或调用通知快捷方法，否则抛错；需要再次使用时创建新的控制器。
+- 替换通知的 `onDismiss` 若销毁控制器，本次创建同样终止并抛错；因数量上限移除旧通知时，即使旧回调抛错，新通知也保留自己的自动关闭计时。
 - 需要持续阅读的信息用 Alert，不要用 Toast。
 
 ## Alert
@@ -405,6 +409,7 @@ section.body.appendChild(alert.el);
 
 - 错误使用 `role="alert"`，警告使用 `role="status"`，信息/成功不设置 live role。
 - Alert 是内联元素，不会自动挂载；放在相关设置附近。句柄为 `{ el, dismiss, destroy }`：`dismiss()` 是用户关闭（会调用 `onDismiss`），`destroy()` 是程序化 teardown（**不会**调用 `onDismiss`）。
+- `ui.destroy()` 后调用旧句柄的 `dismiss()` 不再触发关闭回调。
 - 不要用 Alert 做 3 秒消失的操作结果。
 
 ## Dialog
@@ -456,7 +461,7 @@ if (confirmed) toast.success('本地设置已清空');
 ```
 
 - 原生 `showModal()` 提供焦点圈定、Escape、背景 inert 和 top layer。
-- 打开时临时锁定页面滚动，最后一个 Dialog 关闭后恢复原有 overflow 值和 `!important`；多个 Dialog 用共享计数。
+- 打开时临时锁定页面滚动，在页面原有计算右内边距上补偿滚动条宽度；同一执行环境中的多个 Dialog 用共享计数，最后一个关闭后恢复原有 overflow、内联右内边距及各自的 `!important`。不同 userscript 沙箱的共享未验证，见集成指南。
 - 默认关闭后焦点回到打开前的元素。
 - 需要强制选择时传 `dismissible: false`（不显示关闭按钮，Escape/遮罩不关闭）。
 - 只在点击 Dialog 边界外的遮罩时关闭，内部留白/边框不会取消。原生 `showModal()` 失败会释放滚动锁并抛错，不静默退化为非模态。

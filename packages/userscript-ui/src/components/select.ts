@@ -49,9 +49,11 @@ export function createSelect(ui: UI, options: SelectOptions): SelectHandle {
 
   const chevron = chevronDownIcon();
   chevron.classList.add('ds-select-chevron');
+  let placeholderOption: HTMLOptionElement | null = null;
 
   const renderOptions = (next: SelectOption[]) => {
     select.replaceChildren();
+    placeholderOption = null;
 
     // 占位项占着 `value=''`：选项里已有真实的空值项时再加占位项，
     // 那个真实选项就永远选不到了。
@@ -61,6 +63,7 @@ export function createSelect(ui: UI, options: SelectOptions): SelectHandle {
       placeholder.textContent = options.placeholder;
       placeholder.disabled = true;
       select.appendChild(placeholder);
+      placeholderOption = placeholder;
     }
 
     for (const item of next) {
@@ -86,7 +89,7 @@ export function createSelect(ui: UI, options: SelectOptions): SelectHandle {
     options.options.some((item) => item.value === requested && !item.disabled)
   ) {
     select.value = requested;
-  } else if (options.placeholder) {
+  } else if (placeholderOption) {
     select.value = '';
   } else {
     selectFirstEnabled(options.options);
@@ -108,7 +111,7 @@ export function createSelect(ui: UI, options: SelectOptions): SelectHandle {
     input: select,
     setValue(value) {
       if (
-        (value === '' && options.placeholder) ||
+        (value === '' && placeholderOption) ||
         [...select.options].some((option) => option.value === value && !option.disabled)
       ) {
         select.value = value;
@@ -122,7 +125,7 @@ export function createSelect(ui: UI, options: SelectOptions): SelectHandle {
       renderOptions(next);
       if ([...select.options].some((option) => option.value === current && !option.disabled)) {
         select.value = current;
-      } else if (options.placeholder) {
+      } else if (placeholderOption) {
         select.value = '';
       } else {
         selectFirstEnabled(next);

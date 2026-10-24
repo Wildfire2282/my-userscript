@@ -78,6 +78,7 @@ export function createField(ui: UI, options: FieldOptions): FieldHandle {
   const syncInvalid = () => setFieldInvalid(input, !error.hidden);
 
   const setError = (message?: string) => {
+    if (scope.destroyed) return;
     const hasError = Boolean(message);
     error.textContent = message ?? '';
     error.hidden = !hasError;
@@ -87,6 +88,7 @@ export function createField(ui: UI, options: FieldOptions): FieldHandle {
   };
 
   const setDescription = (message?: string) => {
+    if (scope.destroyed) return;
     description.textContent = message ?? '';
     description.hidden = !message;
     text.hidden = label.hidden && description.hidden;
@@ -104,20 +106,20 @@ export function createField(ui: UI, options: FieldOptions): FieldHandle {
     syncFieldDescribedBy();
   }
 
+  scope.onDestroy(() => {
+    // 只移除本 Field 的贡献，控件可以继续交给新的 Field 使用。
+    description.hidden = true;
+    error.hidden = true;
+    syncFieldDescribedBy();
+    setFieldInvalid(input, false);
+    root.remove();
+  });
+
   return {
     el: root,
     control: options.control.el,
     setError,
     setDescription,
-    destroy() {
-      // Remove only the field's own contribution so a reused control keeps its
-      // own invalid state and any external aria-describedby references.
-      description.hidden = true;
-      error.hidden = true;
-      syncFieldDescribedBy();
-      setFieldInvalid(input, false);
-      scope.destroy();
-      root.remove();
-    },
+    destroy: () => scope.destroy(),
   };
 }

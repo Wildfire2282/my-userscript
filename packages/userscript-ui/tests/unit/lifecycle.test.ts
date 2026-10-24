@@ -276,4 +276,37 @@ describe('field invalid ownership', () => {
     expect(input.input.hasAttribute('aria-invalid')).toBe(false);
     expect(input.input.hasAttribute('data-ds-field-invalid')).toBe(false);
   });
+
+  it('does not let an old field clear or replace a reused control state', () => {
+    const input = createInput(ui);
+    const first = createField(ui, { control: input, error: '旧错误' });
+    first.destroy();
+    const next = createField(ui, { control: input, error: '新错误', description: '新说明' });
+    const describedBy = input.input.getAttribute('aria-describedby');
+
+    first.destroy();
+    first.setError('迟到的错误');
+    first.setDescription('迟到的说明');
+
+    expect(input.input.getAttribute('aria-invalid')).toBe('true');
+    expect(input.input.getAttribute('aria-describedby')).toBe(describedBy);
+    expect(next.el.querySelector('.ds-field-error')?.textContent).toBe('新错误');
+  });
+
+  it('cleans field contributions during UI destruction even for an adopted control', () => {
+    const input = document.createElement('input');
+    input.setAttribute('aria-describedby', 'external-help');
+    const field = createField(ui, {
+      control: { el: input, input },
+      description: '说明',
+      error: '必填',
+    });
+    ui.mount(field.el);
+
+    ui.destroy();
+
+    expect(input.getAttribute('aria-describedby')).toBe('external-help');
+    expect(input.hasAttribute('aria-invalid')).toBe(false);
+    expect(input.parentElement?.isConnected).toBe(false);
+  });
 });

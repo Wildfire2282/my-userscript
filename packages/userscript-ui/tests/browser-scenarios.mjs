@@ -116,6 +116,34 @@ export const scenarios = [
     },
   },
   {
+    name: 'dialog 滚动补偿保留样式表中的页面右内边距',
+    async run(ctx) {
+      return result(
+        await ctx.evaluate(async () => {
+          const { mountUI, createDialog } = window.UserscriptUI;
+          const style = document.createElement('style');
+          style.textContent = 'html { padding-right: 40px !important; overflow-y: scroll; }';
+          document.head.appendChild(style);
+          const root = document.documentElement;
+          const padding = Number.parseFloat(getComputedStyle(root).paddingRight);
+          const scrollbar = Math.max(0, innerWidth - root.clientWidth);
+          const ui = mountUI();
+          const dialog = createDialog(ui, { title: '确认' });
+          const answer = dialog.open();
+          const compensated =
+            Number.parseFloat(getComputedStyle(root).paddingRight) === padding + scrollbar;
+          dialog.close();
+          await answer;
+          const restored =
+            getComputedStyle(root).paddingRight === '40px' && root.style.paddingRight === '';
+          ui.destroy();
+          style.remove();
+          return compensated && restored;
+        }),
+      );
+    },
+  },
+  {
     name: 'showModal 失败回滚滚动锁且不降级非模态',
     async run(ctx) {
       return result(

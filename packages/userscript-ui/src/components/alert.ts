@@ -91,7 +91,7 @@ export function createAlert(ui: UI, options: AlertOptions = {}): AlertHandle {
   }
 
   const dismiss = () => {
-    if (settled) return;
+    if (settled || scope.destroyed) return;
     settled = true;
     scope.destroy();
     options.onDismiss?.();

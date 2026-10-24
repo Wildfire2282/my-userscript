@@ -69,4 +69,19 @@ describe('mergeDefaults', () => {
   it('数组整体覆盖而不是逐项合并', () => {
     expect(mergeDefaults(defaults, { tags: ['x'] }).tags).toEqual(['x']);
   });
+
+  it('覆盖默认值的数组也独立于存储对象', () => {
+    const stored = { tags: ['x'] };
+    const merged = mergeDefaults(defaults, stored);
+    merged.tags.push('y');
+    expect(stored.tags).toEqual(['x']);
+  });
+
+  it('保留特殊键但不改变结果对象的原型', () => {
+    const stored = JSON.parse('{"__proto__":{"enabled":false}}') as unknown;
+    const merged = mergeDefaults(defaults, stored);
+    expect(Object.getPrototypeOf(merged)).toBe(Object.prototype);
+    expect(Object.hasOwn(merged, '__proto__')).toBe(true);
+    expect(merged.enabled).toBe(true);
+  });
 });

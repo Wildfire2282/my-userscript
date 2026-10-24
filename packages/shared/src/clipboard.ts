@@ -51,7 +51,20 @@ function defaultScope(): ClipboardScope {
 /** textarea 兜底：必须在用户手势的同一个任务里同步执行，跨 await 会失去写权限。 */
 function copyWithTextarea(document: Document | undefined, text: string): boolean {
   if (!document?.body) return false;
-  const active = document.activeElement as HTMLElement | null;
+  let active = document.activeElement as HTMLElement | null;
+  while (active?.shadowRoot?.activeElement) active = active.shadowRoot.activeElement as HTMLElement;
+  const control =
+    active?.tagName === 'INPUT' || active?.tagName === 'TEXTAREA'
+      ? (active as HTMLInputElement | HTMLTextAreaElement)
+      : null;
+  const controlStart = control?.selectionStart;
+  const controlEnd = control?.selectionEnd;
+  const controlDirection = control?.selectionDirection;
+  const selection = document.getSelection();
+  const anchor = selection?.anchorNode;
+  const focus = selection?.focusNode;
+  const anchorOffset = selection?.anchorOffset ?? 0;
+  const focusOffset = selection?.focusOffset ?? 0;
   const area = document.createElement('textarea');
   area.value = text;
   area.setAttribute('readonly', '');
@@ -66,6 +79,11 @@ function copyWithTextarea(document: Document | undefined, text: string): boolean
     area.remove();
     // 兜底输入框会抢走焦点，复制完把焦点还给用户原来所在的位置。
     active?.focus?.();
+    // select() 同时清空网页选区；连同选区方向恢复，避免后续 Shift 扩选反向。
+    if (anchor?.isConnected && focus?.isConnected)
+      selection?.setBaseAndExtent(anchor, anchorOffset, focus, focusOffset);
+    if (controlStart != null && controlEnd != null)
+      control?.setSelectionRange(controlStart, controlEnd, controlDirection ?? undefined);
   }
 }
 

@@ -168,6 +168,7 @@ export function mountUI(options: UIOptions = {}): UI {
           // A failing cleanup must not prevent the rest of the teardown.
         }
       }
+      destroyCallbacks.clear();
       controller.abort();
       host.remove();
     },

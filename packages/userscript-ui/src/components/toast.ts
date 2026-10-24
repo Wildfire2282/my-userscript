@@ -74,16 +74,21 @@ export function createToast(ui: UI, options: ToastControllerOptions = {}): Toast
     assertive: createAnnouncer('assertive'),
   };
   viewport.append(announcers.polite, announcers.assertive);
+  const announcementVersions = { polite: 0, assertive: 0 };
 
   const announce = (variant: FeedbackVariant, title?: string, description?: string) => {
-    const target = variant === 'error' ? announcers.assertive : announcers.polite;
+    const politeness = variant === 'error' ? 'assertive' : 'polite';
+    const target = announcers[politeness];
+    const version = ++announcementVersions[politeness];
     const message = [title, description].filter(Boolean).join(' ');
     // 同一句话写回同样的内容不会触发 live region，再报一次就静默了；
     // 先清空、下一轮再写入，屏幕阅读器才会重新播报。
     if (target.textContent === message) {
       target.textContent = '';
       queueMicrotask(() => {
-        if (!destroyed) target.textContent = message;
+        if (!destroyed && announcementVersions[politeness] === version) {
+          target.textContent = message;
+        }
       });
       return;
     }
@@ -137,6 +142,7 @@ export function createToast(ui: UI, options: ToastControllerOptions = {}): Toast
 
     const id = toastOptions.id ?? uid('ds-toast');
     dismiss(id);
+    if (destroyed) throw new Error('Cannot show a toast after its controller is destroyed.');
 
     const variant = toastOptions.variant ?? 'info';
     const duration = toastOptions.duration ?? DEFAULT_DURATION[variant];
@@ -270,12 +276,11 @@ export function createToast(ui: UI, options: ToastControllerOptions = {}): Toast
     records.unshift(record);
     viewport.prepend(el);
     announce(variant, toastOptions.title, toastOptions.description);
+    startTimer();
 
     while (records.length > max) {
       records[records.length - 1]?.remove();
     }
-
-    startTimer();
 
     return record;
   };

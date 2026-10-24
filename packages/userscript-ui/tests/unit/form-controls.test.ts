@@ -165,6 +165,33 @@ describe('Select', () => {
     expect(none.getValue()).toBe('');
   });
 
+  it('does not treat a disabled empty option as the omitted placeholder', () => {
+    const select = createSelect(ui, {
+      placeholder: 'Choose one',
+      value: '',
+      options: [
+        { value: '', label: 'Unavailable', disabled: true },
+        { value: 'a', label: 'Alpha' },
+      ],
+    });
+
+    expect(select.getValue()).toBe('a');
+    select.setValue('');
+    expect(select.getValue()).toBe('a');
+
+    select.setOptions([
+      { value: '', label: 'Unavailable', disabled: true },
+      { value: 'b', label: 'Beta' },
+    ]);
+    expect(select.getValue()).toBe('b');
+    select.setOptions([{ value: '', label: 'Unavailable', disabled: true }]);
+    expect(select.input.selectedIndex).toBe(-1);
+
+    select.setOptions([{ value: 'c', label: 'Gamma' }]);
+    expect(select.input.selectedIndex).toBe(0);
+    expect(select.input.options[0]?.disabled).toBe(true);
+  });
+
   it('can reset a selection to the placeholder without emitting a change', () => {
     const onChange = vi.fn();
     const select = createSelect(ui, {

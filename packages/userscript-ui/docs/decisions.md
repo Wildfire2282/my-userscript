@@ -84,7 +84,7 @@ Tooltip 挂在 `ui.layers.tooltip`，显示时用 `getBoundingClientRect()` 计�
 
 ### 11. Dialog 滚动锁用共享 Symbol
 
-Dialog 打开时临时设置 `documentElement.style.overflow`，关闭后恢复。锁计数放在 `Symbol.for('userscript-ui.scroll-lock')` 上，多个用户脚本同时打开 Dialog 时不会互相提前解锁。这是运行时唯一会触碰宿主全局样式的地方。
+Dialog 打开时临时设置 `documentElement.style.overflow`，关闭后恢复。锁计数放在 `globalThis[Symbol.for('userscript-ui.scroll-lock')]` 上，同一执行环境中的多个 UI 同时打开 Dialog 时不会互相提前解锁。这是运行时唯一会触碰宿主全局样式的地方。
 
 ### 12. 深色主题用亮度差而不是阴影表达层级
 
@@ -179,4 +179,5 @@ ESLint 只对 tsconfig 覆盖的文件开类型感知；`scripts/*.mjs` 与配�
 - 主题切换默认瞬时完成，不播放全局颜色过渡，避免整页 UI 闪动。
 - Chrome 111 没有 popover API，浮层要盖过模态就只能出现在 top layer 的 Dialog 内部，所以 Toast 视口仍会在 Dialog 开关时迁移父节点；实际是否打断读屏播报取决于浏览器。
 - 单元测试跑在 happy-dom 上，它不实现布局、top layer，也不实现“已中止的 signal 不再注册监听”；这类语义只由真实浏览器场景覆盖。
+- 现有多 UI 滚动锁场景在同一执行环境中运行，不能证明 Tampermonkey / ScriptCat 不同脚本沙箱共享 `globalThis`；跨沙箱同时打开 Dialog 的滚动锁协调尚未验证。
 - 滚动锁只处理 `documentElement`，并按滚动条宽度补 `padding-right`；滚动条落在 body（怪癖模式）的页面可能仍有轻微偏移。

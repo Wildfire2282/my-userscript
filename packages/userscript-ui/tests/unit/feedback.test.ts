@@ -73,6 +73,18 @@ describe('Alert', () => {
     alert.destroy();
     expect(onDismiss).toHaveBeenCalledTimes(1);
   });
+
+  it('does not dismiss through a stale handle after UI destruction', () => {
+    const onDismiss = vi.fn();
+    const alert = createAlert(ui, { title: '提示', onDismiss });
+    ui.mount(alert.el);
+
+    ui.destroy();
+    alert.dismiss();
+
+    expect(onDismiss).not.toHaveBeenCalled();
+    expect(alert.el.isConnected).toBe(false);
+  });
 });
 
 describe('Toast', () => {
@@ -131,6 +143,20 @@ describe('Toast', () => {
 
     toast.error('保存失败', { duration: 0 });
     expect(assertive?.textContent).toBe('保存失败');
+  });
+
+  it('does not overwrite a newer announcement with a queued repeat', async () => {
+    const toast = createToast(ui);
+    toast.info('旧提示', { duration: 0 });
+    toast.info('旧提示', { duration: 0 });
+    toast.info('最新提示', { duration: 0 });
+    toast.error('错误', { duration: 0 });
+    toast.error('错误', { duration: 0 });
+
+    await Promise.resolve();
+
+    expect(ui.root.querySelector('[aria-live="polite"]')?.textContent).toBe('最新提示');
+    expect(ui.root.querySelector('[aria-live="assertive"]')?.textContent).toBe('错误');
   });
 
   it.each(['pointerleave', 'focusout'] as const)(
@@ -209,6 +235,32 @@ describe('Toast', () => {
     expect(viewport?.querySelectorAll('.ds-toast')).toHaveLength(1);
     expect(viewport?.textContent).toContain('新消息');
     expect(viewport?.textContent).not.toContain('旧消息');
+  });
+
+  it('does not create a replacement if onDismiss destroys its controller', () => {
+    vi.useFakeTimers();
+    const toast = createToast(ui);
+    toast.info('旧消息', { id: 'status', onDismiss: () => toast.destroy() });
+
+    expect(() => toast.info('新消息', { id: 'status' })).toThrow(/destroyed/);
+    expect(vi.getTimerCount()).toBe(0);
+    expect(ui.root.querySelector('.ds-toast-viewport')).toBeNull();
+  });
+
+  it('still expires the new toast if an evicted onDismiss callback throws', () => {
+    vi.useFakeTimers();
+    const toast = createToast(ui, { max: 1 });
+    toast.info('旧消息', {
+      duration: 0,
+      onDismiss: () => {
+        throw new Error('boom');
+      },
+    });
+
+    expect(() => toast.info('新消息', { duration: 1000 })).toThrow('boom');
+    expect(ui.root.querySelectorAll('.ds-toast')).toHaveLength(1);
+    vi.advanceTimersByTime(1000);
+    expect(ui.root.querySelectorAll('.ds-toast')).toHaveLength(0);
   });
 
   it('cleans up on destroy', () => {

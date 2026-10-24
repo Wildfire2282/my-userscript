@@ -116,6 +116,7 @@ ui.destroy();
 `ui.destroy()` 会：
 
 - 按注册的逆序调用 `ui.onDestroy()` 的清理函数；
+- 清空已执行的清理函数集合，不让保留的 UI 句柄继续引用组件闭包；
 - 中止 `ui.signal` 上的所有事件监听；
 - 销毁每个组件自己的 scope，再移除 host，连带 Panel/Launcher/Toast/Tooltip/Dialog；
 - 释放 Dialog 打开的页面滚动锁。
@@ -193,7 +194,7 @@ button {
 - 宿主对 `html` 使用 `transform` / `filter` 时，fixed 定位仍可能偏移；已通过挂到 `documentElement` 规避常见的 body transform。
 - 宿主强制 `opacity: 0 !important` 于 host 自身时，内部无法恢复；关键属性已加内联 important。
 - 页面进入全屏时，host 外的 UI 可能不可见；v1 未做 fullscreen 迁移。
-- Dialog 滚动锁会临时设置 `documentElement.style.overflow` 为 `hidden !important`；最后一个 Dialog 关闭/销毁后恢复原值及优先级，多个脚本通过全局 Symbol 共享计数。
+- Dialog 滚动锁会临时设置 `documentElement.style.overflow` 为 `hidden !important`，右内边距在现有计算值上补偿滚动条宽度（包括页面样式表设置的内边距）；同一执行环境的 UI 通过 `globalThis` 上的 Symbol 共享计数，最后一个 Dialog 关闭/销毁后恢复原有内联值及优先级。Tampermonkey / ScriptCat 不同脚本沙箱之间的共享未验证，不保证跨沙箱协调。
 - 多个脚本同时使用 Launcher 时可能重叠；请协调 `position` 或自定义 offset Token。
 - Toast/Tooltip 只会跟随同一 UI 的最上层 Dialog；另一个用户脚本的 Dialog 仍可能覆盖它们。
 - 原生 `<select>` 的展开样式由浏览器/OS 决定，无法完全跨平台统一。

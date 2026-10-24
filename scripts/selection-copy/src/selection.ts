@@ -162,7 +162,7 @@ export function isDisabledTarget(
     if (isTextControl(elementOf(target))) return true;
     if (isTextControl(elementOf(selection?.anchorNode))) return true;
     if (isTextControl(elementOf(selection?.focusNode))) return true;
-    if (control !== null) return true;
+    if (control !== null && target === null) return true;
   }
   if (!scope.copyInEditors) {
     if (isInsideEditable(elementOf(target))) return true;

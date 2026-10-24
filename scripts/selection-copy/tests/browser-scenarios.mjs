@@ -78,6 +78,27 @@ export function helpers() {
 
 export const scenarios = [
   {
+    name: '拖选跨过 body 边界仍自动复制',
+    async run(ctx) {
+      const points = await ctx.evaluate(() => {
+        document.body.style.width = '300px';
+        document.body.style.margin = '8px';
+        const rect = document.querySelector('#text').getBoundingClientRect();
+        return {
+          start: { x: Math.round(rect.left + 2), y: Math.round(rect.top + 10) },
+          end: { x: 450, y: Math.round(rect.top + 10) },
+        };
+      });
+      await ctx.input.drag(points.start, points.end);
+      await ctx.wait(120);
+      const copied = await ctx.evaluate(() => {
+        const selected = window.__page.selection();
+        return selected !== '' && window.__page.clipboard() === selected;
+      });
+      return { expected: '正文已复制', actual: copied ? '正文已复制' : '正文未复制' };
+    },
+  },
+  {
     name: '拖动选中一段文字 → 自动复制并显示「已复制」标签',
     async run(ctx) {
       const points = await ctx.evaluate(() => window.__page.linePoints('#text', 2, 200));
@@ -246,6 +267,43 @@ export const scenarios = [
     },
   },
   {
+    name: '降级复制失败也保留原选区及方向',
+    async run(ctx) {
+      await ctx.evaluate(() => {
+        window.__page.blockClipboard();
+        document.addEventListener(
+          'mouseup',
+          () => {
+            const selection = window.getSelection();
+            window.__beforeCopy = {
+              text: selection.toString(),
+              anchor: selection.anchorOffset,
+              focus: selection.focusOffset,
+            };
+          },
+          { once: true, capture: true },
+        );
+      });
+      const points = await ctx.evaluate(() => window.__page.linePoints('#text', 160, 2));
+      await ctx.input.drag(points.start, points.end);
+      await ctx.wait(120);
+      const preserved = await ctx.evaluate(() => {
+        const selection = window.getSelection();
+        const before = window.__beforeCopy;
+        return (
+          before.text !== '' &&
+          selection.toString() === before.text &&
+          selection.anchorOffset === before.anchor &&
+          selection.focusOffset === before.focus
+        );
+      });
+      return {
+        expected: '选区与方向保留',
+        actual: preserved ? '选区与方向保留' : '选区或方向已改变',
+      };
+    },
+  },
+  {
     name: '脚本菜单能打开设置面板',
     async run(ctx) {
       const opened = await ctx.evaluate(() => {
@@ -340,6 +398,47 @@ export const scenarios = [
             ? '剪贴板与输入框选区一致'
             : `剪贴板是「${state.clipboard}」`
         }`,
+      };
+    },
+  },
+  {
+    name: '输入框降级复制失败后仍保留选区和焦点',
+    async run(ctx) {
+      await ctx.evaluate(() => {
+        window.__gm.menu?.();
+        window.__page.toggleSwitch(2);
+        window.__page.closePanel();
+        window.__page.blockClipboard();
+        document.addEventListener(
+          'mouseup',
+          () => {
+            const field = document.querySelector('#field');
+            window.__beforeCopy = {
+              start: field.selectionStart,
+              end: field.selectionEnd,
+              direction: field.selectionDirection,
+            };
+          },
+          { once: true, capture: true },
+        );
+      });
+      const points = await ctx.evaluate(() => window.__page.linePoints('#field', 140, 6));
+      await ctx.input.drag(points.start, points.end);
+      await ctx.wait(120);
+      const preserved = await ctx.evaluate(() => {
+        const field = document.querySelector('#field');
+        const before = window.__beforeCopy;
+        return (
+          document.activeElement === field &&
+          before.start < before.end &&
+          field.selectionStart === before.start &&
+          field.selectionEnd === before.end &&
+          field.selectionDirection === before.direction
+        );
+      });
+      return {
+        expected: '选区、方向与焦点保留',
+        actual: preserved ? '选区、方向与焦点保留' : '选区、方向或焦点已改变',
       };
     },
   },

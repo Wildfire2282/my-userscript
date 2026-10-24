@@ -46,12 +46,9 @@ export function installCopySensor(options: CopySensorOptions): () => void {
     options.onCopy(null);
   };
 
-  // capture 阶段会收到子树上任意元素的 mouseleave（mouseleave 不冒泡，但必然经过捕获），
-  // 只有 target 是根节点时才真的离开了文档；否则拖动选区跨元素时会被提前清掉。
+  // body 外边距仍属于本文档；只有没有下一个命中目标时才算真正离开窗口。
   const onMouseLeave = (event: MouseEvent): void => {
-    if (event.target === doc || event.target === doc.documentElement || event.target === doc.body) {
-      gesture = null;
-    }
+    if (event.relatedTarget === null) gesture = null;
   };
 
   const reset = (): void => {

@@ -157,6 +157,23 @@ describe('门控', () => {
     expect(getActiveTextControl()).toBe(input);
   });
 
+  it('焦点输入框的旧选区不拦截鼠标选中的正文', () => {
+    const input = document.createElement('input');
+    input.value = '旧的输入框选区';
+    document.body.appendChild(input);
+    input.focus();
+    input.setSelectionRange(0, 3);
+    const paragraph = document.createElement('p');
+    paragraph.textContent = '新的正文选区';
+    document.body.appendChild(paragraph);
+    const range = document.createRange();
+    range.selectNodeContents(paragraph);
+    window.getSelection()?.addRange(range);
+
+    expect(isDisabledTarget(window.getSelection(), paragraph, input)).toBe(false);
+    expect(isDisabledTarget(null, null, input)).toBe(true);
+  });
+
   it('富文本编辑器里的选区不复制', () => {
     const editor = document.createElement('div');
     editor.setAttribute('contenteditable', 'true');

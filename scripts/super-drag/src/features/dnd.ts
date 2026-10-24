@@ -26,8 +26,6 @@ export interface DragSensor {
   destroy(): void;
 }
 
-type Phase = 'idle' | 'dragging';
-
 // 拖拽结束后浏览器可能补发一次 click；只在这段时间内吞掉它，
 // 否则用户事后点开关、按钮也会被误吞（原生补发的 click 紧跟在 dragend 后面）。
 const CLICK_SWALLOW_MS = 400;
@@ -47,7 +45,8 @@ export function installDragSensor(deps: DragSensorDeps): DragSensor {
   const { signal } = controller;
   const listenerOptions = { capture: true, signal } as const;
 
-  let phase: Phase = 'idle';
+  // 页面可在后续传播中取消 dragstart，且浏览器不会再发 dragend。
+  let dragStart: DragEvent | null = null;
   let kind: DragKind = 'text';
   let data = '';
   // 截止时间而不是布尔值：原生补发的 click 紧跟 dragend，拖拽很久之后的一次正常点击不该被吞。
@@ -57,7 +56,7 @@ export function installDragSensor(deps: DragSensorDeps): DragSensor {
   let ghost: HTMLImageElement | null = null;
 
   const reset = () => {
-    phase = 'idle';
+    dragStart = null;
     kind = 'text';
     data = '';
   };
@@ -88,7 +87,8 @@ export function installDragSensor(deps: DragSensorDeps): DragSensor {
   };
 
   const handleDragStart = (event: DragEvent) => {
-    if (phase !== 'idle') return;
+    reset();
+    if (event.defaultPrevented) return;
     // 多选、系统级手势留给浏览器；Shift 不拦，它表示“这一次前台打开”。
     if (event.ctrlKey || event.metaKey || event.altKey) return;
     // 输入框保留原生“移动文字”拖拽。
@@ -130,14 +130,24 @@ export function installDragSensor(deps: DragSensorDeps): DragSensor {
     } catch {
       // setDragImage 不支持时保留原生残影
     }
-    phase = 'dragging';
+    dragStart = event;
     kind = payload.kind;
     data = payload.data;
     dragSource = targetOf(event);
   };
 
+  const isActiveDrag = (event: DragEvent): boolean => {
+    if (!dragStart) return false;
+    // 外来文件拖入没有本页的 dragstart，不能沿用尚未收到 dragend 的旧载荷。
+    if (dragStart.defaultPrevented || event.dataTransfer?.types.includes('Files')) {
+      reset();
+      return false;
+    }
+    return true;
+  };
+
   const handleDragOver = (event: DragEvent) => {
-    if (phase !== 'dragging') return; // 不是脚本发起的拖拽（例如拖入文件）
+    if (!isActiveDrag(event)) return;
     event.preventDefault();
     event.stopPropagation();
     try {
@@ -148,7 +158,7 @@ export function installDragSensor(deps: DragSensorDeps): DragSensor {
   };
 
   const handleDrop = (event: DragEvent) => {
-    if (phase !== 'dragging') return;
+    if (!isActiveDrag(event)) return;
     // 拖进输入框是页面的原生粘贴，不接管。保持脚本写入的载荷与原生拖拽一致：
     // 拖链接/图片时原生粘贴的也是地址，拖文字时就是选中的文字。
     if (isInputElement(event)) {
@@ -177,7 +187,7 @@ export function installDragSensor(deps: DragSensorDeps): DragSensor {
 
   const handleDragEnd = () => {
     // drop 之后和取消（Esc / 拖到窗口外）都会触发；前者已复位，这里只处理取消。
-    if (phase !== 'idle') reset();
+    reset();
   };
 
   const handleClickCapture = (event: MouseEvent) => {
@@ -196,11 +206,11 @@ export function installDragSensor(deps: DragSensorDeps): DragSensor {
     swallowClickUntil = 0;
     dragSource = null;
     // 兜底：任何情况下都不留下过期的拖拽状态。
-    if (phase !== 'idle') reset();
+    reset();
   };
 
   const handleKeyDown = (event: KeyboardEvent) => {
-    if (event.key === 'Escape' && phase !== 'idle') reset();
+    if (event.key === 'Escape') reset();
   };
 
   // 新的按下动作说明是另一次交互：浏览器补发的 click 不可能再出现了，清掉标记。
@@ -209,7 +219,7 @@ export function installDragSensor(deps: DragSensorDeps): DragSensor {
   const handlePressStart = () => {
     swallowClickUntil = 0;
     dragSource = null;
-    if (phase !== 'idle') reset();
+    reset();
   };
 
   window.addEventListener('dragstart', handleDragStart, listenerOptions);

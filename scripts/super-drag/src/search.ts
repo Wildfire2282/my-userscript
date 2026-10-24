@@ -30,7 +30,7 @@ function humanizeEngineId(id: string): string {
 export function engineOptions(settings: Settings): EngineOption[] {
   const options = Object.keys(settings.engines).map((id) => ({
     value: id,
-    label: ENGINE_LABELS[id] ?? humanizeEngineId(id),
+    label: Object.hasOwn(ENGINE_LABELS, id) ? ENGINE_LABELS[id]! : humanizeEngineId(id),
   }));
   options.push({ value: CUSTOM_ENGINE_ID, label: '自定义' });
   return options;

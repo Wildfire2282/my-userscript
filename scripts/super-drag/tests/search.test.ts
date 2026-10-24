@@ -30,6 +30,17 @@ describe('engineOptions', () => {
     const dashed = engineOptions(settings({ engines: { 'my-engine': 'https://x/?q={keyword}' } }));
     expect(dashed[0]).toEqual({ value: 'my-engine', label: 'My Engine' });
   });
+
+  it('与对象原型同名的自定义引擎保留 ID，标签不读取原型', () => {
+    const engines = Object.fromEntries(
+      ['toString', 'constructor', '__proto__'].map((id) => [id, 'https://x/?q={keyword}']),
+    );
+    expect(engineOptions(settings({ engines })).slice(0, -1)).toEqual([
+      { value: 'toString', label: 'ToString' },
+      { value: 'constructor', label: 'Constructor' },
+      { value: '__proto__', label: '  Proto  ' },
+    ]);
+  });
 });
 
 describe('buildSearchUrl', () => {

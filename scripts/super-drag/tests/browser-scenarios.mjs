@@ -543,6 +543,143 @@ export const scenarios = [
     },
   },
   {
+    name: '网页取消 dragstart 且不发 dragend → 外来文件拖入不打开旧链接',
+    async run(ctx) {
+      const state = await ctx.evaluate(async () => {
+        const link = document.querySelector('#link');
+        const point = window.__page.point(link);
+        const init = {
+          bubbles: true,
+          cancelable: true,
+          composed: true,
+          clientX: point.x,
+          clientY: point.y,
+        };
+        const transfer = new DataTransfer();
+        link.addEventListener('dragstart', (event) => event.preventDefault(), { once: true });
+        const start = new DragEvent('dragstart', { ...init, dataTransfer: transfer });
+        link.dispatchEvent(start);
+        const claimed = transfer.getData('text/plain') === link.href;
+        // 被取消的原生 dragstart 不会产生 dragend，也没有下一次本页 mousedown。
+        await Promise.resolve();
+        const external = new DataTransfer();
+        external.items.add(new File(['file contents'], 'external.txt', { type: 'text/plain' }));
+        const over = new DragEvent('dragover', { ...init, dataTransfer: external });
+        const drop = new DragEvent('drop', { ...init, dataTransfer: external });
+        let received = 0;
+        link.addEventListener('dragover', () => received++, { once: true });
+        link.addEventListener('drop', () => received++, { once: true });
+        link.dispatchEvent(over);
+        link.dispatchEvent(drop);
+        const opened = window.__page.openedCount();
+        window.__page.drag(link, link);
+        return {
+          canceled: start.defaultPrevented && claimed,
+          passed: received === 2 && !over.defaultPrevented && !drop.defaultPrevented,
+          opened,
+          recovered:
+            window.__page.openedCount() === opened + 1 &&
+            window.__page.lastOpened()?.url === link.href,
+        };
+      });
+      return {
+        expected: '已接管后取消 / 文件事件放行 / 0 / 后续链接正常',
+        actual: `${state.canceled ? '已接管后取消' : '未复现取消'} / ${state.passed ? '文件事件放行' : '文件事件被拦截'} / ${state.opened} / ${state.recovered ? '后续链接正常' : '后续链接失效'}`,
+      };
+    },
+  },
+  {
+    name: '缺失 dragend 后的外来文件 dragover 或直接 drop → 清除旧载荷',
+    async run(ctx) {
+      const state = await ctx.evaluate(() => {
+        const link = document.querySelector('#link');
+        const point = window.__page.point(link);
+        const init = {
+          bubbles: true,
+          cancelable: true,
+          composed: true,
+          clientX: point.x,
+          clientY: point.y,
+        };
+        const results = ['dragover', 'drop'].map((type) => {
+          const transfer = new DataTransfer();
+          link.dispatchEvent(new DragEvent('dragstart', { ...init, dataTransfer: transfer }));
+          const external = new DataTransfer();
+          external.items.add(new File(['file contents'], 'external.txt', { type: 'text/plain' }));
+          // 文件也可能带文本格式；应按 Files 放行，而不是误认作本页文字拖拽。
+          external.setData('text/plain', 'external file');
+          const event = new DragEvent(type, { ...init, dataTransfer: external });
+          let received = false;
+          link.addEventListener(
+            type,
+            () => {
+              received = true;
+            },
+            { once: true },
+          );
+          link.dispatchEvent(event);
+          // 确认外来事件已清状态，后续没有 Files 的 drop 也不能消费旧载荷。
+          const later = new DragEvent('drop', { ...init, dataTransfer: transfer });
+          link.dispatchEvent(later);
+          return received && !event.defaultPrevented && !later.defaultPrevented;
+        });
+        return { passed: results.every(Boolean), opened: window.__page.openedCount() };
+      });
+      return {
+        expected: '两种文件入口均放行并清状态 / 0',
+        actual: `${state.passed ? '两种文件入口均放行并清状态' : '文件入口仍接管旧状态'} / ${state.opened}`,
+      };
+    },
+  },
+  {
+    name: '取消 dragstart 后即使仍有原文本格式 → 不消费取消的载荷',
+    async run(ctx) {
+      const state = await ctx.evaluate(() => {
+        const link = document.querySelector('#link');
+        const point = window.__page.point(link);
+        const init = {
+          bubbles: true,
+          cancelable: true,
+          composed: true,
+          clientX: point.x,
+          clientY: point.y,
+          dataTransfer: new DataTransfer(),
+        };
+        link.addEventListener('dragstart', (event) => event.preventDefault(), { once: true });
+        link.dispatchEvent(new DragEvent('dragstart', init));
+        const drop = new DragEvent('drop', init);
+        link.dispatchEvent(drop);
+        return { passed: !drop.defaultPrevented, opened: window.__page.openedCount() };
+      });
+      return {
+        expected: '取消的载荷不接管 / 0',
+        actual: `${state.passed ? '取消的载荷不接管' : '取消的载荷仍接管'} / ${state.opened}`,
+      };
+    },
+  },
+  {
+    name: '页面将本页链接拖拽数据改成 text/uri-list → 仍按已认领链接打开',
+    async run(ctx) {
+      const state = await ctx.evaluate(() => {
+        const link = document.querySelector('#link');
+        link.addEventListener(
+          'dragstart',
+          (event) => {
+            event.dataTransfer.clearData('text/plain');
+            event.dataTransfer.setData('text/uri-list', link.href);
+          },
+          { once: true },
+        );
+        const plain = window.__page.drag(link, link);
+        return { plain, opened: window.__page.lastOpened()?.url ?? '' };
+      });
+      return {
+        expected: '无 text/plain / https://example.com/target?from=fixture&x=1',
+        actual: `${state.plain === '' ? '无 text/plain' : '仍有 text/plain'} / ${state.opened}`,
+      };
+    },
+  },
+  {
     name: '在面板里关掉某一类 → 只停这一类',
     async run(ctx) {
       const state = await ctx.evaluate(() => {

@@ -15,8 +15,8 @@ export interface ViewportSize {
   height: number;
 }
 
-/** 与 `--ds-launcher-size` 对齐；夹紧时按这个尺寸留边。 */
-export const BUTTON_SIZE = 40;
+/** 按钮用的是 `@ui` 的 `size: 'lg'` 图标按钮，等于 `--ds-control-h-lg`；夹紧时按它留边。 */
+export const BUTTON_SIZE = 36;
 
 function clamp(value: number, min: number, max: number): number {
   if (max < min) return min;

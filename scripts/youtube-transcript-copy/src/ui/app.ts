@@ -230,6 +230,8 @@ export function createTranscriptButtonApp(
     sync,
     setVisible(next) {
       visible = next;
+      // 首次在无播放器页面加载时按钮没建出来；之后播放器出现（如迷你播放器）要补建。
+      if (next && !button) sync();
       button?.setVisible(next);
     },
     openActions() {

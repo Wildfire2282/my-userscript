@@ -53,6 +53,9 @@ const only = args.filter((arg) => !arg.startsWith('-'));
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+/** 单条 CDP 请求的等待上限：导航或渲染进程卡死时按超时失败，而不是静静挂住。 */
+const REQUEST_TIMEOUT_MS = 30_000;
+
 function scenarioPath(slug) {
   return path.join(SCRIPTS_DIR, slug, 'tests', 'browser-scenarios.mjs');
 }
@@ -128,7 +131,16 @@ class CdpClient {
   send(method, params = {}) {
     const id = this.nextId++;
     return new Promise((resolve, reject) => {
-      this.pending.set(id, { resolve, reject });
+      // 渲染进程崩溃 / 浏览器被杀时回包永远不来：没有超时就会一直挂到 CI 作业超时。
+      const timer = setTimeout(() => {
+        this.pending.delete(id);
+        reject(new Error(`CDP 请求超时：${method}`));
+      }, REQUEST_TIMEOUT_MS);
+      const settle = (fn) => (value) => {
+        clearTimeout(timer);
+        fn(value);
+      };
+      this.pending.set(id, { resolve: settle(resolve), reject: settle(reject) });
       this.socket.send(JSON.stringify({ id, method, params }));
     });
   }
@@ -407,10 +419,19 @@ try {
       await input.mouseUp(to);
     },
     async keyDown(key, { code = key, keyCode = VIRTUAL_KEY_CODES[key] ?? 0, modifiers = [] } = {}) {
+      // 单字符键要带 text 才会真正插入字符；rawKeyDown 只触发 keydown，输入框不会收到内容。
+      const text = key.length === 1 ? key : undefined;
+      if (text !== undefined && keyCode === 0) {
+        // 场景里的字母/数字键没有预置 keyCode：按 A-Z、0-9 的物理码补上。
+        const upper = key.toUpperCase();
+        if (upper >= 'A' && upper <= 'Z') keyCode = upper.charCodeAt(0);
+        else if (key >= '0' && key <= '9') keyCode = key.charCodeAt(0);
+      }
       await cdp.send('Input.dispatchKeyEvent', {
-        type: 'rawKeyDown',
+        type: text === undefined ? 'rawKeyDown' : 'keyDown',
         key,
         code,
+        text,
         windowsVirtualKeyCode: keyCode,
         nativeVirtualKeyCode: keyCode,
         modifiers: modifierValue(modifiers),
@@ -509,8 +530,11 @@ try {
       typeof scenarioModule.setup === 'function' ? `(${scenarioModule.setup.toString()})()` : '';
 
     // fixture 可以带查询串（例如 `watch.html?v=abc`）：脚本靠地址判断视频时要用到。
-    const [fixtureName, query = ''] = fixture.split('?');
-    const fixtureFile = fixturePath(slug, fixtureName ?? '');
+    // 只按第一个 `?` 切：查询串里再出现 `?` 时（`?next=/a?b`）不能被截断。
+    const queryStart = fixture.indexOf('?');
+    const fixtureName = queryStart === -1 ? fixture : fixture.slice(0, queryStart);
+    const query = queryStart === -1 ? '' : fixture.slice(queryStart + 1);
+    const fixtureFile = fixturePath(slug, fixtureName);
     if (!existsSync(fixtureFile)) {
       throw new Error(`${slug} 的夹具页不存在：${fixture}`);
     }
@@ -583,7 +607,12 @@ try {
   failed = Math.max(failed, 1);
 } finally {
   if (keepBrowser) {
-    // 放手：不 disconnect 的话子进程句柄会让当前进程跑完也退不出去。
+    // 放开 CDP 连接与子进程句柄：任何一样留着，进程跑完也退不出去。
+    try {
+      cdp?.close();
+    } catch {
+      // 收尾阶段的异常不覆盖场景结果。
+    }
     chrome.unref();
     console.log(
       `浏览器与配置目录保留在 ${path.relative(ROOT, workDir)}（端口见 DevToolsActivePort）。`,

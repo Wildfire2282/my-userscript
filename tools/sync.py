@@ -191,9 +191,10 @@ def parse_metadata(text: str) -> dict[str, list[str]]:
             break
         if not inside:
             continue
-        match = re.match(r"^//\s*@([\w:.-]+)\s+(.*)$", stripped)
+        # 值可以为空：`// @noframes` 也是合法字段，缺了它清单里就永远看不到这个标记。
+        match = re.match(r"^//\s*@([\w:.-]+)(?:\s+(.*))?$", stripped)
         if match:
-            metadata.setdefault(match.group(1), []).append(match.group(2).strip())
+            metadata.setdefault(match.group(1), []).append((match.group(2) or "").strip())
     return metadata
 
 
@@ -308,8 +309,16 @@ def manifest_payload(entries: list[dict]) -> str:
 
 def write_manifest(entries: list[dict], previous: dict | None) -> bool:
     """写 scripts.json；内容未变时保留旧的 generatedAt，避免无意义 diff。"""
-    if previous and manifest_payload(previous.get("scripts", [])) == manifest_payload(entries):
-        return False
+    if previous:
+        # 除了脚本数组，source 与 scriptCount 也要对得上：手改过的清单同样要修回来。
+        same_scripts = manifest_payload(previous.get("scripts", [])) == manifest_payload(entries)
+        same_meta = (
+            previous.get("source") == USER_URL
+            and previous.get("scriptCount") == len(entries)
+            and isinstance(previous.get("generatedAt"), str)
+        )
+        if same_scripts and same_meta:
+            return False
 
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     payload = {
@@ -346,15 +355,22 @@ def render_table(entries: list[dict]) -> str:
 def update_readme(entries: list[dict]) -> bool:
     """替换 README 中标记块之间的脚本表格；没有标记时原样返回。"""
     if not README_PATH.exists():
+        print("警告：找不到 README.md，脚本表格未更新。", file=sys.stderr)
         return False
     text = README_PATH.read_text(encoding="utf-8")
     start = text.find(README_START)
     end = text.find(README_END)
     if start == -1 or end == -1 or end < start:
+        # 标记被删掉后表格会悄悄停止维护：必须说出来，否则没人知道它已经不再更新。
+        print(
+            f"警告：README.md 里缺少 {README_START} / {README_END} 标记，脚本表格未更新。",
+            file=sys.stderr,
+        )
         return False
 
     header_end = text.find("\n", start)
     if header_end == -1:
+        print("警告：README.md 的标记行不完整，脚本表格未更新。", file=sys.stderr)
         return False
     new_text = text[: header_end + 1] + render_table(entries) + "\n" + text[end:]
     if new_text == text:

@@ -261,4 +261,13 @@ describe('extractFromPanelDump', () => {
   it('没有匹配行时返回 null', () => {
     expect(extractFromPanelDump(document.body)).toBeNull();
   });
+
+  it('隐藏副本重复出现时只保留一条', () => {
+    for (let copy = 0; copy < 2; copy += 1) {
+      const node = document.createElement('div');
+      node.textContent = '0:05 重复的台词';
+      document.body.appendChild(node);
+    }
+    expect(extractFromPanelDump(document.body)).toEqual([{ start: 5_000, text: '重复的台词' }]);
+  });
 });

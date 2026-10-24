@@ -219,7 +219,9 @@ export function extractFromPanelDump(root: ParentNode): Segment[] | null {
     const seconds = tsToSec(match[1]);
     segments.push({ start: seconds === null ? null : seconds * 1000, text: clean(match[2]) });
   }
-  return segments.length > 0 ? segments : null;
+  // 面板同样会挂一份隐藏副本：不去重会让整篇台词翻倍。
+  const unique = dedupeSegments(segments);
+  return unique.length > 0 ? unique : null;
 }
 
 /** 转写面板容器：兜底扫描只在这里面找，找不到才退回全页。

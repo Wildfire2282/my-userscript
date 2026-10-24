@@ -25,7 +25,9 @@ export function readVideoState(
   const fullscreenElement = fullscreen === undefined ? doc.fullscreenElement : fullscreen;
   return {
     exists: findVideo(doc) !== null,
-    fullscreen: fullscreenElement !== null,
+    // 没有 Fullscreen API 的环境里该属性是 undefined：`!== null` 会把它当成“正在全屏”，
+    // 按钮就永远不显示。只认真正存在的元素。
+    fullscreen: fullscreenElement != null,
   };
 }
 

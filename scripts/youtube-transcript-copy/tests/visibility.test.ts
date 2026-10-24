@@ -25,6 +25,14 @@ describe('readVideoState', () => {
     expect(readVideoState(document, null)).toEqual({ exists: false, fullscreen: false });
   });
 
+  it('没有 Fullscreen API（属性为 undefined）时不算全屏', () => {
+    const bare = {
+      querySelector: () => null,
+      fullscreenElement: undefined,
+    } as unknown as Document;
+    expect(readVideoState(bare)).toEqual({ exists: false, fullscreen: false });
+  });
+
   it('读到视频并识别全屏', () => {
     const player = document.createElement('div');
     player.id = 'movie_player';

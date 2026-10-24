@@ -50,6 +50,17 @@ export default [
           selector: "AssignmentExpression > MemberExpression[property.name='outerHTML']",
           message: 'Use DOM nodes; outerHTML is banned.',
         },
+        // 计算属性写法（`el['innerHTML'] = x`）绕开了上面两条静态选择器。
+        {
+          selector:
+            'AssignmentExpression > MemberExpression[computed=true] > Literal[value=/^(inner|outer)HTML$/]',
+          message: 'Use textContent or DOM nodes; HTML string assignment is banned.',
+        },
+        {
+          selector:
+            "CallExpression[callee.property.name='assign'] ObjectExpression > Property[key.name=/^(inner|outer)HTML$/]",
+          message: 'Object.assign with innerHTML/outerHTML is banned.',
+        },
         {
           selector: "CallExpression[callee.property.name='insertAdjacentHTML']",
           message: 'Use textContent or DOM nodes; insertAdjacentHTML is banned.',

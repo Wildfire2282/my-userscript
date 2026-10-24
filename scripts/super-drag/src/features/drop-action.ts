@@ -43,6 +43,9 @@ export function decideDrag(candidate: DragCandidate, kinds: DragKinds): DragPayl
   }
   if (kinds.link && candidate.link !== '') return { kind: 'link', data: candidate.link };
   if (kinds.image && candidate.image !== '') return { kind: 'image', data: candidate.image };
+  // 按下的位置明明压在链接 / 图片上，只是这一类被关掉了：这一次要交还网页原生拖拽。
+  // 不能再落进文字兜底，否则页面上残留的选区会把页面自己的拖拽抢成“搜索”。
+  if (candidate.link !== '' || candidate.image !== '') return null;
   if (kinds.text && candidate.selection !== '') return { kind: 'text', data: candidate.selection };
   return null;
 }

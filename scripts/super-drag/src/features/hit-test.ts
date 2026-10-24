@@ -25,6 +25,11 @@ export function isIgnorableHref(href: string | null): boolean {
   return !href || href === '#' || href.toLowerCase().startsWith('javascript:');
 }
 
+/** 链接的原始地址；SVG 的 `<a>` 往往只有 xlink:href。 */
+function rawLinkHref(node: Element): string {
+  return node.getAttribute('href') ?? node.getAttributeNS(XLINK_NS, 'href') ?? '';
+}
+
 /**
  * 解析链接地址。
  *
@@ -32,13 +37,35 @@ export function isIgnorableHref(href: string | null): boolean {
  * 所以统一读原始属性并用 `document.baseURI` 补全，顺带支持 `xlink:href`。
  */
 export function resolveLinkHref(node: Element): string {
-  const raw = node.getAttribute('href') ?? node.getAttributeNS(XLINK_NS, 'href') ?? '';
+  const raw = rawLinkHref(node);
   if (raw === '') return '';
   try {
     return new URL(raw, document.baseURI).href;
   } catch {
     return '';
   }
+}
+
+/** 图片地址；空 `src` 属性会被 `img.src` 解析成当前页面地址，不能当图片打开。 */
+function imageUrl(img: HTMLImageElement): string {
+  if (img.currentSrc !== '') return img.currentSrc;
+  const raw = img.getAttribute('src');
+  return raw === null || raw.trim() === '' ? '' : img.src;
+}
+
+/**
+ * 页面显式标成 `draggable="true"` 的宿主，是否携带脚本该接管的链接 / 图片内容。
+ *
+ * 站点常给本来就默认可拖拽的链接、图片补上该属性；但 `<a>` 没有可用地址、`<img>`
+ * 没有地址时，它只是页面自己的拖拽控件，交还页面。
+ */
+export function hasNativeDragContent(node: Element): boolean {
+  const tag = node.tagName.toUpperCase();
+  if (tag === 'A') {
+    return !isIgnorableHref(rawLinkHref(node)) && resolveLinkHref(node) !== '';
+  }
+  if (tag === 'IMG') return imageUrl(node as HTMLImageElement) !== '';
+  return false;
 }
 
 /** 逐层穿透 open Shadow Root 取真实元素。 */
@@ -69,13 +96,10 @@ export function hitTestFast(target: Element | null): HitResult | null {
 
   let link = '';
   const linkEl = tag === 'A' ? target : target.closest('a');
-  if (linkEl && !isIgnorableHref(linkEl.getAttribute('href'))) link = resolveLinkHref(linkEl);
+  if (linkEl && !isIgnorableHref(rawLinkHref(linkEl))) link = resolveLinkHref(linkEl);
 
   let image = '';
-  if (tag === 'IMG') {
-    const img = target as HTMLImageElement;
-    image = img.currentSrc || img.src || '';
-  }
+  if (tag === 'IMG') image = imageUrl(target as HTMLImageElement);
 
   return link || image ? { link, image } : null;
 }
@@ -87,14 +111,13 @@ export function hitTestSlow(x: number, y: number): HitResult {
   while (node) {
     const tag = node.tagName.toUpperCase();
     if (found.link === '' && tag === 'A') {
-      if (!isIgnorableHref(node.getAttribute('href'))) {
+      if (!isIgnorableHref(rawLinkHref(node))) {
         found.link = resolveLinkHref(node);
         // 链接优先于图片，拿到就不再往上爬。
         if (found.link !== '') break;
       }
     } else if (found.image === '' && tag === 'IMG') {
-      const img = node as HTMLImageElement;
-      found.image = img.currentSrc || img.src || '';
+      found.image = imageUrl(node as HTMLImageElement);
     }
     node = parentAcrossShadow(node);
   }

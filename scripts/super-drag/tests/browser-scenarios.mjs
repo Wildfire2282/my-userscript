@@ -375,6 +375,32 @@ export const scenarios = [
     },
   },
   {
+    name: '拖 SVG 里带 xlink:href 的链接 → 打开该链接',
+    async run(ctx) {
+      await dragElement(ctx, '#svg-rect');
+      const opened = await ctx.evaluate(() => window.__page.lastOpened());
+      return { expected: 'https://example.com/svg-link', actual: opened?.url ?? '' };
+    },
+  },
+  {
+    name: '拖站点自己标了 draggable="true" 的图片 → 打开图片查看器',
+    async run(ctx) {
+      const { url, content } = await ctx.evaluate(async () => {
+        const image = document.querySelector('#draggable-image');
+        window.__page.drag(image, image);
+        const opened = window.__page.lastOpened();
+        if (!opened) return { url: '', content: '' };
+        return { url: opened.url, content: await (await fetch(opened.url)).text() };
+      });
+      return {
+        expected: 'blob: 开头 / 含原图地址',
+        actual: `${url.startsWith('blob:') ? 'blob: 开头' : url} / ${
+          content.includes('https://example.com/draggable.png') ? '含' : '不含'
+        }原图地址`,
+      };
+    },
+  },
+  {
     name: '菜单「功能设置」→ 居中的面板，八项设置齐全',
     async run(ctx) {
       const state = await ctx.evaluate(() => {
@@ -411,6 +437,24 @@ export const scenarios = [
         actual: `${state.label} / ${state.visible ? '面板可见' : '面板不可见'} / ${state.count} 项${
           state.missing.length === 0 ? '齐全' : `缺 ${state.missing.join('、')}`
         } / ${state.centered ? '居中' : '未居中'}`,
+      };
+    },
+  },
+  {
+    name: '在设置面板里拖选文字 → 不搜索、不打开',
+    async run(ctx) {
+      const { claimed, opened } = await ctx.evaluate(() => {
+        window.__page.openMenu();
+        // 页面上有选区时最容易误接管：面板里的拖拽仍然必须留给页面。
+        window.__page.select(document.querySelector('#text'));
+        const description = window.__page.panel().querySelector('.ds-panel-description');
+        const before = window.__gm.opened.length;
+        const claimed = window.__page.drag(description, description);
+        return { claimed, opened: window.__gm.opened.length - before };
+      });
+      return {
+        expected: '没有拖拽数据 / 0',
+        actual: `${claimed === '' ? '没有拖拽数据' : `拖拽数据「${claimed}」`} / ${opened}`,
       };
     },
   },
@@ -541,6 +585,20 @@ export const scenarios = [
         actual: `${claimed === '' ? '有选区时不接管' : `有选区时接管了`} / ${
           claimed === '' ? '没有拖拽数据' : claimed
         }`,
+      };
+    },
+  },
+  {
+    name: '没有地址却标了 draggable 的链接 → 交还页面，不搜索残留选区',
+    async run(ctx) {
+      const claimed = await ctx.evaluate(() => {
+        window.__page.select(document.querySelector('#text'));
+        const link = document.querySelector('#draggable-dead-link');
+        return window.__page.drag(link, link);
+      });
+      return {
+        expected: '没有拖拽数据',
+        actual: claimed === '' ? '没有拖拽数据' : `拖拽数据「${claimed}」`,
       };
     },
   },
@@ -820,6 +878,24 @@ export const scenarios = [
         expected:
           '文字不接管 / 链接照常 1 / 图片不接管 / 图片不打开 0 / 链接不接管 / 链接不打开 0 / 文字仍接管',
         actual: `${state.textOff} / 链接照常 ${state.linkStillOpens} / ${state.imageOff} / 图片不打开 ${state.imageOpened} / ${state.linkOff} / 链接不打开 ${state.linkOffOpened} / ${state.textStill}`,
+      };
+    },
+  },
+  {
+    name: '关掉图片拖拽后，页面上有零散选区时拖图片 → 仍交给网页',
+    async run(ctx) {
+      await presetSettings(ctx, { dragKinds: { text: true, link: true, image: false } });
+      const { claimed, opened } = await ctx.evaluate(() => {
+        // 选区留在别处（不在按下的位置）：不能把它当作这次拖拽的内容。
+        window.__page.select(document.querySelector('#text'));
+        const image = document.querySelector('#image');
+        const before = window.__gm.opened.length;
+        const claimed = window.__page.drag(image, image);
+        return { claimed, opened: window.__gm.opened.length - before };
+      });
+      return {
+        expected: '没有拖拽数据 / 0',
+        actual: `${claimed === '' ? '没有拖拽数据' : `拖拽数据「${claimed}」`} / ${opened}`,
       };
     },
   },

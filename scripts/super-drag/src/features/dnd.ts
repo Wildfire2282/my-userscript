@@ -5,8 +5,8 @@ import {
   shouldOpenInForeground,
   type DragKind,
 } from './drop-action';
-import { isDraggableHost, isInputElement, realTarget } from './editable';
-import { hitTest } from './hit-test';
+import { draggableHostOf, isInputElement, realTarget } from './editable';
+import { hasNativeDragContent, hitTest } from './hit-test';
 import { getSelectionText, isPointInSelection } from './selection';
 
 /**
@@ -34,6 +34,16 @@ const CLICK_SWALLOW_MS = 400;
 function targetOf(event: Event): Element | null {
   const target = realTarget(event);
   return target instanceof Element ? target : null;
+}
+
+/**
+ * 是否来自脚本自己的界面（@ui 挂在 shadow root 里）。
+ *
+ * 在设置面板里拖选说明文字只是想复制，不该变成搜索；输入框另有 `isInputElement` 拦。
+ */
+function isOwnUi(node: Element | null): boolean {
+  const root = node?.getRootNode();
+  return root instanceof ShadowRoot && root.host.matches('userscript-ui-root[data-ds-root]');
 }
 
 export function installDragSensor(deps: DragSensorDeps): DragSensor {
@@ -97,6 +107,7 @@ export function installDragSensor(deps: DragSensorDeps): DragSensor {
   const handleDragStart = (event: DragEvent) => {
     reset();
     if (event.defaultPrevented) return;
+    if (isOwnUi(targetOf(event))) return;
     // 多选、系统级手势留给浏览器；Shift 不拦，它表示“这一次前台打开”。
     if (event.ctrlKey || event.metaKey || event.altKey) return;
     // 输入框保留原生“移动文字”拖拽。
@@ -117,7 +128,8 @@ export function installDragSensor(deps: DragSensorDeps): DragSensor {
     // 页面用 draggable="true" 自己实现的拖拽（卡片排序、上传区）留给页面：
     // 页面上任意一段文字选区都会让后文的文字兜底抢走它。按在选区里时例外，
     // 那是用户明确要拖的文字。
-    if (!selectionHit && isDraggableHost(targetOf(event))) return;
+    const draggableHost = draggableHostOf(targetOf(event));
+    if (!selectionHit && draggableHost && !hasNativeDragContent(draggableHost)) return;
 
     const hit = selectionHit ? { link: '', image: '' } : hitTestAt(event);
     const payload = decideDrag(

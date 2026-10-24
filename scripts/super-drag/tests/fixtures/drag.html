@@ -42,6 +42,16 @@
     </p>
     <p><a id="relative-link" href="/rel/path?x=1">相对链接</a></p>
     <div id="card" draggable="true">可拖拽卡片（页面自己的拖拽）</div>
+    <a id="draggable-dead-link" draggable="true">页面自己的可拖拽控件</a>
+    <div id="svg-host"></div>
+    <p>
+      <img
+        id="draggable-image"
+        alt="draggable"
+        draggable="true"
+        src="https://example.com/draggable.png"
+      />
+    </p>
     <div id="shadow-host"></div>
     <div id="click-area">点击区</div>
     <script>
@@ -53,6 +63,23 @@
       link.href = 'https://example.com/shadow';
       link.textContent = 'shadow 里的链接';
       root.appendChild(link);
+
+      // SVG 夹具：站点常用 xlink:href，元素必须用命名空间创建才能带上该属性。
+      const SVG_NS = 'http://www.w3.org/2000/svg';
+      const XLINK_NS = 'http://www.w3.org/1999/xlink';
+      const svg = document.createElementNS(SVG_NS, 'svg');
+      svg.setAttribute('width', '120');
+      svg.setAttribute('height', '40');
+      const svgLink = document.createElementNS(SVG_NS, 'a');
+      svgLink.setAttributeNS(XLINK_NS, 'xlink:href', 'https://example.com/svg-link');
+      const svgRect = document.createElementNS(SVG_NS, 'rect');
+      svgRect.id = 'svg-rect';
+      svgRect.setAttribute('width', '120');
+      svgRect.setAttribute('height', '40');
+      svgRect.setAttribute('fill', '#d8dee9');
+      svgLink.appendChild(svgRect);
+      svg.appendChild(svgLink);
+      document.getElementById('svg-host').appendChild(svg);
 
       // 记录页面收到的点击，用来验证拖拽结束后的那次 click 被脚本吞掉。
       window.__clicks = 0;

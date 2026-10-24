@@ -76,6 +76,9 @@ describe('decideDrag', () => {
       decideDrag(candidate({ link: 'https://a.test/', image: 'https://a.test/i.png' }), kinds),
     ).toEqual({ kind: 'image', data: 'https://a.test/i.png' });
     expect(decideDrag(candidate({ link: 'https://a.test/' }), kinds)).toBeNull();
+    expect(
+      decideDrag(candidate({ link: 'https://a.test/', selection: '零散选中' }), kinds),
+    ).toBeNull();
   });
 
   it('关掉图片后，图片不再接管，链接照常', () => {
@@ -84,6 +87,9 @@ describe('decideDrag', () => {
       decideDrag(candidate({ link: 'https://a.test/', image: 'https://a.test/i.png' }), kinds),
     ).toEqual({ kind: 'link', data: 'https://a.test/' });
     expect(decideDrag(candidate({ image: 'https://a.test/i.png' }), kinds)).toBeNull();
+    expect(
+      decideDrag(candidate({ image: 'https://a.test/i.png', selection: '零散选中' }), kinds),
+    ).toBeNull();
   });
 
   it('三类全关时什么都不接管', () => {

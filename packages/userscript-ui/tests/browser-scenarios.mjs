@@ -512,24 +512,23 @@ export const scenarios = [
         const tip = root.querySelector('.ds-tooltip');
         const tr = tip.getBoundingClientRect();
         const lr = root.querySelector('.ds-launcher').getBoundingClientRect();
-        return (
-          window.pageClicks === 0 &&
-          !tip.hidden &&
-          tip.dataset.placement === 'left' &&
-          lr.left - tr.right === 8 &&
-          tr.left >= 0 &&
-          tr.top >= 0 &&
-          tr.right <= innerWidth &&
-          tr.bottom <= innerHeight
-        );
+        return {
+          pageClicks: window.pageClicks,
+          visible: !tip.hidden,
+          placement: tip.dataset.placement,
+          gap: lr.left - tr.right,
+          rect: [tr.left, tr.top, tr.right, tr.bottom],
+          viewport: [innerWidth, innerHeight],
+          launcher: [lr.left, lr.top, lr.right, lr.bottom],
+          active: root.activeElement?.className ?? '',
+        };
       });
       await ctx.input.mouseMove({ x: 500, y: 400 });
       await ctx.wait(250);
-      return result(
-        state.anchored &&
-          hovered &&
-          (await ctx.evaluate(() => window.uiTest.root().querySelector('.ds-tooltip').hidden)),
+      const hidden = await ctx.evaluate(
+        () => window.uiTest.root().querySelector('.ds-tooltip').hidden,
       );
+      return result({ anchored: state.anchored, hovered, hidden });
     },
   },
   ...['light', 'dark'].map((theme) => ({

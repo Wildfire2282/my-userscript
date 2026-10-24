@@ -504,7 +504,6 @@ export const scenarios = [
         };
       });
       await ctx.input.click(state.point);
-      await ctx.evaluate(() => window.uiTest.root().activeElement?.blur());
       await ctx.input.mouseMove({ x: 500, y: 400 });
       await ctx.input.mouseMove(state.point);
       await ctx.wait(600);

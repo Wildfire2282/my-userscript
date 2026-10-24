@@ -247,7 +247,15 @@ export function createTooltip(ui: UI, target: HTMLElement, options: TooltipOptio
     },
     { signal: scope.signal },
   );
-  target.addEventListener('click', () => hideNow(), { signal: scope.signal });
+  target.addEventListener(
+    'click',
+    () => {
+      // 点击后再移开鼠标要能收起：否则按钮仍保持焦点，mouseleave 会以为这是键盘聚焦而继续显示。
+      focused = false;
+      hideNow();
+    },
+    { signal: scope.signal },
+  );
   target.addEventListener(
     'keydown',
     (event) => {

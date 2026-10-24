@@ -13,7 +13,6 @@
 /** 页面里可能存在的管理器剪贴板函数；缺失时跳过该通道。 */
 interface ClipboardGlobals {
   GM_setClipboard?: (text: string, info?: string) => unknown;
-  GM?: { setClipboard?: (text: string, info?: string) => unknown };
 }
 
 /** 剪贴板通道与陈旧兜底需要的浏览器对象；测试里可以整体替换。 */
@@ -39,9 +38,6 @@ function defaultScope(): ClipboardScope {
       return typeof globals.GM_setClipboard === 'function'
         ? globals.GM_setClipboard.bind(globals)
         : undefined;
-    },
-    get GM() {
-      return globals.GM;
     },
     get clipboard() {
       return browser.navigator?.clipboard;
@@ -86,10 +82,6 @@ export function createClipboard(scope: ClipboardScope = defaultScope()): Clipboa
       try {
         if (typeof scope.GM_setClipboard === 'function') {
           await scope.GM_setClipboard(text, 'text');
-          return true;
-        }
-        if (typeof scope.GM?.setClipboard === 'function') {
-          await scope.GM.setClipboard(text, 'text');
           return true;
         }
       } catch {

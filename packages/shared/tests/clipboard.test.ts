@@ -12,13 +12,6 @@ describe('createClipboard', () => {
     expect(setClipboard).toHaveBeenCalledWith('一段文字', 'text');
   });
 
-  it('没有 GM_setClipboard 时退回 GM 命名空间', async () => {
-    const setClipboard = vi.fn();
-    const copy = createClipboard({ GM: { setClipboard } });
-    await expect(copy.copy('命令空间')).resolves.toBe(true);
-    expect(setClipboard).toHaveBeenCalledWith('命令空间', 'text');
-  });
-
   it('管理器抛错时继续用浏览器剪贴板', async () => {
     const writeText = vi.fn(() => Promise.resolve());
     const copy = createClipboard({

@@ -6,7 +6,7 @@
  *   - 元数据块位于文件第一行（产物），字段齐全、顺序正确、固定值一致；
  *   - 已迁移脚本的源码不写 @version，产物版本等于 package.json；
  *   - 未迁移脚本的 userscript.meta.js 与 legacy/ 元数据块逐字段一致；
- *   - 代码里实际出现的 GM_* 能力都有对应 @grant（多余授权只提示）；
+ *   - 代码里实际出现的 GM_* / GM.* 能力都有对应 @grant（多余授权只提示）；
  *   - 已迁移脚本的 @name / @match / @include / @grant 与 legacy/ 一致。
  *
  * 用法：
@@ -19,7 +19,7 @@
 import { access, readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import ts from 'typescript';
+import { gmUsages } from './gm-usages.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SCRIPTS_DIR = path.join(ROOT, 'scripts');
@@ -108,37 +108,6 @@ function metaBlock(text) {
 
 function sortedValues(fields, key) {
   return [...(fields.get(key) ?? [])].sort();
-}
-
-/**
- * 产物里真正用到的 `GM_*` 能力。
- *
- * 用 TypeScript 语法树，而不是在文本上剥注释与字符串：手写状态机要处理正则字面量
- * （`/['"]/`）与模板嵌套，漏一个状态就会吞掉后面的代码，让“缺授权”检查静默失效。
- *
- * 三种写法都算使用：裸标识符（`GM_x()`）、属性访问（`globalThis.GM_x`、`api.GM_x`）、
- * 以及 `globalThis['GM_x']`。共享适配层就是属性访问，只看标识符会漏掉。
- */
-function gmUsages(code) {
-  const source = ts.createSourceFile('bundle.js', code, ts.ScriptTarget.ES2022, true);
-  const names = new Set();
-  const add = (name) => {
-    if (/^GM_[A-Za-z]+$/.test(name) && name !== 'GM_info') names.add(name);
-  };
-  const visit = (node) => {
-    if (ts.isIdentifier(node)) add(node.text);
-    if (ts.isPropertyAccessExpression(node) && ts.isIdentifier(node.name)) add(node.name.text);
-    if (ts.isPropertyAssignment(node) && ts.isIdentifier(node.name)) add(node.name.text);
-    if (
-      ts.isElementAccessExpression(node) &&
-      node.argumentExpression &&
-      ts.isStringLiteral(node.argumentExpression)
-    )
-      add(node.argumentExpression.text);
-    ts.forEachChild(node, visit);
-  };
-  visit(source);
-  return names;
 }
 
 function singleValue(fields, key) {

@@ -20,6 +20,7 @@ export default defineConfig({
     environment: 'happy-dom',
     css: true,
     include: [
+      'tools/**/*.test.mjs',
       'scripts/*/tests/**/*.test.ts',
       'packages/shared/tests/**/*.test.ts',
       'packages/userscript-ui/tests/unit/**/*.test.ts',

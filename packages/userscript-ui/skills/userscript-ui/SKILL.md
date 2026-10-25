@@ -32,7 +32,7 @@ Read `AGENTS.md` at the repository root. For deeper detail read:
 3. Create one `ui`, one `toast` controller, and one launcher per script.
 4. Implement the interaction; use `confirmDialog` for destructive actions.
 5. Add unit tests for behavior and a real-browser test if layout/focus/overlay behavior changed.
-6. Run `npm run check` and keep it green.
+6. Run `bun run verify` and keep it green.
 
 ## Typical setup
 
@@ -62,7 +62,7 @@ Only if at least two scripts need it and composition cannot solve it:
 ## Verification
 
 ```bash
-npm run check
+bun run verify
 ```
 
 This runs safety scanning, TypeScript, unit tests, build, real Chrome/Edge E2E, and the size report. Do not commit if it fails.

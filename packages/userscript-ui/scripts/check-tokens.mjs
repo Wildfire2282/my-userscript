@@ -9,7 +9,7 @@ const stylesDir = join(projectRoot, 'src/styles');
 /**
  * AGENTS.md requires every colour and every value on the design scale to come
  * from a `--ds-*` token. A rule that nobody executes rots, so the checks below
- * run in `npm run check` next to the safety scan.
+ * run in `bun run verify` next to the safety scan.
  *
  * Glyph geometry (checkmark strokes, tooltip arrow, spinner ring) is allowed to
  * stay literal: it draws a shape, it is not part of the spacing scale.

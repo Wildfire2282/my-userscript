@@ -225,24 +225,10 @@
 - 不引入运行时依赖与远程资源（字体、图标、脚本）。
 - 需要不可逆操作（删除、覆盖数据）时，先备份并给出回退方式，再执行。
 
-### 9.1 开发方式：模块化源码 + 构建单文件（2026-10-21 起强制）
+### 9.1 开发方式：模块化源码 + 构建单文件
 
-线上交付物仍然是一个 `.user.js`。已迁移脚本必须由 `scripts/<slug>/src/` 的模块源码构建出来，不允许直接改一个大文件或改产物；未迁移脚本在迁移前仍发布 `legacy/` 原版，只允许紧急修复。
-
-- **源码按职责拆模块**：入口 `src/main.ts`；业务判断（放行/接管、拼地址、校验）做成纯函数模块，
-  副作用（事件监听、GM 调用、开标签页）单独一层；界面只放 `src/ui/`，只用 `@ui` 组件。
-- **纯判断与副作用分离**：能被单测覆盖的决策（例如“这次拖拽归不归脚本管”）不写 DOM 访问，
-  这样 70% 的行为可以用 Vitest 在几百毫秒内验证，浏览器只验证真实交互。
-- **别名只有两个**：`@ui`（设计体系）与 `@shared`（GM 适配、设置读写）。别名必须在
-  `tsconfig.json`、`tools/build.mjs`、`vitest.config.ts` 三处同时声明，缺一处就会出现
-  “类型检查过、构建挂”或“构建过、测试挂”。
-- **禁止直接编辑** `dist/*.user.js`、`legacy/*.user.js` 或 Greasy Fork 上的单文件来改功能；
-  改源码后跑 `bun run build <slug>`。产物不提交。
-- **未迁移脚本的紧急修复**：可以改 `legacy/` 原版并单独提交，但必须在脚本 `README.md` 记一条
-  “待迁移时合并”；不得在 `legacy/` 上叠加新功能。
-- **每个脚本自带两类验证**：`tests/*.test.ts`（Vitest，纯逻辑与 DOM 片段）和
-  `tests/browser-scenarios.mjs`（真实浏览器，驱动构建产物）。`bun run verify` 会依次跑完两者，
-  不需要另开一项手工检查。
+已迁移脚本由 `scripts/<slug>/src/` 构建出单个 `.user.js`，别名只有 `@ui` 与 `@shared`，禁止直接改 `dist/` 与 `legacy/` 产物。
+单脚本形态见 [`architecture` 第 4 节](docs/architecture.md#4-单脚本形态)，分层与别名规则见 [`kit` 第 2 节](docs/kit.md#2-结构与依赖规则)。
 
 ```powershell
 bun run build <slug>      # 构建单个脚本
@@ -255,11 +241,8 @@ bun run verify             # 交付前全量：静态检查 + 单测 + 构建 + 
 ## 10. 提交与发布
 
 - 一个提交一个目的；重构与行为变化分开；生成文件与源改动同提交。
-- 已迁移脚本的版本只在 `package.json` 提升，构建时注入；未迁移脚本紧急修复时提升 `legacy/` 元数据里的 `@version`，并把 `package.json` 同步到同一值。禁止手改 `dist/` 产物。
-- 常规更新：维护者确认发布后 push `main`，CI 构建并推 `release` 分支，webhook 通知 Greasy Fork 更新
-  （见 `docs/release-automation.md`）。
-- 常规发布之外，以下仍需人确认：首次导入、`@name` / `@match` / `@include` / `@grant` 变更、下线脚本。你准备好产物、变更说明与回退方案，请人在 Greasy Fork 页面点确认。
-- 回退用上一版已验证的产物（`release` 分支历史或 Greasy Fork 历史版本），以更高版本号重新发布，**不降版本号**。
+- 版本唯一来源是 `package.json`，链路、回滚与排障见 [`release-automation` 第 2-3 节](docs/release-automation.md#2-发布物与版本)。
+- 首次导入、`@name` / `@match` / `@include` / `@grant` 变更、下线脚本仍需人确认，回退只升版本号不降版本号。
 - 每次发布后更新人话版 `CHANGELOG.md` 与包 `README.md` 的版本记录。
 
 ## 11. 常见失败模式

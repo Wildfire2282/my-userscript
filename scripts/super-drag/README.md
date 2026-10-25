@@ -6,7 +6,7 @@
 | --- | --- |
 | Greasy Fork | [580630](https://greasyfork.org/zh-CN/scripts/580630) |
 | 当前版本 | 2.9.5（2026-10-25） |
-| 迁移状态 | 已迁移：由 `src/` 模块构建，界面使用 `@ui` |
+| 迁移状态 | 已迁移：`src/` 模块，界面使用 `@ui` |
 | 匹配站点 | `https://*/*`、`http://*/*`（`@noframes`，`document-end`） |
 | 授予权限 | `GM_getValue`、`GM_setValue`、`GM_registerMenuCommand`、`GM_openInTab` |
 | 设置键 | `settings`（旧键，未改名），单个对象 |
@@ -48,14 +48,7 @@ src/
 └─ ui/settings-panel.ts    # @ui 面板组合
 ```
 
-## 命令
-
-```powershell
-npm run build super-drag     # 产物 scripts/super-drag/dist/super-drag.user.js
-npm test                     # 单元测试
-npm run test:browser         # 真实 Chrome/Edge 场景（先构建）
-npm run check                # 全部检查，含上面的浏览器场景
-```
+命令见[docs/architecture.md](../../docs/architecture.md)第 5-6 节。
 
 ## 设置面板
 

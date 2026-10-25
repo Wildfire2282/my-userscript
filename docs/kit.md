@@ -1,7 +1,7 @@
 # 开发套件（userscript kit）
 
 > 读者：Agent。人类入口仍是根目录 `README.md`。
-> 状态：已落地（2026-10-25），七步迁移完成，见第 5 节迁移记录。
+> 状态：已落地（2026-10-25），七步迁移完成。
 
 ## 1 目标与边界
 
@@ -89,69 +89,39 @@ createUserscript(gmApi: GmApi, {
 ## 4 工程护栏
 
 1. 模块准入：同一次提交里至少迁移两个脚本，否则留在脚本内。
-2. 树摇：每步构建后用哨兵字符串确认未使用模块没进产物（见第 8 节实测方法）。
+2. 树摇：每步构建后用哨兵字符串确认未使用模块没进产物（见第 6 节）。
 3. 体积：每步对比 raw/gzip，任一脚本涨幅 > 1KB 必须解释。
 4. 授权：`@name`、`@match`、`@include`、`@grant` 全程零变动；需要授权的改动单列确认项。
 5. 生命周期：监听挂在 `kit.signal` 或 `createScope(ui)`；`destroy()` 幂等；禁止「写了 cleanup 不接线」。
 6. 错误边界：启动、菜单回调、面板打开三层捕获；界面失败不得影响脚本主功能。
 7. 不新建第二套浏览器夹具：套件行为通过 4 个脚本现有场景验证，纯逻辑用单测。
 
-## 5 迁移记录（2026-10-25 已完成）
+## 5 迁移状态
 
-七步一次一个提交，`main` 全程可构建可安装；行为等价清单（字段与顺序、文案、
-默认值、保存时机、存储键、菜单项）逐脚本核对，见各提交内的取证。
-实施中偏离方案的两处（均为执行时按护栏修正）：
-
-- `createUiHost` 不含 Toast：统一引用会把 toast 全套拉进不用它的产物（+11KB），
-  改为需要的脚本各自单例；`createUiHost` 只做 UI 单例与销毁。
-- `url` 整块未搬：各函数只有一处用（准入要求两处），`isBlockedScheme` 与
-  super-drag `isIgnorableHref` 的 `#` 语义不同；留脚本内。
-
-实施中确认的行为变化（三处，均在提交信息与 CHANGELOG 中说明）：
-
-- 无标题操作面板 aria 由英文 `Operations` 变中文 `操作`（补 `operation` 中文文案）。
-- 卸载时真正清理监听（原来各脚本的 dispose 全丢弃）。
-- super-drag `contenteditable=""` / `plaintext-only` 目标此前误判为不可编辑，
-  现交还页面（修复）。
+2026-10-25 七步迁移完成，细节查 git 历史。
 
 ## 6 验证矩阵
 
-| 层 | 手段 | 覆盖 |
+单测与浏览器验证见 `architecture.md` 第 6 节，此处只留产物护栏。
+
+| 检查 | 手段 | 要求 |
 | --- | --- | --- |
-| 纯逻辑 | Vitest（现有 happy-dom 单配置，不新增 `projects`） | URL 解析与黑名单、中文标点提链、夹紧边界、可编辑判定、`siteKey` 跨域回退 |
-| DOM 交互 | `tests/*.test.ts` | 表单两种模式、动态显隐、校验错误、焦点与关闭 |
-| 真实浏览器 | `bun run test:browser` | 菜单 → 面板 → 保存 → 生效；selection-copy 的 iframe 用例；youtube 的 document-start 时序 |
-| 产物 | `bun run build` + 哨兵字符串 | 未用模块不入产物；体积不涨 |
-| 元数据 | `bun run check:meta` | 授权与匹配地址零变化 |
+| 树摇 | `bun run build` + 哨兵字符串 | 未用模块不入产物 |
+| 体积 | 每步对比 raw/gzip | 任一脚本涨幅大于 1KB 必须解释 |
 
 ## 7 风险
 
 | 风险 | 处置 |
 | --- | --- |
-| `createSettingsForm` 长出第二套框架 | 字段白名单 + 只允许两个回调；扩字段必须两个脚本同时需要 |
-| `topFrameOnly` 设错导致 iframe 内失效 | 默认 false；逐脚本显式传参；浏览器场景补 iframe 用例 |
-| boot 化延迟 document-start 阶段的网络钩子 | `onStart` 同步执行；第 3 步验证首屏网络缓存命中 |
-| `pagehide` 清理影响 bfcache | 仅在 `persisted === false` 时清理；清理幂等 |
-| 套件成为「改一处影响四个脚本」的单点 | 每步小提交 + 全量 `bun run verify` + 先迁简单脚本 |
-| Rolldown 与 Rollup 的 banner / 树摇差异 | 第 0 步核对产物头尾与体积 |
+| `createSettingsForm` 长成第二套框架 | 字段白名单 + 只允许两个回调；扩字段必须两个脚本同时需要 |
+| 套件成为「改一处影响四个脚本」的单点 | 小步提交 + 全量 `bun run verify` + 先改简单脚本 |
 
 ## 8 技术依据
 
-Context7 核对结论：
+兼容契约见 `architecture.md`；此处只留三条 lasting 结论（Context7 核对）：
 
 | 结论 | 来源 | 影响 |
 | --- | --- | --- |
 | 每个 `GM_*` 必须单独 `@grant`；缺省等于空列表 | <https://www.tampermonkey.net/documentation.php?q=grant> | 套件模块不得隐式要求授权 |
-| `GM_addValueChangeListener` 可跨标签页通知（回调带 `remote`），但需独立授权 | <https://www.tampermonkey.net/documentation.php?q=GM_values> | 跨标签页设置同步本期不做，继续「每次 get 直读存储」 |
-| `build.rollupOptions` 是 `rolldownOptions` 的废弃别名 | <https://vite.dev/config/build-options> | 第 0 步改写构建配置 |
 | lib 模式下 iife/umd 不支持多入口，且必须提供 `name` | <https://vite.dev/guide/build> | 维持一脚本一入口一产物 |
 | `environmentMatchGlobs` 已废弃，多环境用 `test.projects` | <https://vitest.dev/guide/projects> | 不改造：纯逻辑在 happy-dom 下可测，不引入第二套配置 |
-
-本仓库实测（2026-10-25）：
-
-- `bun run build capture-links` → 103.4 KB raw / 27.1 KB gzip。
-- 产物含 `createCheckbox`（脚本确实用了），不含 `createAlert` / `createTooltip` / `createDialog` 的函数体；未使用组件的 CSS 规则也不存在。说明桶导入 + 路径别名下树摇有效，哨兵字符串可以这样检查：
-
-```bash
-node -e "const s=require('fs').readFileSync('scripts/capture-links/dist/capture-links.user.js','utf8');console.log('createAlert', s.includes('createAlert'))"
-```

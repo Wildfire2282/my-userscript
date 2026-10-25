@@ -1,4 +1,4 @@
-# Userscript UI — Agent Guide
+# Userscript UI Agent 指南
 
 > 本包已并入 `my-userscript` monorepo（路径 `packages/userscript-ui/`），不再单独维护。
 > 构建 / lint / 单测走根目录命令；UI 专属的 safety 与 token 检查已挂在根 `bun run verify` 里。
@@ -26,60 +26,7 @@
 
 ## 2. 快速开始
 
-```ts
-import {
-  mountUI,
-  createPanel,
-  createSection,
-  createField,
-  createSwitch,
-  createButton,
-  createLauncher,
-  createToast,
-} from './src/index';
-
-const ui = mountUI({ theme: 'light' });
-const toast = createToast(ui);
-
-const panel = createPanel(ui, {
-  title: '页面增强设置',
-  description: '修改后保存生效。',
-  open: false,
-});
-
-const section = createSection(ui, { title: '常规' });
-const enabled = createSwitch(ui, { checked: true });
-
-section.body.append(
-  createField(ui, {
-    label: '启用页面增强',
-    description: '关闭后恢复页面原始行为。',
-    control: enabled,
-    inline: true,
-  }).el,
-);
-
-panel.body.append(section.el);
-
-const save = createButton(ui, {
-  label: '保存',
-  variant: 'primary',
-  onClick: () => toast.success('设置已保存'),
-});
-panel.setFooter(save.el);
-
-createLauncher(ui, {
-  panel,
-  label: '打开设置',
-  closeLabel: '关闭设置',
-});
-```
-
-销毁：保留 `ui` 引用，在脚本 UI 被移除或页面卸载时调用 `ui.destroy()`。它会按逆序执行各组件的 teardown，清理样式、监听器、Toast、Dialog 和滚动锁。单个组件也可以先单独 `destroy()`，它会自动注销 UI 上的清理回调。
-
-默认文案一次注入：`mountUI({ labels: { close: '关闭', settings: '设置', operation: '操作', notifications: '通知', dismissNotification: '关闭通知', closeSettings: '关闭设置', scrollHint: '向下滚动查看更多内容', cancel: '取消', confirm: '确定' } })`。
-
-需要承载脚本功能时用第二档规格：`createPanel(ui, { size: 'operation', title: '页面操作', open: false })`。它更宽（560px），便于并排放置功能元素；设置仍留在默认的 360px 设置面板里。
+最小可用组合见 `docs/integration.md` 接入方式：`mountUI` 建 UI，`createPanel` 加 `createSection` 加 `createField` 组装，`createLauncher` 做入口，页面卸载时 `ui.destroy()` 清理。默认文案经 `mountUI({ labels })` 一次注入；承载脚本功能用 `size: 'operation'` 操作面板，设置仍留在默认设置面板。
 
 ## 3. 组件选择
 
@@ -173,25 +120,10 @@ createLauncher(ui, {
 
 ## 8. 验证
 
-```bash
-bun run lint            # oxlint（Rust，常驻规则见根目录 oxlint.config.ts）
-bun run format          # bun fmt（Prettier 兼容），写入
-bun run test:browser -- userscript-ui # 统一 CDP 驱动的 UI 浏览器场景
-bun run check:ui-tokens # 单独检查组件 CSS 是否用了 --ds-* Token
-```
+命令以根 `package.json` 为准，含义与分层见仓库 `docs/architecture.md` 第 6 节：从仓库根目录执行 `bun run verify`，UI 浏览器场景加 `bun run test:browser -- userscript-ui`。规则取舍见 `docs/decisions.md` 第 20 节。
 
-`lint` 用 oxlint：通用规则（`eqeqeq` 允许 `!= null`、`prefer-const`、`no-eval`、`no-new-func`、GM 全局只读）由 `oxlint.config.ts` 声明；
-安全硬规则（`innerHTML`/`outerHTML`/`insertAdjacentHTML`/`document.write`、动态执行、网络请求）由 `check-safety.mjs` 全仓扫描兜底，
-因为 oxlint 不支持 `no-restricted-syntax` 类 AST 选择器；类型感知由 `bun check` 负责。
-
-`format` 用 `bun fmt`（Prettier 兼容，读 `.prettierrc.json`）统一代码风格（单引号、100 列、尾逗号、LF）；
-`format:check` 在 `bun run verify` 里跑。Markdown 不在范围内（中文正文和表格会被重排），见 `.prettierignore`。
-
-`check:ui-safety` 检查危险能力（HTML 字符串注入、动态执行、网络请求），`check:ui-tokens` 检查组件 CSS 里的颜色和尺寸是否都来自 Token。
-
-`tools/browser-check.mjs` 通过 CDP 使用系统 Chrome/Edge；可用 `CHROME_PATH` 指定。UI 入口是 `tests/browser-entry.ts`，场景是 `tests/browser-scenarios.mjs`，宿主页面位于 `tests/fixtures/`。提交前必须让根目录 `bun run verify` 全绿。
-
-根 `tsconfig.json` 覆盖 `scripts` 与 `packages` 的源码与测试；构建脚本（`tools/*.mjs`）不在类型检查范围内，改动后靠 `bun run verify` 的 lint 与浏览器场景验证。
+- `bun run check:ui-safety`：查危险能力使用（HTML 字符串注入、动态执行、网络请求）。
+- `bun run check:ui-tokens`：查组件 CSS 的颜色与尺寸是否都来自 `--ds-*` Token。
 
 ## 9. 常见错误
 

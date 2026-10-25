@@ -1,17 +1,12 @@
 # 迁移指南
 
-> 读者：Agent。目标是把 `scripts/<slug>/legacy/` 的线上原版改写成 `src/` 模块化源码 + `@ui` 界面，并在真实浏览器里验证行为不变。
+> 读者：Agent。目标是新建 `scripts/<slug>/`（模块化源码 + `@ui` 界面），或把 `legacy/` 的线上原版改写成同等形态，并在真实浏览器里验证行为。
 
-## 1. 当前范围
+## 1. 新增脚本指南
 
-| 脚本 | 状态 | 建议顺序 |
-| --- | --- | --- |
-| `super-drag` | 已迁移，作为参考样本 | — |
-| `capture-links` | 已迁移 | — |
-| `selection-copy` | 已迁移 | — |
-| `youtube-transcript-copy` | 已迁移 | — |
+四个脚本（`super-drag`、`capture-links`、`selection-copy`、`youtube-transcript-copy`）均已迁移，`super-drag` 可作参考样本。
 
-一次只迁移一个脚本，单独提交；`main` 始终保持可构建、可安装。迁移前先读目标包的 `README.md`、`legacy/` 元数据与 `package.json`，记录 `@name` / `@match` / `@include` / `@grant`、设置键和核心行为；迁移后逐项对照。
+新增脚本沿用第 4、6、9 节的拆分、实施与验收步骤。一次只做一个脚本，单独提交；`main` 始终保持可构建、可安装。开工前先定 `@name` / `@match` / `@include` / `@grant`、设置键和核心行为，字段规则见 [`metadata.md`](metadata.md)；有线上原版时同样读目标包的 `README.md`、`legacy/` 与 `package.json`，迁移后逐项对照。
 
 ## 2. 前置
 
@@ -24,24 +19,7 @@ bun run verify        # 必须先是全绿状态，才知道后面哪一步弄�
 
 ## 3. 目标结构
 
-```text
-scripts/<slug>/
-├─ userscript.meta.ts      # 元数据块；不写 @version
-├─ package.json            # 唯一版本来源；build 指向 ../../tools/build.mjs
-├─ src/
-│  ├─ main.ts              # 入口：装监听、注册菜单、懒建 UI
-│  ├─ settings.ts          # 设置 schema、默认值、存储读写
-│  ├─ <纯逻辑>.ts          # 例如 url.ts / rules.ts / search.ts
-│  ├─ features/*.ts        # 事件与副作用层：DOM 命中、打开页面、状态机
-│  └─ ui/*.ts              # 只做 @ui 组合，不含业务判断
-├─ tests/
-│  ├─ *.test.ts            # Vitest：纯逻辑 + DOM 片段
-│  ├─ browser-scenarios.mjs# 真实浏览器场景：导出 fixture / helpers / scenarios
-│  └─ fixtures/*.html      # 场景用的本地夹具页
-└─ legacy/                 # 线上快照，对照用；线上验收后再删
-```
-
-`userscript.meta.ts` 只写 `@name` / `@namespace` / `@description` / `@run-at` / `@grant` / `@match` / `@include` / `@noframes` / `@downloadURL` / `@updateURL`。**不写 `@version`**：构建时注入，`check:meta` 再核对。字段值与语言标记按 [`metadata.md`](metadata.md)。
+目标结构见 [`architecture.md`](architecture.md) 第 4 节，不在此重复。`userscript.meta.ts` 的字段清单与语言标记见 [`metadata.md`](metadata.md)。
 
 ## 4. 拆分顺序
 
@@ -94,20 +72,9 @@ scripts/<slug>/
 
 ## 7. 构建与验证
 
-```powershell
-bun run build <slug>            # 产物：scripts/<slug>/dist/<slug>.user.js
-bun run test                       # 单元测试（纯逻辑 + DOM 片段）
-bun run test:browser <slug>     # 真实 Chrome/Edge，跑 tests/browser-scenarios.mjs
-bun run verify                   # 全量：静态检查 + 单测 + 构建 + 元数据 + 浏览器场景
-```
+构建命令与验证分层见 [`architecture.md`](architecture.md) 第 5、6 节，不在此重复。`check:meta` 的拦截项与含义同样以 [`architecture.md`](architecture.md) 第 6 节与 [`metadata.md`](metadata.md) 第 6 节为准。
 
-`check:meta` 会拦住：元数据块不在首行、`@version` 与 `package.json` 不一致、`@name` / `@match` / `@include` / `@grant` 与 `legacy/` 不同、代码用了某个 `GM_*` 却没有对应 `@grant`。
-
-确需修改元数据（`@name` / `@match` / `@include` / `@grant`）时：
-
-1. 先由维护者确认安装提示与匹配范围的变化；
-2. 重新构建后本地跑 `bun tools/check-meta.mjs --allow-meta-change` 验证；
-3. 在最后一个提交的信息里写明理由，并带上 `[allow-meta]`；正常 push 即随本次运行发布；该标记同时放行 `check:meta` 与 `release.mjs` 的元数据比对。已经 push 过的用 `gh workflow run release.yml --ref main -f allow_meta_change=true` 补发。
+确需修改元数据（`@name` / `@match` / `@include` / `@grant`）时，按 [`release-automation.md`](release-automation.md) 第 4 节走元数据变更流程。
 
 浏览器场景的写法：
 
@@ -121,10 +88,7 @@ bun run verify                   # 全量：静态检查 + 单测 + 构建 + 元
 
 | 现象 | 原因 | 做法 |
 | --- | --- | --- |
-| `tsc` 通过，构建报找不到 `@shared` | 别名只写进了 `tsconfig.json` | `@ui` / `@shared` 在三处保持一致 |
-| 构建通过，单测报找不到模块 | `vitest.config.ts` 少了别名 | 同上 |
 | `tsc` 报 `baseUrl` 已废弃 | TS 6 起弃用 `baseUrl` | `paths` 直接写相对路径，不加 `baseUrl` |
-| 找不到 `./x.css?inline` 的类型 | 没有引入 Vite 类型声明 | `tsconfig.json` 的 `types` 加 `"vite/client"` |
 | lint 报 `unbound-method` | 把对象方法当回调传出去 | 接口里把 `get(): T` 改成函数属性 `get: () => T` |
 | 合成拖拽事件在 Shadow DOM 里没反应 | 合成事件的 `composed` 默认 `false` | 构造 `DragEvent` / `MouseEvent` 时加 `composed: true` |
 | 生成独立页面时不能拼 HTML | 禁止 HTML 字符串注入 | `createHTMLDocument()` 建 DOM，再序列化 |
@@ -142,6 +106,6 @@ bun run verify                   # 全量：静态检查 + 单测 + 构建 + 元
 
 1. `bun run verify` 全绿（含该脚本的浏览器场景）；
 2. 该脚本的 `tests/browser-scenarios.mjs` 覆盖本次改动的行为，没有只测实现细节的用例；
-3. `@name` / `@match` / `@include` / `@grant` 与 `legacy/` 一致，或已按第 7 节确认变更；
+3. `@name` / `@match` / `@include` / `@grant` 与 `legacy/` 一致，或已按 [`release-automation.md`](release-automation.md) 第 4 节确认变更；
 4. 包 `README.md` 与 `CHANGELOG.md` 已更新；
 5. 单独提交，`main` 始终可构建；`legacy/` 在线上验收后再删。

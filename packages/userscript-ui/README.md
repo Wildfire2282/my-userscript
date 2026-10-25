@@ -14,11 +14,11 @@
 所有命令从仓库根目录执行：
 
 ```bash
-npm run build
-npm run check
-npm run test:browser -- userscript-ui
+bun run build
+bun run verify
+bun run test:browser -- userscript-ui
 ```
 
-`check` 统一运行静态检查、单元测试、构建、metadata、安全与 Token 检查以及浏览器场景。UI 浏览器行为由 `tools/browser-check.mjs` 通过 CDP 驱动系统 Chrome/Edge；可用 `CHROME_PATH` 指定浏览器。
+验证含义与分层见 [architecture 第 6 节](../../docs/architecture.md#6-验证)。UI 浏览器行为见 [AGENTS.md 第 8 节](AGENTS.md#8-验证)。
 
 UI 测试入口是 `tests/browser-entry.ts`，场景是 `tests/browser-scenarios.mjs`，宿主测试页面保留在 `tests/fixtures/`；单元测试在 `tests/unit/`。修改组件时同步相关测试与组件文档，不另建展示页或验证链。

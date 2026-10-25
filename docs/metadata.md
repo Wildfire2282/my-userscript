@@ -123,8 +123,8 @@
 
 产物中的 `GM_*`、`GM.*` 与静态字符串属性访问会按各自名称核对授权；`GM_setClipboard` 不代替 `GM.setClipboard`，反之亦然。两者在管理器中需要分别声明，本仓保留已发布的 `GM_setClipboard`，不为兼容分支增加权限。动态拼接的属性名不在静态检查范围内。
 
-需要变更 `@name`、`@namespace`、`@match`、`@include`、`@grant` 时，先由维护者确认，再按 [`release-automation.md`](release-automation.md) 的元数据变更流程发布。
+需要变更 `@name`、`@namespace`、`@match`、`@include`、`@grant` 时，先由维护者确认，再按 [`release-automation.md`](release-automation.md) 第 4 节的元数据变更流程发布。版本规则见 [`release-automation.md`](release-automation.md) 第 2 节。
 
-元数据也是文件内容：修改后必须提升版本，否则 `tools/release.mjs` 会以「同版本内容不同」拒绝发布。未迁移脚本的元数据改动必须先发布再跑 `bun run sync`，否则同步会用线上版本覆盖 `legacy/`。
+未迁移脚本的元数据改动必须先发布再跑 `bun run sync`，否则同步会用线上版本覆盖 `legacy/`。
 
 Greasy Fork 会把 `@downloadURL` / `@updateURL` 的对齐空格规范成单个空格。同步后的这类格式差异由 `tools/release.mjs` 按字段值与代码正文比较，不需要再次升版本。

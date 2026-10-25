@@ -129,10 +129,7 @@ Dialog 打开时临时设置 `documentElement.style.overflow`，关闭后恢复�
 
 ## 验证入口
 
-- 根目录 `bun run verify` 统一执行静态检查、happy-dom 单元测试、脚本构建、metadata、安全与 Token 检查，以及浏览器场景；本文不记录易过期的通过状态或测试数量。
-- `bun run test:browser -- userscript-ui` 通过 `tools/browser-check.mjs` 的 CDP 驱动执行 UI 场景，入口是 `tests/browser-entry.ts`，场景是 `tests/browser-scenarios.mjs`，宿主页面在 `tests/fixtures/`。
-- 浏览器场景覆盖样式隔离、键盘/焦点、Dialog、Toast、Launcher、Tooltip、主题与面板尺寸等真实 DOM 行为；happy-dom 单元测试负责无需布局的组件状态与生命周期。
-- 构建使用根目录 `bun run build`，userscript metadata 使用 `bun run check:meta` 检查，不维护独立 UI 发布或体积检查链。
+验证命令与分层以仓库 `docs/architecture.md` 第 5 节与第 6 节为准；UI 浏览器入口是 `tests/browser-entry.ts`，场景是 `tests/browser-scenarios.mjs`。
 
 ### 19. 语言规则与能力扫描分开（原 ESLint，已换 oxlint）
 

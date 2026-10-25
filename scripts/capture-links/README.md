@@ -6,7 +6,7 @@
 | --- | --- |
 | Greasy Fork | [582371](https://greasyfork.org/zh-CN/scripts/582371) |
 | 当前版本 | 1.3.3（2026-10-25） |
-| 迁移状态 | 已迁移：由 `src/` 模块构建，界面使用 `@ui` |
+| 迁移状态 | 已迁移：`src/` 模块，界面使用 `@ui` |
 | 匹配站点 | `https://*/*`、`http://*/*`（`@noframes`，`document-end`） |
 | 授予权限 | `GM_registerMenuCommand`、`GM_setClipboard`、`GM_setValue`、`GM_getValue` |
 | 设置键 | `settings`（旧键，未改名）：`showFloatButton`、`copyFormat` |
@@ -46,14 +46,7 @@ src/
    └─ link-list.css        # 列表行样式（只用 --ds-* Token）
 ```
 
-## 命令
-
-```powershell
-npm run build capture-links     # 产物 scripts/capture-links/dist/capture-links.user.js
-npm test                        # 单元测试
-npm run test:browser            # 真实 Chrome/Edge 场景（先构建）
-npm run check                   # 全部检查，含浏览器场景
-```
+命令见[docs/architecture.md](../../docs/architecture.md)第 5-6 节。
 
 ## 已知取舍
 

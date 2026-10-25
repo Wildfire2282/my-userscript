@@ -1,6 +1,6 @@
 # 自动发布
 
-> 读者：Agent。目标：维护者确认发布后 push `main` → CI 检查并构建 → 推送 `release` 分支 → webhook 通知 Greasy Fork。构建与上线由 CI 自动完成；发布时机、首次导入与元数据变化由人确认。
+> 读者：Agent。目标：push `main` → CI 检查并构建 → 推送 `release` 分支 → webhook 通知 Greasy Fork。构建与上线由 CI 自动完成。发布时机、确认人与回退门禁见 [`AGENTS.md`](../AGENTS.md) 第 10 节，本文件只讲链路、版本、元数据变更与排障。
 
 ## 1. 链路
 
@@ -60,8 +60,8 @@ Agent 修改共享运行时代码时，必须在同一批变更中给**每个实
 1. 改 `scripts/<slug>/src/` 或共享运行时代码里的源码；`dist/` 与 `legacy/` 都不直接改。
 2. 提版本：同批修改每个实际产物改变的脚本的 `scripts/<slug>/package.json` 中的 `version`，共享修复提升 patch 版本，构建时注入；不能只提任意一个脚本。在 `CHANGELOG.md` 写一条人话。
 3. 本地跑 `bun run verify`（含浏览器场景）。
-4. 向维护者说明本次用户可见的变化，确认发布后提交并 push `main`；
-   这次推送带元数据变化时，把 `[allow-meta]` 写进最后一个提交的信息。
+4. 按 [`AGENTS.md`](../AGENTS.md) 第 10 节确认后提交并 push `main`；
+   这次推送带元数据变化时，把 `[allow-meta]` 写进最后一个提交的信息（流程见第 4 节）。
    共享运行时代码变化会触发发布；工具链、测试或文档等变化不会单独触发，需要上线的产物变化须同批为每个受影响脚本提版本。
 5. Actions 通过后 `release` 分支出现新文件；webhook 触发后 Greasy Fork 通常一分钟内更新。
 6. 发布生效后跑 `bun run sync`，刷新 `scripts.json` 与根 `README.md` 的脚本表。
@@ -120,7 +120,7 @@ GitHub 的 push 事件只把「已存在文件的修改」算作 changed files�
 
 ## 6. 回退
 
-按 `AGENTS.md` 第 10 节：恢复上一版代码，把版本号提升到**比线上更高**，再 push。禁止降版本号。
+回退门禁与步骤见 [`AGENTS.md`](../AGENTS.md) 第 10 节，不在此重复。
 
 ## 7. 排障
 

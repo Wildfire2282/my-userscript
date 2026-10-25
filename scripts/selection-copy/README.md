@@ -6,7 +6,7 @@
 | --- | --- |
 | Greasy Fork | [582576](https://greasyfork.org/zh-CN/scripts/582576) |
 | 当前版本 | 1.4.5（2026-10-25） |
-| 迁移状态 | 已迁移：由 `src/` 模块构建，界面使用 `@ui` |
+| 迁移状态 | 已迁移：`src/` 模块，界面使用 `@ui` |
 | 匹配站点 | `*://*/*`（`document-end`，每个 frame 独立生效） |
 | 授予权限 | `GM_setClipboard`、`GM_getValue`、`GM_setValue`、`GM_registerMenuCommand` |
 | 设置键 | `selection-copy:config.settings` |
@@ -67,14 +67,7 @@ src/
    └─ settings-panel.ts       # 设置面板（@ui 组件组合）
 ```
 
-## 命令
-
-```powershell
-npm run build selection-copy     # 产物 scripts/selection-copy/dist/selection-copy.user.js
-npm test                         # 单元测试
-npm run test:browser             # 真实 Chrome/Edge 场景（先构建）
-npm run check                    # 全部检查，含浏览器场景
-```
+命令见[docs/architecture.md](../../docs/architecture.md)第 5-6 节。
 
 ## 已知取舍
 
@@ -84,7 +77,7 @@ npm run check                    # 全部检查，含浏览器场景
 - 设置菜单只在顶层页面注册，避免每个 iframe 各加一项、把面板塞进看不见的小 iframe。
 - 每次复制前读取一次共享设置（复制是低频手势）；设置面板的开关、面板与提示共用同一个 `@ui` 宿主，关闭总开关不销毁 UI，重新打开时无需重建。
 - 每个 frame 仍独立注入，没有加 `@noframes`：父文档收不到 iframe 内的鼠标事件，加了会丢掉 iframe 内的复制能力。
-- 同一文档用 `data-selection-auto-copy-installed` 属性防重复注入；不再依赖 `window` 标记，避免不同管理器的沙箱之间判断不一致。
+- 同一文档用 `data-selection-auto-copy-installed` 属性防重复注入；不再用 `window` 标记判断，避免不同管理器的沙箱之间判断不一致。
 - 剪贴板优先用 `GM_setClipboard`，没有时依次退回浏览器剪贴板与隐藏 textarea；三条通道都失败才显示「复制失败」。
 - 提示标签是 `@ui` Shadow Root 里的 `position: fixed` 标记：普通页面完全等价，宿主进入浏览器全屏时标记不会显示（旧版靠 popover 顶层也能显示）。
 

@@ -45,15 +45,7 @@ panel.setFooter(save.el);
 
 ## 构建单文件 userscript
 
-在仓库根目录执行：
-
-```bash
-npm run build
-```
-
-根目录 `tools/build.mjs` 将脚本及其引用的 UI 源码打包为单文件 IIFE，输出到 `scripts/<slug>/dist/<slug>.user.js`。metadata 从各脚本配置生成并置于文件顶部，版本由各脚本 `package.json` 注入；`@match` 和权限须与脚本真实需求一致。
-
-构建目标为 Chrome/Edge 111+；浏览器场景使用系统当前版本，不能代替最低版本兼容性验证。产物不依赖 CDN、远程字体或外部 CSS。
+构建命令与产物规则见仓库 `docs/architecture.md` 第 5 节，从仓库根目录执行 `bun run build`。
 
 ## Shadow DOM 结构
 
@@ -165,7 +157,7 @@ const ui = mountUI({
 - 全部文本通过 `textContent` / `createTextNode`；源码中没有 `innerHTML`、`outerHTML`、`insertAdjacentHTML`、`document.write`。
 - 没有 `eval`、`new Function`、`fetch`、`XMLHttpRequest` 或远程 CSS。
 - 不注册页面级快捷键；Escape 只在 Panel/Dialog/Tooltip 自己的范围内处理。
-- 根目录 `npm run check:ui-safety` 检查 UI 的危险能力使用。
+- 根目录 `bun run check:ui-safety` 检查 UI 的危险能力使用。
 - `adoptedStyleSheets` 优先，严格 CSP 页面比 `<style>` 更稳；不支持时自动回退 `<style data-ds-style>`。
 - Host 的关键样式通过 CSSOM 内联设置，不写 `<style>` 到宿主 `<head>`。
 
@@ -204,20 +196,13 @@ button {
 
 所有命令从仓库根目录执行：
 
-```bash
-npm run check
-npm run test:browser -- userscript-ui
-```
-
-`check` 包含 lint、格式校验、类型检查、happy-dom 单元测试、脚本构建、`check:meta`、`check:ui-safety`、`check:ui-tokens` 和统一浏览器场景。
-
-UI 浏览器行为由 `tools/browser-check.mjs` 通过 CDP 执行：入口是 `packages/userscript-ui/tests/browser-entry.ts`，场景是 `tests/browser-scenarios.mjs`，宿主测试页面在 `tests/fixtures/`。浏览器场景负责真实布局、键盘/焦点、Dialog top layer、主题、反馈及宿主样式隔离；单元测试保留在 `tests/unit/`。
+从仓库根目录执行 `bun run verify`，UI 场景加 `bun run test:browser -- userscript-ui`；验证含义与分层见仓库 `docs/architecture.md` 第 6 节。UI 入口是 `tests/browser-entry.ts`，场景是 `tests/browser-scenarios.mjs`，宿主页面在 `tests/fixtures/`；单元测试保留在 `tests/unit/`。
 
 默认查找系统 Chrome/Edge，可用 `CHROME_PATH` 指定：
 
 ```powershell
 $env:CHROME_PATH = 'C:\Program Files\Google\Chrome\Application\chrome.exe'
-npm run test:browser -- userscript-ui
+bun run test:browser -- userscript-ui
 ```
 
 涉及最低版本兼容性的改动（尤其是 CSS 特性）仍应在 Chrome/Edge 111 单独验证。

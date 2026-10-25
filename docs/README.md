@@ -50,22 +50,17 @@
 
 ## 写作规则
 
-1. **只写当前事实**：不写方案演进、工期估算、评审过程；这些内容留在提交信息或 git 历史里。
-2. **一个事实只写一处**：架构讲「是什么」，迁移与发布文档讲「怎么做」，脚本 `README.md` 讲「这个脚本有什么」。
-3. **可直接执行**：Agent 文档必须给出命令、路径与判定标准，不出现「酌情处理」。
-4. **不写易漂移的数字**：测试条数、产物体积用命令查看，不抄进文档。
-5. **与实现同步**：文档与实现不一致时，以能跑通的实现为准，并在同一个提交里修正文档。
-6. **语言**：中文、陈述句、一段一个意思；日期用 `YYYY-MM-DD`，命令块标注语言，链接用相对路径。
+写作规则见 [`AGENTS.md` 第 8 节](../AGENTS.md#8-文档规范)。
 
 ## 变更时更新哪里
 
 | 变更 | 需要同步的文档 |
 | --- | --- |
-| 新增、迁移或下线脚本 | 本页状态表、根 `README.md` 脚本表（`bun run sync` 生成）、脚本 `README.md` |
-| 改目录、构建、检查命令 | `architecture.md`、`AGENTS.md` 中对应的命令 |
-| 增删套件模块、改分层或模块准入规则 | `kit.md`、`architecture.md` |
-| 改脚本元数据、作者链接或语言标记 | `metadata.md`、目标脚本的元数据块 |
-| 改迁移步骤或验收方式 | `migration-guide.md` |
-| 改发布流程、权限或回滚方式 | `release-automation.md`、`AGENTS.md` 第 10 节 |
-| 改 UI 组件或 Token | `packages/userscript-ui/AGENTS.md` 与该包的文档；`bun run verify` 里已含 UI 的 safety / token 检查 |
-| 增删项目级技能 | 本页「项目级技能」表；技能自身的 `SKILL.md` |
+| 新增、迁移或下线脚本 | 本页状态表、[`README.md`](../README.md)、脚本 `README.md` |
+| 改目录、构建、检查命令 | [`architecture.md`](architecture.md) |
+| 增删套件模块、改分层或模块准入规则 | [`kit.md`](kit.md) |
+| 改脚本元数据、作者链接或语言标记 | [`metadata.md`](metadata.md) |
+| 改迁移步骤或验收方式 | [`migration-guide.md`](migration-guide.md) |
+| 改发布流程、权限或回滚方式 | [`release-automation.md`](release-automation.md) |
+| 改 UI 组件或 Token | [`packages/userscript-ui/AGENTS.md`](../packages/userscript-ui/AGENTS.md) |
+| 增删项目级技能 | 本页「项目级技能」表 |

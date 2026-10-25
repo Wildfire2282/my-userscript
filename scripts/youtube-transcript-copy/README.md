@@ -6,7 +6,7 @@
 | --- | --- |
 | Greasy Fork | [579560](https://greasyfork.org/zh-CN/scripts/579560) |
 | 当前版本 | 1.4.7（2026-10-25） |
-| 迁移状态 | 已迁移：由 `src/` 模块构建，界面使用 `@ui` |
+| 迁移状态 | 已迁移：`src/` 模块，界面使用 `@ui` |
 | 匹配站点 | `https://www.youtube.com/*`（`document-start`） |
 | 授予权限 | `GM_setClipboard`、`GM_registerMenuCommand`、`GM_setValue`、`GM_getValue`、`GM_deleteValue` |
 | 设置键 | `pos`（按钮位置）、`strategy`（提取策略记忆） |
@@ -20,7 +20,7 @@
 | 拖动按钮 | 任意移动，松手后记住位置；拖动本身不会触发复制 |
 | 页面全屏 | 按钮隐藏，避免挡住播放器控件 |
 | 换视频（单页切换） | 不沿用上一个视频的转写 |
-| 菜单「操作面板」 | 面板里复制本页转写文稿（不依赖按钮是否可见），或把按钮放回播放器右上角；复制成功、没找到文稿、复制失败都会在面板上给出提示 |
+| 菜单「操作面板」 | 面板里复制本页转写文稿（无论按钮是否可见），或把按钮放回播放器右上角；复制成功、没找到文稿、复制失败都会在面板上给出提示 |
 | 菜单「功能设置」 | 面板里清空策略记忆：下次重新按默认顺序尝试提取方式 |
 
 抓取顺序（成功一次就记住这次的方式，下次优先）：
@@ -57,14 +57,7 @@ src/
    └─ transcript-button.css   # 按钮样式（只用 --ds-* Token）
 ```
 
-## 命令
-
-```powershell
-npm run build youtube-transcript-copy     # 产物 scripts/youtube-transcript-copy/dist/youtube-transcript-copy.user.js
-npm test                                  # 单元测试
-npm run test:browser                      # 真实 Chrome/Edge 场景（先构建）
-npm run check                             # 全部检查，含浏览器场景
-```
+命令见[docs/architecture.md](../../docs/architecture.md)第 5-6 节。
 
 ## 已知取舍
 

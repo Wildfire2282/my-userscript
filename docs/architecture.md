@@ -61,10 +61,7 @@ scripts/<slug>
 
 - 包之间不互相 import；共享代码只从上表两个来源进入。`oxlint.config.ts` 的 `no-restricted-imports`
   覆盖层会拦住 `@shared → @ui` 与 `@ui → @shared`，这两条边只靠文档约定会漂移。
-- `packages/shared` 只收纳已被两个以上脚本验证的重复逻辑（准入规则见 `kit.md` 第 4 节）：
-  `host`（`gm`、`storage`、`settings-store`、`clipboard`）、`settings`（`defineSettings`）、
-  `runtime`（`createUserscript`、`siteKey`、`logger`）、`dom`（`editable`、`position`）已入；
-  URL 解析与站点规则各只有一处用，留在脚本内；UI 一律不进。
+- `packages/shared` 只收纳已被两个以上脚本验证的重复逻辑，准入规则见 [`kit.md`](kit.md) 第 4 节。
 
 ## 4. 单脚本形态
 
@@ -112,13 +109,13 @@ bun run build super-drag    # 单个
 
 ```powershell
 bun run test               # 单元测试（Vitest，毫秒级）
-bun run test:browser    # 真实 Chrome/Edge 场景（需要先构建）
-bun run verify           # 交付前全量：静态检查 + 单测 + 构建 + 元数据 + 浏览器场景
+bun run test:browser       # 真实 Chrome/Edge 场景（需要先构建）
+bun run verify             # 交付前全量：静态检查 + 单测 + 构建 + 元数据 + UI 检查 + 浏览器场景
 ```
 
-`check` 的最后一步就是浏览器场景，所以本地一条命令与 CI 的 `bun run verify` 都会覆盖真实交互，不存在「记得在本地点一遍」的手工环节。
+本地一条 `bun run verify` 与 CI 都会覆盖真实交互，不存在「记得在本地点一遍」的手工环节；发布链路中的验证位置见 [`release-automation.md`](release-automation.md)。
 
-`check.yml` 对 PR 全量执行；main 上工具、根配置、共享包、脚本 `tests/` 与任一 workflow 的修改也会触发检查，单改场景或发布流程不会漏检。工程回归在 `tools/pipeline.test.mjs` 中使用临时仓库与模拟下载，不访问 Greasy Fork、不启动发布。
+`.github/workflows/check.yml` 对 PR 全量执行；`main` 上的推送仅当命中 `packages/**`、`tools/**`、`tests/**`、`scripts/*/tests/**`、`*.json`、`*.mjs`、`*.ts`、`.github/workflows/**` 时触发。工程回归在 `tools/pipeline.test.mjs` 中使用临时仓库与模拟下载，不访问 Greasy Fork、不启动发布。
 
 | 检查 | 失败意味着 |
 | --- | --- |
@@ -128,6 +125,8 @@ bun run verify           # 交付前全量：静态检查 + 单测 + 构建 + �
 | `test` | 纯逻辑回归（Vitest，毫秒级） |
 | `build` | 构建失败、产物缺失，或体积超出预算（raw ≤ 200 KB / gzip ≤ 60 KB，只提示不拦） |
 | `check:meta` | 版本漂移、元数据不在首行、权限与 legacy 不一致、GM 调用缺授权 |
+| `check:ui-safety` | 进产物的源码出现危险能力（HTML 字符串注入、动态执行、运行时网络请求） |
+| `check:ui-tokens` | 组件样式脱离设计 Token，出现硬编码颜色或尺寸 |
 | `test:browser` | 真实交互回归（拖拽、面板、存储、键盘） |
 
 `check:meta` 只扫描元数据块之后的代码来判断 `GM_*` 是否都有对应 `@grant`；迁移确实要改元数据时，加 `--allow-meta-change`，并在提交信息里写明理由。
@@ -136,15 +135,9 @@ bun run verify           # 交付前全量：静态检查 + 单测 + 构建 + �
 
 - `@match` / `@include` 的 pattern 语法（写错的表现是脚本装上了却不生效）。新增或修改匹配地址时由 Agent 核对站点地址与通配符写法，不依赖自动检查。
 - `@grant` 扫描 `dist/` 里的 `GM_*`、`GM.*` 和对应静态字符串属性；两种 API 必须分别授权，动态拼接属性与 `unsafeWindow` 不在检测范围。已迁移脚本缺少产物直接失败。
-- `check:ui-safety` 只扫 `packages/userscript-ui/src`；脚本源码里刻意使用 `fetch`（转写网络钩子）不参与该检查，`scripts/*/src` 与 `packages/shared` 的危险能力靠 lint 规则与人工核对。
+- `check:ui-safety` 扫进产物的源码（`packages/userscript-ui`、`packages/shared`、`scripts`），已知意图用 `safety-allow:` 豁免。
 
-`test:browser` 用系统 Chrome/Edge 与运行时内置 WebSocket 驱动 CDP，不下载 Playwright 浏览器：Windows、macOS、Linux（CI 的 ubuntu-latest 自带 Chrome）都能自动找到，`CHROME_PATH` 可覆盖。场景写在 `scripts/<slug>/tests/browser-scenarios.mjs`：
-
-- `fixture` 指向 `tests/fixtures/` 下的页面；需要真实布局、坐标或选区时必须用真页面；
-- `helpers` 是可选的页面侧助手，工具本身不认识任何脚本专属的 DOM；
-- `scenarios` 每项为 `{ name, run(ctx) }`，`run(ctx)` 返回 `{ expected, actual }`；
-- 每个场景都在新页面里跑：重新加载夹具、重新注入 GM 打桩与产物。场景自己写前置条件，不依赖执行顺序，也不需要「收尾复位」；
-- 页面里的未捕获异常直接判该场景失败，控制台错误单独列出。
+`test:browser` 用系统 Chrome/Edge 与运行时内置 WebSocket 驱动 CDP，不下载 Playwright 浏览器：Windows、macOS、Linux（CI 的 ubuntu-latest 自带 Chrome）都能自动找到，`CHROME_PATH` 可覆盖。场景文件位置与写法见 [`migration-guide.md`](migration-guide.md) 第 7 节。
 
 全量浏览器检查要求每个已有源码入口的脚本提供场景，不能删除场景文件后静默跳过。脚本产物须不早于自身源码、版本、元数据以及 `packages/shared/src/`、`packages/userscript-ui/src/`；共享代码修改后必须重新构建，不能用旧产物得到假通过。
 
@@ -163,19 +156,18 @@ Windows 提权终端启动测试浏览器时禁用降权重启，避免 Chrome �
 | 决策 | 当前做法 | 理由 |
 | --- | --- | --- |
 | 构建 | 自研 `tools/build.mjs` + Vite IIFE，不引入 `vite-plugin-monkey` | 单文件、banner、CSS 内联已满足需求，插件带来的权限收集与配置成本没有收益 |
-| 类型检查 | `bun check`（Bun 内置，多核并行），`typescript` 包仅留给 `tools/gm-usages.mjs` 的 AST 扫描 | `bun check` 全项目约 60ms 且与 tsc 同错；`verify` 改名正是为了不挡 `bun check/lint/fmt` 内置命令；`typescript-eslint` 锁 TS 6（不支持 TS 7，见 `typescript-eslint#10940`） |
+| 类型检查 | `bun check`（Bun 内置，多核并行），`typescript` 包仅留给 `tools/gm-usages.mjs` 的 AST 扫描 | `bun check` 全项目约 60ms 且与 tsc 同错 |
 | 版本 | `package.json` 唯一来源，构建时注入 | 元数据与包版本两处手写必然漂移 |
 | 元数据 lint | 只用 `tools/check-meta.mjs`，不引入 `eslint-plugin-userscripts` | 该插件只认 `.user.js` 里的元数据块，而本仓元数据在 `.ts`、产物不提交；`use-homepage-and-url` 要求非标准 `@homepage`，`align-attributes` 的自动修复会重排整块并插入 `@homepage`，与 `metadata.md` 的字段清单冲突；`@match` 语法它也不校验，唯一能补的是未使用 `@grant` 的拼写，价值低于多一个 devDependency |
-| 共享内核 | `host`（GM 适配、存储、剪贴板、设置仓库）+ `settings.defineSettings` + `runtime`（启动、安装锁、站点标识、日志）+ `dom`（可编辑判定、焦点穿透、夹紧）+ `@ui`（界面宿主、设置表单、界面宿主判定）；`url` 因只有一处用留脚本内 | 2026-10-25 七步迁移完成（见 `kit.md` 第 5 节）；准入仍是“两处复用才收”，其余抽象尚无稳定复用 |
+| 共享内核 | `host`（GM 适配、存储、剪贴板、设置仓库）+ `settings.defineSettings` + `runtime`（启动、安装锁、站点标识、日志）+ `dom`（可编辑判定、焦点穿透、夹紧）+ `@ui`（界面宿主、设置表单、界面宿主判定）；`url` 因只有一处用留脚本内 | 准入是“两处复用才收”，其余抽象尚无稳定复用；迁移过程见 git 历史 |
 | UI 复用 | 源码直引，按需 tree-shake | 不发布运行时包，不引入全局样式与远程资源 |
 | 测试分层 | 纯逻辑走 Vitest（Bun 调度；Bun 下 `forks` 池，因 `vmThreads` worker 在 Bun module runner 下解析失败），用户可见交互走真实浏览器；同一事实只在一层断言 | 两层都断言同一规则会让维护成本翻倍，失败时也看不出该改哪一层；原生 `bun test` 已验证不可行（`toHaveBeenCalledExactlyOnceWith`、fake timer 语义、FormData 行为三处与 vitest 不一致，改单测是降级断言） |
 | 浏览器验证 | 自建 CDP 驱动，不用 Playwright；每个场景独立重载页面 | 环境已有 Chrome/Edge，避免下载浏览器与额外依赖；场景互不污染，可单独删除或调试 |
-| UI 验证与分发 | 删除独立展示页、库产物与第二套浏览器驱动，有效 UI 场景并入主检查 | UI 只供本仓脚本源码直引；测试不应要求维护展示应用 |
-| 共享修复发布 | 共享运行时代码变化也触发发布检查，同批为每个实际产物改变的脚本提升 patch 版本 | 避免修复滞留仓库；复用同版本异内容拒绝机制，不自动改写版本 |
+| 共享修复发布 | 共享运行时代码变化也触发发布检查，同批为每个实际产物改变的脚本提升 patch 版本 | 避免修复滞留仓库；复用同版本异内容拒绝机制，不自动改写版本；链路见 [`release-automation.md`](release-automation.md) |
 | 检查告警边界 | 控制台错误仅列出，体积预算超限仅警告 | 页面噪声和体积增长不等同功能失败；未捕获异常、行为断言与缺授权仍阻断 |
-| 发布 | 确认发布后 push `main`，CI 推送 `release` 分支，webhook 通知 Greasy Fork | 构建与上线自动完成；发布时机、登录与元数据变化仍由人确认 |
+| 发布 | 链路与回滚见 [`release-automation.md`](release-automation.md) | 发布时机、登录与元数据变化由人确认 |
 | 存储 | 旧键不改名，新键用 `<slug>:<area>.<key>` | 改名会丢用户设置 |
-| 设置读取 | 三个脚本共用一个设置仓库，每次读取都看存储，不长期缓存在内存 | 多标签页与同页 iframe 共用存储，长期缓存会让别处的改动不生效，只有刷新才好 |
+| 设置读取 | 共用一个设置仓库，每次读取都看存储，不长期缓存在内存 | 多标签页与同页 iframe 共用存储，长期缓存会让别处的改动不生效，只有刷新才好 |
 | 页面变化观察 | YouTube 只保留导航事件 + 1.5 秒地址轮询，不观察整页 DOM；滚动提示、提示条等需要布局测量的回调合并到每帧一次 | 全页 MutationObserver 在页面每次 DOM 改动上都会回调，而最热的页面恰恰一直改 DOM；地址变化已有事件与轮询兜底。布局测量每帧一次就够，重复触发只会强制同步布局 |
 | 自绘 UI 的例外 | 没有对应组件的交互（复制提示标签、可拖动悬浮按钮）仍在 `@ui` 的 Shadow Root 内、用 `--ds-*` Token 自绘；可拖动按钮的外观复用 `createButton`，脚本只补定位与拖动；链接列表的数据行用原生 checkbox | `@ui` 没有这些形态，套现成组件会改掉用户熟悉的手势，或让上千行列表的每次筛选都重建组件句柄；样式仍受 Token 约束 |
 | 菜单入口 | 每个脚本的脚本管理器菜单只保留「操作面板」与「功能设置」两项：动作进操作面板，偏好与记忆进功能设置；没有动作的脚本（拖拽打开、选中复制）只注册「功能设置」。菜单只在顶层页面注册 | 菜单项一多就难找，名字不统一时更要靠试；两项固定分类让所有脚本的入口位置一致，其余入口放进面板后还能写说明、给反馈 |
@@ -191,6 +183,6 @@ Windows 提权终端启动测试浏览器时禁用降权重启，避免 Chrome �
 
 - 发布链路、元数据变更与回滚见 [`release-automation.md`](release-automation.md)。
 - 元数据字段、语言标记与校验规则见 [`metadata.md`](metadata.md)。
-- 四个脚本都已迁移，发布 `dist/` 产物；`legacy/` 只用于元数据对照，线上验收通过后删除。
 - 迁移步骤与验收见 [`migration-guide.md`](migration-guide.md)，同样适用于以后新增的脚本。
 - 校验、命名、注释、文档与安全规则以根目录 [`AGENTS.md`](../AGENTS.md) 为准；UI 硬约束以 [`packages/userscript-ui/AGENTS.md`](../packages/userscript-ui/AGENTS.md) 为准。
+- 套件分层、契约与准入见 [`kit.md`](kit.md)。

@@ -185,6 +185,22 @@ export function createLinkPanel(options: LinkPanelOptions): LinkPanelHandle {
     render();
   }
 
+  /**
+   * 面板关闭后列表不可见：不把几万条链接与已渲染的行留在内存里，下次打开会重新扫描。
+   * 关掉的路径不止“关闭”按钮（Esc、悬浮按钮切换都会关闭），所以挂在状态变化上。
+   */
+  function release(): void {
+    allItems = [];
+    filteredItems = [];
+    selectedIds = new Set();
+    shownCount = PAGE_SIZE;
+    list.replaceChildren();
+  }
+
+  panel.onOpenChange((open) => {
+    if (!open) release();
+  });
+
   async function copySelected(): Promise<void> {
     const items = pickedItems(selectedIds, filteredItems);
     if (items.length === 0) {

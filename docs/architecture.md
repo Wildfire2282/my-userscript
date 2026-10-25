@@ -139,7 +139,7 @@ bun run verify             # 交付前全量：静态检查 + 单测 + 构建 + 
 
 `test:browser` 用系统 Chrome/Edge 与运行时内置 WebSocket 驱动 CDP，不下载 Playwright 浏览器：Windows、macOS、Linux（CI 的 ubuntu-latest 自带 Chrome）都能自动找到，`CHROME_PATH` 可覆盖。场景文件位置与写法见 [`migration-guide.md`](migration-guide.md) 第 7 节。
 
-全量浏览器检查要求每个已有源码入口的脚本提供场景，不能删除场景文件后静默跳过。脚本产物须不早于自身源码、版本、元数据以及 `packages/shared/src/`、`packages/userscript-ui/src/`；共享代码修改后必须重新构建，不能用旧产物得到假通过。
+全量浏览器检查要求每个已有源码入口的脚本提供场景，不能删除场景文件后静默跳过。脚本产物须不早于自身源码、版本、元数据、构建工具 `tools/build.mjs` 以及 `packages/shared/src/`、`packages/userscript-ui/src/`；共享代码或构建工具修改后必须重新构建，不能用旧产物得到假通过。
 
 UI 组件浏览器场景统一放在 `packages/userscript-ui/tests/browser-scenarios.mjs`，同一驱动执行；测试入口只在内存中构建，不分发展示页或独立 UI 库产物。可用 `bun run test:browser -- userscript-ui` 单独验证。
 

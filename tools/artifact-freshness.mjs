@@ -16,6 +16,9 @@ export const PACKAGE_INPUT_FILES = ['package.json', 'userscript.meta.ts', 'users
 /** 共享源码目录：共享运行时改动必须重新构建。 */
 export const SHARED_INPUT_DIRS = ['packages/shared/src', 'packages/userscript-ui/src'];
 
+/** 构建工具本身也决定产物内容：改了构建逻辑同样要重新构建。 */
+export const TOOL_INPUT_FILES = ['build.mjs'];
+
 const MODULE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 /**
@@ -47,16 +50,17 @@ export async function newestSourceTime(dir, only = null) {
 /**
  * 产物输入里最新的修改时间。
  *
- * 输入集合：自身 `src/`、包根的版本与元数据文件、两个共享源码目录。
+ * 输入集合：自身 `src/`、包根的版本与元数据文件、两个共享源码目录、构建工具。
  * 缺失的输入按不存在算；全部缺失返回 null。`root` 只给测试用。
  */
 export async function newestArtifactInput(packageDir, root = MODULE_ROOT) {
-  const [source, meta, ...shared] = await Promise.all([
+  const [source, meta, tool, ...shared] = await Promise.all([
     newestSourceTime(path.join(packageDir, 'src')),
     newestSourceTime(packageDir, PACKAGE_INPUT_FILES),
+    newestSourceTime(path.join(root, 'tools'), TOOL_INPUT_FILES),
     ...SHARED_INPUT_DIRS.map((name) => newestSourceTime(path.join(root, name))),
   ]);
-  const newest = Math.max(source ?? 0, meta ?? 0, ...shared.map((time) => time ?? 0));
+  const newest = Math.max(source ?? 0, meta ?? 0, tool ?? 0, ...shared.map((time) => time ?? 0));
   return newest === 0 ? null : newest;
 }
 

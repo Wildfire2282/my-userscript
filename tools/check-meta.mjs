@@ -272,6 +272,11 @@ async function checkPackage(slug) {
     return { slug, version: '?', problems: [`package.json 无法解析：${error.message}`], notes };
   }
 
+  const version = typeof manifest.version === 'string' ? manifest.version.trim() : '';
+  if (!/^\d+\.\d+\.\d+/.test(version)) {
+    problems.push('package.json 缺少合法的 version（x.y.z）');
+  }
+
   const migrated = await hasEntry(dir);
   const source = await findSourceMeta(dir);
   const legacy = await findLegacyMeta(dir);
@@ -288,7 +293,7 @@ async function checkPackage(slug) {
         ...validateFields(fields, {
           label: source.name,
           requireVersion: !migrated,
-          expectedVersion: manifest.version,
+          expectedVersion: version,
         }),
       );
 
@@ -309,7 +314,7 @@ async function checkPackage(slug) {
       ...validateFields(legacy.fields, {
         label: `legacy/${legacy.file}`,
         requireVersion: true,
-        expectedVersion: manifest.version,
+        expectedVersion: version,
       }),
     );
   }
@@ -336,7 +341,7 @@ async function checkPackage(slug) {
         ...validateFields(fields, {
           label: 'dist 产物',
           requireVersion: true,
-          expectedVersion: manifest.version,
+          expectedVersion: version,
         }),
       );
 
@@ -370,7 +375,7 @@ async function checkPackage(slug) {
     }
   }
 
-  return { slug, version: manifest.version, problems, notes };
+  return { slug, version: version || '?', problems, notes };
 }
 
 const slugs = (

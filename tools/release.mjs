@@ -187,6 +187,21 @@ const problems = [];
 const pendingWrites = [];
 
 const packages = await loadPackages();
+if (packages.length === 0) {
+  problems.push('scripts/ 下没有脚本包，拒绝把发布目录清空');
+}
+// package.json 被误删时，包会从 packages 里消失；随后清理阶段会把线上文件当成
+// “已下线”删除。发现源码 / 快照 / 产物却没有 manifest 时整轮失败。
+for (const entry of await readdir(SCRIPTS_DIR, { withFileTypes: true })) {
+  if (!entry.isDirectory()) continue;
+  const dir = path.join(SCRIPTS_DIR, entry.name);
+  if (await exists(path.join(dir, 'package.json'))) continue;
+  const hasArtifact =
+    (await exists(path.join(dir, 'src'))) ||
+    (await exists(path.join(dir, 'legacy'))) ||
+    (await exists(path.join(dir, 'dist')));
+  if (hasArtifact) problems.push(`${entry.name}：缺少 package.json，不能当作已下线处理`);
+}
 const expected = new Set(packages.map((pkg) => `${pkg.slug}.user.js`));
 
 for (const pkg of packages) {

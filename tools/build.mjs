@@ -55,7 +55,13 @@ async function loadPackages() {
     if (!entry.isDirectory()) continue;
     const dir = path.join(SCRIPTS_DIR, entry.name);
     const packageFile = path.join(dir, 'package.json');
-    if (!(await exists(packageFile))) continue;
+    if (!(await exists(packageFile))) {
+      // 有源码或元数据却没有 manifest：不能静默跳过，否则 CI 会少构建一个脚本。
+      if ((await findEntry(dir)) !== null || (await findMeta(dir)) !== null) {
+        manifestFailures.push({ slug: entry.name, error: new Error('缺少 package.json') });
+      }
+      continue;
+    }
     let manifest;
     try {
       manifest = JSON.parse(await readFile(packageFile, 'utf8'));
@@ -123,7 +129,11 @@ async function buildPackage(pkg) {
   if (!metaFile) {
     throw new Error('缺少 userscript.meta.ts（或 .js）');
   }
-  const banner = injectVersion(await readFile(metaFile, 'utf8'), pkg.manifest.version);
+  const version = pkg.manifest.version;
+  if (typeof version !== 'string' || !/^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(version)) {
+    throw new Error('package.json 缺少合法的 version（x.y.z）');
+  }
+  const banner = injectVersion(await readFile(metaFile, 'utf8'), version);
   if (!banner.includes('==UserScript==') || !banner.includes('==/UserScript==')) {
     throw new Error(`${path.basename(metaFile)} 不是完整的 ==UserScript== 元数据块`);
   }
@@ -190,7 +200,7 @@ if (unknown.length > 0) {
   process.exit(1);
 }
 
-if (selected.length === 0) {
+if (selected.length === 0 && manifestFailures.length === 0) {
   console.error(`没有找到要构建的包：${only.join(', ') || '(全部)'}`);
   process.exit(1);
 }

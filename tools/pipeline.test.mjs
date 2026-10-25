@@ -74,6 +74,16 @@ describe('pipeline failure boundaries', () => {
     expect(existsSync(path.join(root, 'release/example.user.js'))).toBe(false);
   });
 
+  it('rejects a script directory without package.json instead of removing its release file', () => {
+    const root = fixture();
+    put(root, 'scripts/example/src/main.ts');
+    const released = put(root, 'release/example.user.js', banner);
+    const result = run(root, 'release.mjs', 'release');
+    expect(result.status).toBe(1);
+    expect(output(result)).toContain('缺少 package.json');
+    expect(readFileSync(released, 'utf8')).toBe(banner);
+  });
+
   it.each(['shared', 'userscript-ui'])(
     'rejects dist older than %s without writing release',
     (name) => {

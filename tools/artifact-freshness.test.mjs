@@ -60,4 +60,12 @@ describe('newestArtifactInput', () => {
     const empty = fixture();
     expect(await newestArtifactInput(path.join(empty, 'scripts/missing'), empty)).toBe(null);
   });
+
+  it('构建工具变化也算产物输入', async () => {
+    const root = fixture();
+    put(root, 'scripts/example/src/main.ts');
+    const latest = put(root, 'tools/build.mjs');
+
+    expect(await newestArtifactInput(path.join(root, 'scripts/example'), root)).toBe(latest);
+  });
 });

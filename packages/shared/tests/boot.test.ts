@@ -125,6 +125,25 @@ describe('createUserscript', () => {
     }
   });
 
+  it('DOM 就绪回调抛错也不冒给页面', () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
+      const gm = fakeGm();
+      expect(() =>
+        createUserscript(gm, {
+          slug: 'kit-test',
+          installLock: false,
+          onReady: () => {
+            throw new Error('ui boom');
+          },
+        }),
+      ).not.toThrow();
+      expect(error).toHaveBeenCalledWith('[kit-test] 初始化失败', expect.any(Error));
+    } finally {
+      error.mockRestore();
+    }
+  });
+
   it('pagehide 非 persisted 时自动 destroy', () => {
     const gm = fakeGm();
     const cleanup = vi.fn();

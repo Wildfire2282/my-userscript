@@ -9,7 +9,7 @@
 
 1. 启动、生命周期、菜单、安装锁、设置读写收敛到 `@shared`。
 2. 界面编排（懒挂载、Toast、面板、设置表单）收敛到 `@ui`。
-3. 已确认的通用判定（可编辑区域、真实事件目标、URL、视口夹紧）收敛为纯函数。
+3. 已确认的通用判定（可编辑区域、视口夹紧）收敛为纯函数；真实事件目标与 URL 各只有一处用，留在脚本内。
 
 必须承认的事实：**每个脚本独立打包，抽套件不会减小下载体积**。收益是去掉重复源码、把安全敏感逻辑（剪贴板、可编辑判定、URL 过滤）集中到一处、修掉已确认的缺陷。任何以「减小体积」为理由的抽取都不成立；只有删掉死代码才算收益。
 
@@ -52,9 +52,9 @@ scripts/<slug>/src/             main.ts（接线）+ features/ + ui/
 | 模块 | 导出 | 消费者 | 语义 |
 | --- | --- | --- | --- |
 | `@ui` | `ZH_LABELS` / `isOwnUiNode` / `icon` | 4 / 3 / 1 | 中文文案预设（键覆盖 `UILabels` 全部 9 项）；界面宿主判定（`data-ds-root` 只有一处定义）；图标装配 |
-| `@shared/host` | `createSettingsStore({ api, key, normalize })` | 3 | 每次读取看存储；写入失败保留本页新值，外部写入后作废；`normalize` 由脚本提供 |
+| `@shared/host` | `createGmApi` / `createClipboard` / `mergeDefaults` / `createSettingsStore({ api, key, normalize })` | 4 / 3 / 3 / 3 | GM 降级、剪贴板三通道、默认值深合并、设置读写；`normalize` 由脚本提供 |
 | `@shared/runtime` | `createUserscript(gmApi, options)` / `siteKey(win)` | 4 / 1 | 启动兜底、安装锁、frame 判断、菜单注册、页面级 `signal`、`pagehide` 清理；`siteKey` 取顶层 hostname，跨域回退 `ancestorOrigins`，再回退本帧 |
-| `@shared/runtime/logger` | `createLogger(slug)` / `guard(label, fn)` | 4 | 统一 `[slug]` 前缀与兜底 |
+| `@shared/runtime/logger` | `createLogger(slug)` / `guard(log, message, run)` | 4 | 统一 `[slug]` 前缀与兜底；脚本通过 `kit.log` 使用 |
 | `@ui/patterns/app-host` | `createUiHost({ theme })` → `ensure/destroy` | 4 | 整页只 `mountUI()` 一次；Toast 由需要的脚本各自单例（统一引用会把 toast 拉进不用它的产物，+11KB）；面板懒建留在脚本 |
 | `@ui/patterns/settings-form` | `createSettingsForm(ui, schema, options)` | 3 | 声明式设置面板，见下方硬边界 |
 | `@shared/dom` | `isEditableField` / `isInsideEditable` / `deepActiveElement` | 2 | 单元素判定（super-drag 语义 + `plaintext-only`）与祖先链判定（selection-copy 全语义）并存；`realTarget` / `queryAllDeep` 各只有一处用，留脚本内 |

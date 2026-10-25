@@ -52,6 +52,16 @@ describe('isInsideEditable', () => {
     expect(isInsideEditable(inner)).toBe(true);
     expect(isInsideEditable(document.createElement('span'))).toBe(false);
   });
+
+  it('可编辑宿主在 shadow root 外时跨边界识别', () => {
+    const host = document.createElement('div');
+    host.setAttribute('contenteditable', 'true');
+    document.body.appendChild(host);
+    const shadow = host.attachShadow({ mode: 'open' });
+    const inner = document.createElement('span');
+    shadow.appendChild(inner);
+    expect(isInsideEditable(inner)).toBe(true);
+  });
 });
 
 describe('deepActiveElement', () => {

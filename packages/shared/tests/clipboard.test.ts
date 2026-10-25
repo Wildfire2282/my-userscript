@@ -1,7 +1,12 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createClipboard } from '../src/host/clipboard';
 
 describe('createClipboard', () => {
+  beforeEach(() => {
+    document.body.replaceChildren();
+    window.getSelection()?.removeAllRanges();
+  });
+
   it('优先走 GM_setClipboard，拿到的是纯文本类型', async () => {
     const setClipboard = vi.fn();
     const copy = createClipboard({
@@ -34,5 +39,42 @@ describe('createClipboard', () => {
     const copy = createClipboard({ GM_setClipboard: setClipboard });
     await expect(copy.copy('')).resolves.toBe(true);
     expect(setClipboard).not.toHaveBeenCalled();
+  });
+
+  it('textarea 兜底成功后恢复焦点与控件选区，网页选区恢复失败也不改报失败', async () => {
+    const input = document.createElement('input');
+    input.value = 'abcdef';
+    document.body.appendChild(input);
+    input.focus();
+    input.setSelectionRange(1, 3);
+
+    const paragraph = document.createElement('p');
+    paragraph.textContent = '页面选区';
+    document.body.appendChild(paragraph);
+    const selection = window.getSelection();
+    const range = document.createRange();
+    range.selectNodeContents(paragraph);
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+    const restoreSelection = vi
+      .spyOn(Selection.prototype, 'setBaseAndExtent')
+      .mockImplementation(() => {
+        throw new Error('节点已被页面改掉');
+      });
+
+    const command = vi.fn(() => true);
+    Object.defineProperty(document, 'execCommand', { value: command, configurable: true });
+    try {
+      const copy = createClipboard({ document });
+      await expect(copy.copy('新内容')).resolves.toBe(true);
+      expect(command).toHaveBeenCalledWith('copy');
+      expect(restoreSelection).toHaveBeenCalled();
+      expect(document.activeElement).toBe(input);
+      expect(input.selectionStart).toBe(1);
+      expect(input.selectionEnd).toBe(3);
+    } finally {
+      Reflect.deleteProperty(document, 'execCommand');
+      restoreSelection.mockRestore();
+    }
   });
 });

@@ -150,8 +150,9 @@ export function createUserscript(
   };
 
   guard(log, '启动失败', () => {
-    if (typeof installLock === 'string' && !installOnce(installLock)) return;
+    // 先判 frame：iframe 里不该留下本帧的安装锁，否则之后同文档的全帧注入都被挡住。
     if (topFrameOnly && window.top !== window.self) return;
+    if (typeof installLock === 'string' && !installOnce(installLock)) return;
 
     const startCleanup = options.onStart?.();
     if (typeof startCleanup === 'function') cleanups.push(startCleanup);
@@ -160,8 +161,15 @@ export function createUserscript(
 
     const runReady = (): void => {
       if (destroyed) return;
-      const readyCleanup = options.onReady?.({ gm: gmApi, log, signal: controller.signal, menu });
-      if (typeof readyCleanup === 'function') cleanups.push(readyCleanup);
+      guard(log, '初始化失败', () => {
+        const readyCleanup = options.onReady?.({
+          gm: gmApi,
+          log,
+          signal: controller.signal,
+          menu,
+        });
+        if (typeof readyCleanup === 'function') cleanups.push(readyCleanup);
+      });
     };
     if (document.readyState === 'loading') {
       document.addEventListener('DOMContentLoaded', runReady, {

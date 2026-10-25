@@ -18,8 +18,6 @@ export type { Clipboard } from './host/clipboard';
 export { mergeDefaults } from './host/storage';
 export { createSettingsStore } from './host/settings-store';
 export type { SettingsStore } from './host/settings-store';
-export { createLogger, guard } from './runtime/logger';
-export type { Logger } from './runtime/logger';
 export { createUserscript, siteKey } from './runtime/boot';
 export type { MenuItem, UserscriptKit, UserscriptOptions } from './runtime/boot';
 export { deepActiveElement, isEditableField, isInsideEditable } from './dom/editable';

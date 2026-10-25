@@ -19,6 +19,13 @@ export function isEditableField(node: Element | null): boolean {
   return false;
 }
 
+/** 跨 open shadow root 找父元素：shadow 顶层节点的 parentElement 为 null。 */
+function parentAcrossShadow(node: Element): Element | null {
+  if (node.parentElement) return node.parentElement;
+  const root = node.getRootNode();
+  return root instanceof ShadowRoot ? root.host : null;
+}
+
 /**
  * 元素或其祖先是不是可编辑区域。
  *
@@ -32,7 +39,7 @@ export function isInsideEditable(element: Element | null, doc: Document = docume
   const designMode = doc.designMode;
   if (typeof designMode === 'string' && designMode.toLowerCase() === 'on') return true;
 
-  for (let node: Element | null = element; node; node = node.parentElement) {
+  for (let node: Element | null = element; node; node = parentAcrossShadow(node)) {
     if (!(node instanceof HTMLElement)) continue;
     if (node.isContentEditable) return true;
     const attribute = node.getAttribute('contenteditable');

@@ -72,19 +72,34 @@ function copyWithTextarea(document: Document | undefined, text: string): boolean
   area.style.cssText = 'position:fixed;left:-9999px;top:0;opacity:0';
   document.body.appendChild(area);
   try {
+    // select() 不保证移动焦点；焦点若留在原控件，execCommand 复制的会是那里。
+    area.focus();
     area.select();
     return document.execCommand('copy');
   } catch {
     return false;
   } finally {
     area.remove();
-    // 兜底输入框会抢走焦点，复制完把焦点还给用户原来所在的位置。
-    active?.focus?.();
-    // select() 同时清空网页选区；连同选区方向恢复，避免后续 Shift 扩选反向。
-    if (anchor?.isConnected && focus?.isConnected)
-      selection?.setBaseAndExtent(anchor, anchorOffset, focus, focusOffset);
-    if (controlStart != null && controlEnd != null)
-      control?.setSelectionRange(controlStart, controlEnd, controlDirection ?? undefined);
+    // 恢复步骤互不连坐：任何一步失败都不能把已经写入的复制结果改报成失败。
+    try {
+      // 兜底输入框会抢走焦点，复制完把焦点还给用户原来所在的位置。
+      active?.focus?.();
+    } catch {
+      // 原控件已脱离文档：无法恢复焦点。
+    }
+    try {
+      // select() 同时清空网页选区；连同选区方向恢复，避免后续 Shift 扩选反向。
+      if (anchor?.isConnected && focus?.isConnected)
+        selection?.setBaseAndExtent(anchor, anchorOffset, focus, focusOffset);
+    } catch {
+      // 选区节点在写入期间被页面改掉：无法恢复网页选区。
+    }
+    try {
+      if (controlStart != null && controlEnd != null)
+        control?.setSelectionRange(controlStart, controlEnd, controlDirection ?? undefined);
+    } catch {
+      // 控件已脱离文档或不再支持选区：无法恢复控件选区。
+    }
   }
 }
 

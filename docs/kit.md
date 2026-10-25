@@ -108,7 +108,7 @@ createUserscript<T>({
 | --- | --- | --- | --- | --- | --- |
 | 0 | `@shared` 目录分组、门面 `index.ts`、新增 `packages/shared/AGENTS.md`、`architecture.md` 分层与决策 | 移动 + 文档 | 无（产物逐字节不变） | 0 | 已完成（2026-10-25；构建切到 `rolldownOptions`，产物逐字节不变见提交内取证） |
 | 1 | `ZH_LABELS` + `createLogger` | `@ui/core/labels.ts`、`@shared/runtime/logger.ts`、4 个脚本 UI | 仅 `operation` 补中文 aria 名 | −90 | 已完成（2026-10-25） |
-| 2 | `defineSettings` | 4 个 `settings.ts` | 无 | −40 | 待做 |
+| 2 | `defineSettings` | 3 个 `settings.ts`（youtube 双键 `pos`/`strategy` 带缓存与删除，不在范围内） | 无 | −40 | 已完成（2026-10-25） |
 | 3 | `createUserscript`，顺序 super-drag → capture-links → youtube → selection-copy | 4 个 `main.ts` | 卸载时真正清理监听；补启动兜底 | −230 | 待做 |
 | 4 | `createUiHost`，顺序 capture-links → youtube → selection-copy → super-drag | 3 个 `ui/app.ts` + 1 处内联 | 无 | −125 | 待做 |
 | 5 | `createSettingsForm`，顺序 capture-links → selection-copy → super-drag | 3 个设置面板 | 无 | −300 | 待做 |

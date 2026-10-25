@@ -1,9 +1,9 @@
 import {
   createGmApi,
-  createSettingsStore as createSharedStore,
+  defineSettings,
   mergeDefaults,
   type GmApi,
-  type SettingsStore as SharedStore,
+  type DefinedSettings,
 } from '@shared';
 
 export type LinkOpenMode = 'background' | 'foreground';
@@ -125,7 +125,7 @@ export function normalizeSettings(stored: unknown): Settings {
 }
 
 /** 设置的读取与保存入口；每次读取都看存储，别处改了设置本页立即按新值工作。 */
-export type SettingsStore = SharedStore<Settings>;
+export type SettingsStore = DefinedSettings<Settings>;
 
 /**
  * 创建设置仓库；读取与写回的通用逻辑在 `@shared`。
@@ -133,5 +133,10 @@ export type SettingsStore = SharedStore<Settings>;
  * @param api GM 适配层；测试里可以传入假实现
  */
 export function createSettingsStore(api: GmApi = createGmApi()): SettingsStore {
-  return createSharedStore({ api, key: SETTINGS_KEY, normalize: normalizeSettings });
+  return defineSettings({
+    api,
+    key: SETTINGS_KEY,
+    defaults: DEFAULT_SETTINGS,
+    normalize: normalizeSettings,
+  });
 }

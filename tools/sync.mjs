@@ -19,6 +19,7 @@ import { createHash } from 'node:crypto';
 import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { compareVersions } from './versions.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -476,6 +477,21 @@ export async function sync(options = {}) {
     const oldRaw = await readIfExists(file);
     const oldText = oldRaw === null ? null : oldRaw.toString('utf8');
     const oldVersion = oldText === null ? null : first(parseMetadata(oldText), 'version');
+    if (
+      !force &&
+      oldText !== null &&
+      oldVersion != null &&
+      version != null &&
+      compareVersions(version, oldVersion) < 0
+    ) {
+      // 线上缓存 / 人工回滚可能返回更旧的版本；覆盖后 scripts.json 也会回退，
+      // 下一次发布会被版本阶梯拦下。保留本地快照，让人先确认。
+      console.error(
+        `错误：${slug} 的线上版本 ${version} 低于本地快照 ${oldVersion}，已中止同步。` +
+          '确认要回退时用 --force。',
+      );
+      return 2;
+    }
     const changed = force || oldText !== text;
 
     if (changed) {

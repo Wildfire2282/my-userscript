@@ -25,7 +25,13 @@ function fixture() {
   roots.push(root);
   mkdirSync(path.join(root, 'tools'));
   mkdirSync(path.join(root, 'scripts'));
-  for (const name of ['artifact-freshness.mjs', 'build.mjs', 'release.mjs', 'browser-check.mjs']) {
+  for (const name of [
+    'artifact-freshness.mjs',
+    'build.mjs',
+    'release.mjs',
+    'browser-check.mjs',
+    'versions.mjs',
+  ]) {
     cpSync(path.join(tools, name), path.join(root, 'tools', name));
   }
   return root;
@@ -115,6 +121,15 @@ describe('pipeline failure boundaries', () => {
     const result = run(root, 'release.mjs', 'release');
     expect(result.status).toBe(0);
     expect(readFileSync(path.join(root, 'release/example.user.js'), 'utf8')).toBe(banner);
+  });
+
+  it('refuses to clean a source directory passed as the release target', () => {
+    const root = fixture();
+    const legacy = put(root, 'scripts/example/legacy/1-example.user.js', banner);
+    const result = run(root, 'release.mjs', 'scripts/example/legacy');
+    expect(result.status).toBe(1);
+    expect(output(result)).toContain('发布目录不能是仓库根目录或 scripts/ 下的源码目录');
+    expect(readFileSync(legacy, 'utf8')).toBe(banner);
   });
 
   it('does not silently omit a migrated package whose browser scenarios are missing', () => {
@@ -226,4 +241,15 @@ describe('sync', () => {
       expect(readFileSync(readme, 'utf8')).toBe('unchanged readme');
     },
   );
+
+  it('线上版本低于本地快照时中止，不覆盖快照与清单', async () => {
+    const root = fixture();
+    const newer = '// ==UserScript==\n// @name First\n// @version 3.0.0\n// ==/UserScript==\n';
+    const legacy = put(root, 'scripts/first/legacy/1-first.user.js', newer);
+    const manifest = put(root, 'scripts.json', '{"scripts": []}');
+
+    expect(await sync(syncOptions(root, 'check'))).toBe(2);
+    expect(readFileSync(legacy, 'utf8')).toBe(newer);
+    expect(readFileSync(manifest, 'utf8')).toBe('{"scripts": []}');
+  });
 });

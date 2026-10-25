@@ -22,6 +22,7 @@ import { access, mkdir, readdir, readFile, stat, unlink, writeFile } from 'node:
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { artifactPath, newestArtifactInput, newestSourceTime } from './artifact-freshness.mjs';
+import { compareVersions } from './versions.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SCRIPTS_DIR = path.join(ROOT, 'scripts');
@@ -32,6 +33,16 @@ if (!outArg) {
   process.exit(1);
 }
 const OUT_DIR = path.resolve(ROOT, outArg);
+// 只允许写到仓库外的发布目录：指到 scripts/ 下的源码/快照目录时，清理阶段会删掉
+// 唯一的 legacy 快照或刚构建的产物，且命令本身看起来是成功的。
+if (
+  OUT_DIR === ROOT ||
+  OUT_DIR === SCRIPTS_DIR ||
+  OUT_DIR.startsWith(`${SCRIPTS_DIR}${path.sep}`)
+) {
+  console.error('发布目录不能是仓库根目录或 scripts/ 下的源码目录。');
+  process.exit(1);
+}
 
 /** 判断路径是否存在。 */
 async function exists(target) {
@@ -116,25 +127,6 @@ function stableFields(text) {
     const values = [...(fields.get(key) ?? [])].sort();
     return `${key}=${values.join('|')}`;
   }).join('\n');
-}
-
-/**
- * 比较两个版本号。
- * 仓库里的版本都是 x.y.z，按数字逐段比较；遇到非数字段时退回自然排序。
- */
-function compareVersions(left, right) {
-  const a = left.split('.');
-  const b = right.split('.');
-  const length = Math.max(a.length, b.length);
-  for (let index = 0; index < length; index += 1) {
-    const x = Number(a[index] ?? 0);
-    const y = Number(b[index] ?? 0);
-    if (!Number.isFinite(x) || !Number.isFinite(y)) {
-      return left.localeCompare(right, 'en', { numeric: true });
-    }
-    if (x !== y) return x - y;
-  }
-  return 0;
 }
 
 /** 找到一个脚本当前可发布的文件：构建产物优先，其次线上原版。 */

@@ -1,6 +1,6 @@
 {
   "name": "@my-userscript/super-drag",
-  "version": "2.9.7",
+  "version": "2.9.8",
   "private": true,
   "description": "拖拽文本搜索，拖拽链接在新标签页打开，拖拽图片查看。",
   "type": "module",

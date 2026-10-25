@@ -111,10 +111,10 @@ bun run build super-drag    # 单个
 ```powershell
 bun run test               # 单元测试（Vitest，毫秒级）
 bun run test:browser    # 真实 Chrome/Edge 场景（需要先构建）
-bun run check           # 交付前全量：静态检查 + 单测 + 构建 + 元数据 + 浏览器场景
+bun run verify           # 交付前全量：静态检查 + 单测 + 构建 + 元数据 + 浏览器场景
 ```
 
-`check` 的最后一步就是浏览器场景，所以本地一条命令与 CI 的 `bun run check` 都会覆盖真实交互，不存在「记得在本地点一遍」的手工环节。
+`check` 的最后一步就是浏览器场景，所以本地一条命令与 CI 的 `bun run verify` 都会覆盖真实交互，不存在「记得在本地点一遍」的手工环节。
 
 `check.yml` 对 PR 全量执行；main 上工具、根配置、共享包、脚本 `tests/` 与任一 workflow 的修改也会触发检查，单改场景或发布流程不会漏检。工程回归在 `tools/pipeline.test.mjs` 中使用临时仓库与模拟下载，不访问 Greasy Fork、不启动发布。
 
@@ -161,11 +161,12 @@ Windows 提权终端启动测试浏览器时禁用降权重启，避免 Chrome �
 | 决策 | 当前做法 | 理由 |
 | --- | --- | --- |
 | 构建 | 自研 `tools/build.mjs` + Vite IIFE，不引入 `vite-plugin-monkey` | 单文件、banner、CSS 内联已满足需求，插件带来的权限收集与配置成本没有收益 |
+| 类型检查 | `bun check`（Bun 内置，多核并行），`typescript` 包仅留给 `tools/gm-usages.mjs` 的 AST 扫描 | `bun check` 全项目约 60ms 且与 tsc 同错；`verify` 改名正是为了不挡 `bun check/lint/fmt` 内置命令；`typescript-eslint` 锁 TS 6（不支持 TS 7，见 `typescript-eslint#10940`） |
 | 版本 | `package.json` 唯一来源，构建时注入 | 元数据与包版本两处手写必然漂移 |
 | 元数据 lint | 只用 `tools/check-meta.mjs`，不引入 `eslint-plugin-userscripts` | 该插件只认 `.user.js` 里的元数据块，而本仓元数据在 `.ts`、产物不提交；`use-homepage-and-url` 要求非标准 `@homepage`，`align-attributes` 的自动修复会重排整块并插入 `@homepage`，与 `metadata.md` 的字段清单冲突；`@match` 语法它也不校验，唯一能补的是未使用 `@grant` 的拼写，价值低于多一个 devDependency |
 | 共享内核 | `host`（GM 适配、存储、剪贴板、设置仓库）+ `settings.defineSettings` + `runtime`（启动、安装锁、日志）+ `dom`（可编辑判定、焦点穿透、夹紧）+ `@ui/patterns`（界面宿主、设置表单）；`url` 因只有一处用留脚本内 | 2026-10-25 七步迁移完成（见 `kit.md` 第 5 节）；准入仍是“两处复用才收”，其余抽象尚无稳定复用 |
 | UI 复用 | 源码直引，按需 tree-shake | 不发布运行时包，不引入全局样式与远程资源 |
-| 测试分层 | 纯逻辑走 Vitest，用户可见交互走真实浏览器；同一事实只在一层断言 | 两层都断言同一规则会让维护成本翻倍，失败时也看不出该改哪一层 |
+| 测试分层 | 纯逻辑走 Vitest（Bun 调度；Bun 下 `forks` 池，因 `vmThreads` worker 在 Bun module runner 下解析失败），用户可见交互走真实浏览器；同一事实只在一层断言 | 两层都断言同一规则会让维护成本翻倍，失败时也看不出该改哪一层；原生 `bun test` 已验证不可行（`toHaveBeenCalledExactlyOnceWith`、fake timer 语义、FormData 行为三处与 vitest 不一致，改单测是降级断言） |
 | 浏览器验证 | 自建 CDP 驱动，不用 Playwright；每个场景独立重载页面 | 环境已有 Chrome/Edge，避免下载浏览器与额外依赖；场景互不污染，可单独删除或调试 |
 | UI 验证与分发 | 删除独立展示页、库产物与第二套浏览器驱动，有效 UI 场景并入主检查 | UI 只供本仓脚本源码直引；测试不应要求维护展示应用 |
 | 共享修复发布 | 共享运行时代码变化也触发发布检查，同批为每个实际产物改变的脚本提升 patch 版本 | 避免修复滞留仓库；复用同版本异内容拒绝机制，不自动改写版本 |

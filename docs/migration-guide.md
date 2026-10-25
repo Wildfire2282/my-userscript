@@ -17,7 +17,7 @@
 
 ```powershell
 bun install          # 沙箱里 HOME 不可写时：$env:BUN_INSTALL_CACHE_DIR = "<仓库>\.bun-cache"
-bun run check        # 必须先是全绿状态，才知道后面哪一步弄坏了东西
+bun run verify        # 必须先是全绿状态，才知道后面哪一步弄坏了东西
 ```
 
 需要系统 Chrome 或 Edge 跑浏览器场景；找不到时用 `CHROME_PATH` 指定。
@@ -88,7 +88,7 @@ scripts/<slug>/
 4. **再做副作用**：事件监听、GM 调用、开标签页单独成层，便于在场景里替换与断言。
 5. **最后接 UI**：只组合 `@ui` 组件；设置面板与入口的挂载策略按上一节确定。
 6. **补浏览器场景**：本地夹具页 + GM 打桩，驱动构建产物跑核心交互；一条用户可见行为一个场景。
-7. **跑检查**：`bun run check` 全绿（最后一步就是浏览器场景）。
+7. **跑检查**：`bun run verify` 全绿（最后一步就是浏览器场景）。
 8. **收尾**：提 `package.json` 版本，写 `CHANGELOG.md` 一条人话，更新脚本 `README.md`。
 9. **提交**：一个脚本一个提交；线上验收通过后再删除 `legacy/`，并跑 `bun run sync` 刷新清单。
 
@@ -98,7 +98,7 @@ scripts/<slug>/
 bun run build <slug>            # 产物：scripts/<slug>/dist/<slug>.user.js
 bun run test                       # 单元测试（纯逻辑 + DOM 片段）
 bun run test:browser <slug>     # 真实 Chrome/Edge，跑 tests/browser-scenarios.mjs
-bun run check                   # 全量：静态检查 + 单测 + 构建 + 元数据 + 浏览器场景
+bun run verify                   # 全量：静态检查 + 单测 + 构建 + 元数据 + 浏览器场景
 ```
 
 `check:meta` 会拦住：元数据块不在首行、`@version` 与 `package.json` 不一致、`@name` / `@match` / `@include` / `@grant` 与 `legacy/` 不同、代码用了某个 `GM_*` 却没有对应 `@grant`。
@@ -140,7 +140,7 @@ bun run check                   # 全量：静态检查 + 单测 + 构建 + 元�
 
 ## 9. 完成定义
 
-1. `bun run check` 全绿（含该脚本的浏览器场景）；
+1. `bun run verify` 全绿（含该脚本的浏览器场景）；
 2. 该脚本的 `tests/browser-scenarios.mjs` 覆盖本次改动的行为，没有只测实现细节的用例；
 3. `@name` / `@match` / `@include` / `@grant` 与 `legacy/` 一致，或已按第 7 节确认变更；
 4. 包 `README.md` 与 `CHANGELOG.md` 已更新；

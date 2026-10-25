@@ -54,4 +54,4 @@
 | 改脚本元数据、作者链接或语言标记 | `metadata.md`、目标脚本的元数据块 |
 | 改迁移步骤或验收方式 | `migration-guide.md` |
 | 改发布流程、权限或回滚方式 | `release-automation.md`、`AGENTS.md` 第 10 节 |
-| 改 UI 组件或 Token | `packages/userscript-ui/AGENTS.md` 与该包的文档；`bun run check` 里已含 UI 的 safety / token 检查 |
+| 改 UI 组件或 Token | `packages/userscript-ui/AGENTS.md` 与该包的文档；`bun run verify` 里已含 UI 的 safety / token 检查 |

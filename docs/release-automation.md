@@ -6,7 +6,7 @@
 
 ```text
 push main
-  → GitHub Actions：bun install --frozen-lockfile、bun run check（含构建与浏览器场景）
+  → GitHub Actions：bun install --frozen-lockfile、bun run verify（含构建与浏览器场景）
   → tools/release.mjs 汇总发布物到 release 分支
   → GitHub push webhook
   → api.greasyfork.org
@@ -53,13 +53,13 @@ Agent 修改共享运行时代码时，必须在同一批变更中给**每个实
 
 脚本从仓库删除后，下一次发布会清掉 `release` 分支里的旧文件；Greasy Fork 上的脚本不会自动删除，需要到脚本管理页手动停用或删除。
 
-`bun run check` 的最后一步是浏览器场景，CI 会真跑（ubuntu-latest 自带 Chrome）；本地与 CI 都会拦住真实交互的回归，不需要另开手工检查。
+`bun run verify` 的最后一步是浏览器场景，CI 会真跑（ubuntu-latest 自带 Chrome）；本地与 CI 都会拦住真实交互的回归，不需要另开手工检查。
 
 ## 3. 日常发布
 
 1. 改 `scripts/<slug>/src/` 或共享运行时代码里的源码；`dist/` 与 `legacy/` 都不直接改。
 2. 提版本：同批修改每个实际产物改变的脚本的 `scripts/<slug>/package.json` 中的 `version`，共享修复提升 patch 版本，构建时注入；不能只提任意一个脚本。在 `CHANGELOG.md` 写一条人话。
-3. 本地跑 `bun run check`（含浏览器场景）。
+3. 本地跑 `bun run verify`（含浏览器场景）。
 4. 向维护者说明本次用户可见的变化，确认发布后提交并 push `main`；
    这次推送带元数据变化时，把 `[allow-meta]` 写进最后一个提交的信息。
    共享运行时代码变化会触发发布；工具链、测试或文档等变化不会单独触发，需要上线的产物变化须同批为每个受影响脚本提版本。
@@ -75,7 +75,7 @@ Agent 修改共享运行时代码时，必须在同一批变更中给**每个实
 确认要改时：
 
 1. 维护者确认「多看到什么、少看到什么」；
-2. Agent 在本地跑 `ALLOW_META_CHANGE=1 bun run check`（PowerShell：`$env:ALLOW_META_CHANGE='1'; bun run check`）验证；
+2. Agent 在本地跑 `ALLOW_META_CHANGE=1 bun run verify`（PowerShell：`$env:ALLOW_META_CHANGE='1'; bun run verify`）验证；
 3. 在最后一个提交的信息里写明变更理由，并带上 `[allow-meta]`；
 4. 正常 push `main`：CI 认出这个标记，放行元数据对照并在同一次运行里发布。
 

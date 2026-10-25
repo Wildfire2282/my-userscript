@@ -78,7 +78,7 @@
 
 | 检查 | 要求 |
 | --- | --- |
-| 构建 | `bun run build <slug>` 成功；交付前跑 `bun run check`（最后一步会跑浏览器场景） |
+| 构建 | `bun run build <slug>` 成功；交付前跑 `bun run verify`（最后一步会跑浏览器场景） |
 | 单元测试 | 受影响模块的测试全部通过（有则必跑）；只测行为，不测实现细节 |
 | 浏览器场景 | `tests/browser-scenarios.mjs` 中覆盖本次改动行为的场景全过；新增行为同步补场景 |
 | 元数据 | 与 `legacy/` 对比，`@name`、`@match`、`@include`、`@grant` 无非预期变化 |
@@ -157,7 +157,7 @@
 | `@description` | 中文一句话，≤ 60 字，说清「在什么页面做什么」，句末不加句号 |
 | 包 `README.md` 标题 | 与 `@name` 一致 |
 
-完整字段、语言标记、GitHub 链接与字段顺序见 `docs/metadata.md`；`bun run check:meta` 按该文档校验。
+完整字段、语言标记、GitHub 链接与字段顺序见 `docs/metadata.md`；`bun run verify:meta` 按该文档校验。
 
 ### 6.3 文件与目录
 
@@ -241,14 +241,14 @@
 - **未迁移脚本的紧急修复**：可以改 `legacy/` 原版并单独提交，但必须在脚本 `README.md` 记一条
   “待迁移时合并”；不得在 `legacy/` 上叠加新功能。
 - **每个脚本自带两类验证**：`tests/*.test.ts`（Vitest，纯逻辑与 DOM 片段）和
-  `tests/browser-scenarios.mjs`（真实浏览器，驱动构建产物）。`bun run check` 会依次跑完两者，
+  `tests/browser-scenarios.mjs`（真实浏览器，驱动构建产物）。`bun run verify` 会依次跑完两者，
   不需要另开一项手工检查。
 
 ```powershell
 bun run build <slug>      # 构建单个脚本
 bun run test                 # 单元测试
 bun run test:browser      # 真实浏览器场景（Chrome / Edge，需先构建）
-bun run check             # 交付前全量：静态检查 + 单测 + 构建 + 元数据 + 浏览器场景
+bun run verify             # 交付前全量：静态检查 + 单测 + 构建 + 元数据 + 浏览器场景
 ```
 
 
@@ -277,7 +277,7 @@ bun run check             # 交付前全量：静态检查 + 单测 + 构建 + �
 
 ## 附录 A：交付前检查
 
-- [ ] `bun run build <slug>` 通过；交付前另跑 `bun run check`（含浏览器场景）
+- [ ] `bun run build <slug>` 通过；交付前另跑 `bun run verify`（含浏览器场景）
 - [ ] 浏览器场景检查全过，证据按第 4.2 节记录
 - [ ] `@name`、`@match`、`@include`、`@grant` 与上一版一致，或已获确认
 - [ ] 回退路径可用（上一版在 `release` 分支或 Greasy Fork 历史版本里）

@@ -1,7 +1,7 @@
 # Userscript UI — Agent Guide
 
 > 本包已并入 `my-userscript` monorepo（路径 `packages/userscript-ui/`），不再单独维护。
-> 构建 / lint / 单测走根目录命令；UI 专属的 safety 与 token 检查已挂在根 `bun run check` 里。
+> 构建 / lint / 单测走根目录命令；UI 专属的 safety 与 token 检查已挂在根 `bun run verify` 里。
 
 本仓库为 Tampermonkey / Greasemonkey 用户脚本提供统一的 Shadow DOM UI 层。写任何 UI 之前先读本文件；需要细节时再读：
 
@@ -174,22 +174,22 @@ createLauncher(ui, {
 ## 8. 验证
 
 ```bash
-bun run check           # lint + format + typecheck + unit + build + metadata + UI safety/tokens + 浏览器场景
+bun run verify           # lint + format + typecheck + unit + build + metadata + UI safety/tokens + 浏览器场景
 bun run lint            # ESLint (typescript-eslint, type-aware)
 bun run format          # Prettier，写入
 bun run test:browser -- userscript-ui # 统一 CDP 驱动的 UI 浏览器场景
-bun run check:ui-tokens # 单独检查组件 CSS 是否用了 --ds-* Token
+bun run verify:ui-tokens # 单独检查组件 CSS 是否用了 --ds-* Token
 ```
 
 `lint` 用 ESLint flat config + typescript-eslint 类型感知规则，除了通用最佳实践，还把本项目的硬规则变成错误：`innerHTML`/`outerHTML`/`insertAdjacentHTML`、`document.write`、`new Function`、`==`（`!= null` 除外）、`prefer-const`。`eslint-config-prettier` 在最后关掉所有与格式化重叠的规则。
 
-`format` 用 Prettier 统一代码风格（单引号、100 列、尾逗号、LF）；`format:check` 在 `bun run check` 里跑。Markdown 不在范围内（中文正文和表格会被重排），见 `.prettierignore`。
+`format` 用 Prettier 统一代码风格（单引号、100 列、尾逗号、LF）；`format:check` 在 `bun run verify` 里跑。Markdown 不在范围内（中文正文和表格会被重排），见 `.prettierignore`。
 
 `check:ui-safety` 检查危险能力（HTML 字符串注入、动态执行、网络请求），`check:ui-tokens` 检查组件 CSS 里的颜色和尺寸是否都来自 Token。
 
-`tools/browser-check.mjs` 通过 CDP 使用系统 Chrome/Edge；可用 `CHROME_PATH` 指定。UI 入口是 `tests/browser-entry.ts`，场景是 `tests/browser-scenarios.mjs`，宿主页面位于 `tests/fixtures/`。提交前必须让根目录 `bun run check` 全绿。
+`tools/browser-check.mjs` 通过 CDP 使用系统 Chrome/Edge；可用 `CHROME_PATH` 指定。UI 入口是 `tests/browser-entry.ts`，场景是 `tests/browser-scenarios.mjs`，宿主页面位于 `tests/fixtures/`。提交前必须让根目录 `bun run verify` 全绿。
 
-根 `tsconfig.json` 覆盖 `scripts` 与 `packages` 的源码与测试；构建脚本（`tools/*.mjs`）不在类型检查范围内，改动后靠 `bun run check` 的 lint 与浏览器场景验证。
+根 `tsconfig.json` 覆盖 `scripts` 与 `packages` 的源码与测试；构建脚本（`tools/*.mjs`）不在类型检查范围内，改动后靠 `bun run verify` 的 lint 与浏览器场景验证。
 
 ## 9. 常见错误
 

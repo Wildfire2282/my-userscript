@@ -13,7 +13,7 @@
  *   bun tools/check-meta.mjs            # 检查所有脚本
  *   bun tools/check-meta.mjs super-drag # 只检查指定包
  *   bun tools/check-meta.mjs --allow-meta-change super-drag  # 明确接受元数据变化
- *   ALLOW_META_CHANGE=1 bun run check    # CI 手动放行同一件事
+ *   ALLOW_META_CHANGE=1 bun run verify    # CI 手动放行同一件事
  */
 
 import { access, readdir, readFile } from 'node:fs/promises';

@@ -2,7 +2,7 @@
 // @name         YouTube 转写文稿复制
 // @name:en      YouTube Transcript Copy
 // @namespace    https://github.com/Wildfire2282
-// @version      1.4.5
+// @version      1.4.6
 // @description  视频播放页面出现可拖拽悬浮按钮，可一键复制转写文稿（transcript），支持英语等多语言界面
 // @description:en Add a draggable button to copy YouTube transcripts
 // @author       Wildfire2282 (https://github.com/Wildfire2282)
@@ -171,30 +171,13 @@
 			onTick();
 		};
 		const onNavigate = () => notify();
-		const onDomChange = () => {
-			if (doc.location.href !== lastHref) notify();
-		};
 		win.addEventListener("yt-navigate-finish", onNavigate);
-		const observer = new MutationObserver(onDomChange);
-		let observing = false;
-		const observeBody = () => {
-			if (observing || !doc.body) return;
-			observer.observe(doc.body, {
-				childList: true,
-				subtree: true
-			});
-			observing = true;
-		};
-		observeBody();
-		if (!observing) doc.addEventListener("DOMContentLoaded", observeBody, { once: true });
 		const timer = win.setInterval(() => {
 			if (doc.location.href !== lastHref) notify();
 			else if (doc.location.href.includes("/watch")) onTick();
 		}, options.intervalMs ?? 1500);
 		return () => {
 			win.removeEventListener("yt-navigate-finish", onNavigate);
-			doc.removeEventListener("DOMContentLoaded", observeBody);
-			observer.disconnect();
 			win.clearInterval(timer);
 		};
 	}
@@ -1425,23 +1408,36 @@
 		const update = () => {
 			const scrollable = scroller.scrollHeight > scroller.clientHeight + EDGE;
 			const atEnd = scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - EDGE;
-			el.dataset.state = scrollable && !atEnd ? "visible" : "hidden";
+			const next = scrollable && !atEnd ? "visible" : "hidden";
+			if (el.dataset.state !== next) el.dataset.state = next;
 		};
-		scroller.addEventListener("scroll", update, {
+		let frame = 0;
+		const scheduleUpdate = () => {
+			if (frame !== 0) return;
+			if (typeof requestAnimationFrame !== "function") {
+				update();
+				return;
+			}
+			frame = requestAnimationFrame(() => {
+				frame = 0;
+				update();
+			});
+		};
+		scroller.addEventListener("scroll", scheduleUpdate, {
 			passive: true,
 			signal: scope.signal
 		});
-		window.addEventListener("resize", update, {
+		window.addEventListener("resize", scheduleUpdate, {
 			passive: true,
 			signal: scope.signal
 		});
-		const mutations = new MutationObserver(update);
+		const mutations = new MutationObserver(scheduleUpdate);
 		mutations.observe(scroller, {
 			childList: true,
 			subtree: true,
 			characterData: true
 		});
-		const resize = typeof ResizeObserver === "function" ? new ResizeObserver(update) : null;
+		const resize = typeof ResizeObserver === "function" ? new ResizeObserver(scheduleUpdate) : null;
 		resize?.observe(scroller);
 		update();
 		return {
@@ -1451,6 +1447,10 @@
 				scope.destroy();
 				mutations.disconnect();
 				resize?.disconnect();
+				if (frame !== 0 && typeof cancelAnimationFrame === "function") {
+					cancelAnimationFrame(frame);
+					frame = 0;
+				}
 				el.remove();
 			}
 		};
@@ -2411,7 +2411,14 @@
 				}
 				app.sync();
 			});
-			window.addEventListener("resize", () => app.sync());
+			let resizeFrame = 0;
+			window.addEventListener("resize", () => {
+				if (resizeFrame !== 0) return;
+				resizeFrame = window.requestAnimationFrame(() => {
+					resizeFrame = 0;
+					app.sync();
+				});
+			});
 		};
 		if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", () => {
 			captureInitialTrack();

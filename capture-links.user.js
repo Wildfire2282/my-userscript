@@ -2,7 +2,7 @@
 // @name         捕获链接
 // @name:en      Link Capture
 // @namespace    https://github.com/Wildfire2282
-// @version      1.3.1
+// @version      1.3.2
 // @description  捕获页面中的全部链接，支持关键词筛选与批量复制
 // @description:en Collect, filter, and copy all links on a page
 // @author       Wildfire2282 (https://github.com/Wildfire2282)
@@ -702,23 +702,36 @@
 		const update = () => {
 			const scrollable = scroller.scrollHeight > scroller.clientHeight + EDGE;
 			const atEnd = scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - EDGE;
-			el.dataset.state = scrollable && !atEnd ? "visible" : "hidden";
+			const next = scrollable && !atEnd ? "visible" : "hidden";
+			if (el.dataset.state !== next) el.dataset.state = next;
 		};
-		scroller.addEventListener("scroll", update, {
+		let frame = 0;
+		const scheduleUpdate = () => {
+			if (frame !== 0) return;
+			if (typeof requestAnimationFrame !== "function") {
+				update();
+				return;
+			}
+			frame = requestAnimationFrame(() => {
+				frame = 0;
+				update();
+			});
+		};
+		scroller.addEventListener("scroll", scheduleUpdate, {
 			passive: true,
 			signal: scope.signal
 		});
-		window.addEventListener("resize", update, {
+		window.addEventListener("resize", scheduleUpdate, {
 			passive: true,
 			signal: scope.signal
 		});
-		const mutations = new MutationObserver(update);
+		const mutations = new MutationObserver(scheduleUpdate);
 		mutations.observe(scroller, {
 			childList: true,
 			subtree: true,
 			characterData: true
 		});
-		const resize = typeof ResizeObserver === "function" ? new ResizeObserver(update) : null;
+		const resize = typeof ResizeObserver === "function" ? new ResizeObserver(scheduleUpdate) : null;
 		resize?.observe(scroller);
 		update();
 		return {
@@ -728,6 +741,10 @@
 				scope.destroy();
 				mutations.disconnect();
 				resize?.disconnect();
+				if (frame !== 0 && typeof cancelAnimationFrame === "function") {
+					cancelAnimationFrame(frame);
+					frame = 0;
+				}
 				el.remove();
 			}
 		};
@@ -1940,22 +1957,31 @@
 			return row;
 		}
 		function render() {
-			list.replaceChildren();
+			const fragment = document.createDocumentFragment();
 			if (filteredItems.length === 0) {
 				const empty = document.createElement("div");
 				empty.className = "cl-empty";
 				empty.textContent = "无匹配结果";
-				list.appendChild(empty);
+				fragment.appendChild(empty);
 			} else {
-				filteredItems.slice(0, shownCount).forEach((item, index) => list.appendChild(createRow(item, index)));
+				filteredItems.slice(0, shownCount).forEach((item, index) => fragment.appendChild(createRow(item, index)));
 				if (filteredItems.length > shownCount) {
 					const more = document.createElement("button");
 					more.type = "button";
 					more.className = "cl-more";
 					more.textContent = `显示更多（剩余 ${filteredItems.length - shownCount} 条）`;
-					list.appendChild(more);
+					fragment.appendChild(more);
 				}
 			}
+			list.replaceChildren(fragment);
+			updateStats();
+		}
+		/**
+		* 批量勾选只同步已渲染行的勾选状态：重画整张列表会为一次点击重建上千个节点，
+		* 而行的内容并没有变。
+		*/
+		function syncChecks() {
+			for (const input of list.querySelectorAll("input.cl-check")) input.checked = selectedIds.has(input.dataset.id ?? "");
 			updateStats();
 		}
 		function applyFilter() {
@@ -1963,6 +1989,20 @@
 			shownCount = PAGE_SIZE;
 			render();
 		}
+		/**
+		* 面板关闭后列表不可见：不把几万条链接与已渲染的行留在内存里，下次打开会重新扫描。
+		* 关掉的路径不止“关闭”按钮（Esc、悬浮按钮切换都会关闭），所以挂在状态变化上。
+		*/
+		function release() {
+			allItems = [];
+			filteredItems = [];
+			selectedIds = /* @__PURE__ */ new Set();
+			shownCount = PAGE_SIZE;
+			list.replaceChildren();
+		}
+		panel.onOpenChange((open) => {
+			if (!open) release();
+		});
 		async function copySelected() {
 			const items = pickedItems(selectedIds, filteredItems);
 			if (items.length === 0) {
@@ -1977,7 +2017,7 @@
 			variant: "secondary",
 			onClick: () => {
 				selectedIds = selectAll(selectedIds, filteredItems);
-				render();
+				syncChecks();
 			}
 		});
 		const selectNoneButton = createButton(ui, {
@@ -1985,7 +2025,7 @@
 			variant: "secondary",
 			onClick: () => {
 				selectedIds = selectNone(selectedIds, filteredItems);
-				render();
+				syncChecks();
 			}
 		});
 		const invertButton = createButton(ui, {
@@ -1993,7 +2033,7 @@
 			variant: "secondary",
 			onClick: () => {
 				selectedIds = invertSelection(selectedIds, filteredItems);
-				render();
+				syncChecks();
 			}
 		});
 		const copyButton = createButton(ui, {
@@ -2105,6 +2145,7 @@
 	};
 	function createApp(options) {
 		let session = null;
+		let settingsPanel = null;
 		const notify = (message, variant) => {
 			session?.toast[variant](message);
 		};
@@ -2143,23 +2184,28 @@
 					copy: options.copy,
 					notify
 				}),
-				settingsPanel: createSettingsPanel({
-					ui,
-					getSettings: options.getSettings,
-					updateSettings: options.updateSettings,
-					onFloatButtonChange: syncLauncher
-				}),
 				launcher: null
 			};
 			return session;
 		};
+		const ensureSettings = () => {
+			if (settingsPanel) return settingsPanel;
+			settingsPanel = createSettingsPanel({
+				ui: ensure().ui,
+				getSettings: options.getSettings,
+				updateSettings: options.updateSettings,
+				onFloatButtonChange: syncLauncher
+			});
+			return settingsPanel;
+		};
 		return {
 			syncLauncher,
 			openLinks: () => ensure().linkPanel.open(),
-			openSettings: () => ensure().settingsPanel.open(),
+			openSettings: () => ensureSettings().open(),
 			destroy() {
 				session?.ui.destroy();
 				session = null;
+				settingsPanel = null;
 			}
 		};
 	}

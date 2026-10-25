@@ -2,7 +2,7 @@
 // @name         拖拽打开
 // @name:en      Drag to Open
 // @namespace    https://github.com/Wildfire2282
-// @version      2.9.3
+// @version      2.9.4
 // @description  拖拽文本搜索，拖拽链接在新标签页打开，拖拽图片查看
 // @description:en Drag text to search, links to open, and images to view
 // @author       Wildfire2282 (https://github.com/Wildfire2282)
@@ -1279,23 +1279,36 @@
 		const update = () => {
 			const scrollable = scroller.scrollHeight > scroller.clientHeight + EDGE;
 			const atEnd = scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - EDGE;
-			el.dataset.state = scrollable && !atEnd ? "visible" : "hidden";
+			const next = scrollable && !atEnd ? "visible" : "hidden";
+			if (el.dataset.state !== next) el.dataset.state = next;
 		};
-		scroller.addEventListener("scroll", update, {
+		let frame = 0;
+		const scheduleUpdate = () => {
+			if (frame !== 0) return;
+			if (typeof requestAnimationFrame !== "function") {
+				update();
+				return;
+			}
+			frame = requestAnimationFrame(() => {
+				frame = 0;
+				update();
+			});
+		};
+		scroller.addEventListener("scroll", scheduleUpdate, {
 			passive: true,
 			signal: scope.signal
 		});
-		window.addEventListener("resize", update, {
+		window.addEventListener("resize", scheduleUpdate, {
 			passive: true,
 			signal: scope.signal
 		});
-		const mutations = new MutationObserver(update);
+		const mutations = new MutationObserver(scheduleUpdate);
 		mutations.observe(scroller, {
 			childList: true,
 			subtree: true,
 			characterData: true
 		});
-		const resize = typeof ResizeObserver === "function" ? new ResizeObserver(update) : null;
+		const resize = typeof ResizeObserver === "function" ? new ResizeObserver(scheduleUpdate) : null;
 		resize?.observe(scroller);
 		update();
 		return {
@@ -1305,6 +1318,10 @@
 				scope.destroy();
 				mutations.disconnect();
 				resize?.disconnect();
+				if (frame !== 0 && typeof cancelAnimationFrame === "function") {
+					cancelAnimationFrame(frame);
+					frame = 0;
+				}
 				el.remove();
 			}
 		};

@@ -1,4 +1,4 @@
-import { ZH_LABELS, mountUI, type UI } from '@ui';
+import { createUiHost as createSharedUiHost, type UI } from '@ui';
 import type { CopyFeedback } from '../feedback';
 import { createIndicator, type IndicatorHandle } from './indicator';
 
@@ -15,19 +15,14 @@ export interface UiHost {
 }
 
 export function createUiHost(): UiHost {
-  let ui: UI | null = null;
+  const host = createSharedUiHost();
   let indicator: IndicatorHandle | null = null;
 
-  const ensure = (): UI => {
-    if (!ui) ui = mountUI({ theme: 'system', labels: ZH_LABELS });
-    return ui;
-  };
-
   return {
-    ensure,
+    ensure: host.ensure,
     showFeedback(feedback) {
       try {
-        const mounted = ensure();
+        const mounted = host.ensure();
         indicator ??= createIndicator(mounted);
         indicator.show(feedback);
       } catch (error) {

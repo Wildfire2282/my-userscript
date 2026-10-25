@@ -58,7 +58,7 @@ scripts/<slug>/src/             main.ts（接线）+ features/ + ui/
 | `@shared/runtime` | `createUserscript(options)` | 4 | 启动兜底、安装锁、frame 判断、菜单注册、页面级 `signal`、`pagehide` 清理 |
 | `@shared/runtime/frame` | `isTopFrame` / `siteKey` / `installOnce` | 3 | `siteKey` 取顶层 hostname；跨域回退 `ancestorOrigins`，再回退本帧；无 hostname 用 protocol |
 | `@shared/runtime/logger` | `createLogger(slug)` / `guard(label, fn)` | 4 | 统一 `[slug]` 前缀与兜底 |
-| `@ui/patterns/app-host` | `createUiHost({ theme, labels })` → `ensure/toast/panel/open/destroy` | 4 | 整页只 `mountUI()` 一次；Toast 单例；面板懒建 |
+| `@ui/patterns/app-host` | `createUiHost({ theme })` → `ensure/destroy` | 4 | 整页只 `mountUI()` 一次；Toast 由需要的脚本各自单例（统一引用会把 toast 拉进不用它的产物，+11KB）；面板懒建留在脚本 |
 | `@ui/patterns/settings-form` | `createSettingsForm(ui, schema, options)` | 3 | 声明式设置面板，见下方硬边界 |
 | `@shared/dom` | `realTarget` / `isEditableField` / `isInputLike` / `deepActiveElement` / `queryAllDeep` | 3 | `composedPath()[0]` 取真实目标；只穿 open shadow root |
 | `@shared/url` | `isBlockedScheme` / `resolveUrl` / `extractUrlFromText` / `isImageUrl` | 2 | 黑名单 `javascript|data|vbscript`；中文标点截断与括号配平沿用现实现 |
@@ -110,7 +110,7 @@ createUserscript<T>({
 | 1 | `ZH_LABELS` + `createLogger` | `@ui/core/labels.ts`、`@shared/runtime/logger.ts`、4 个脚本 UI | 仅 `operation` 补中文 aria 名 | −90 | 已完成（2026-10-25） |
 | 2 | `defineSettings` | 3 个 `settings.ts`（youtube 双键 `pos`/`strategy` 带缓存与删除，不在范围内） | 无 | −40 | 已完成（2026-10-25） |
 | 3 | `createUserscript`，顺序 super-drag → capture-links → youtube → selection-copy | 4 个 `main.ts` | 卸载时真正清理监听；补启动兜底 | −230 | 已完成（2026-10-25） |
-| 4 | `createUiHost`，顺序 capture-links → youtube → selection-copy → super-drag | 3 个 `ui/app.ts` + 1 处内联 | 无 | −125 | 待做 |
+| 4 | `createUiHost`，顺序 capture-links → youtube → selection-copy → super-drag | 3 个 `ui/app.ts` + 1 处内联 | 无（Toast 改为按需单例，不进不用它的产物） | −125 | 已完成（2026-10-25） |
 | 5 | `createSettingsForm`，顺序 capture-links → selection-copy → super-drag | 3 个设置面板 | 无 | −300 | 待做 |
 | 6 | `url` / `dom` / `position` 纯函数搬入 | 3 个脚本 features | 无 | −80 | 待做 |
 | 7 | 清理死代码、脚本 `README.md` / `CHANGELOG.md`、四条 patch 版本 | 文档 + `package.json` | 无 | — | 待做 |

@@ -6,10 +6,8 @@ import {
   createSection,
   createSelect,
   createSwitch,
-  mountUI,
   type UI,
 } from '@ui';
-import { ZH_LABELS } from '@ui';
 import {
   PREVIEW_KEYWORD,
   buildSearchUrl,
@@ -27,6 +25,7 @@ import { CUSTOM_ENGINE_ID, type Settings } from '../settings';
  */
 
 export interface SettingsPanelOptions {
+  ui: UI;
   getSettings: () => Settings;
   save: (patch: Partial<Settings>) => void;
 }
@@ -39,7 +38,7 @@ export interface SettingsPanelHandle {
 }
 
 export function createSettingsPanel(options: SettingsPanelOptions): SettingsPanelHandle {
-  const ui: UI = mountUI({ theme: 'system', labels: ZH_LABELS });
+  const { ui } = options;
   const initial = options.getSettings();
 
   const panel = createPanel(ui, {
@@ -237,6 +236,6 @@ export function createSettingsPanel(options: SettingsPanelOptions): SettingsPane
     },
     close: () => panel.close(),
     isOpen: () => panel.isOpen(),
-    destroy: () => ui.destroy(),
+    destroy: () => panel.destroy(),
   };
 }

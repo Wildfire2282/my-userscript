@@ -3,8 +3,7 @@ import {
   createPanel,
   createSection,
   createToast,
-  mountUI,
-  ZH_LABELS,
+  createUiHost,
   type PanelHandle,
   type ToastController,
   type UI,
@@ -48,7 +47,7 @@ export interface TranscriptButtonApp {
 export function createTranscriptButtonApp(
   options: TranscriptButtonAppOptions,
 ): TranscriptButtonApp {
-  let ui: UI | null = null;
+  const host = createUiHost();
   let button: TranscriptButtonHandle | null = null;
   let toast: ToastController | null = null;
   let panels: { actions: PanelHandle; settings: PanelHandle } | null = null;
@@ -61,10 +60,7 @@ export function createTranscriptButtonApp(
   // 首屏布局稳定前分几次重算；只在这几个时间点校正，不做常驻轮询。
   const SETTLE_DELAYS_MS = [300, 1000, 2000, 4000];
 
-  const ensureUI = (): UI => {
-    ui ??= mountUI({ theme: 'system', labels: ZH_LABELS });
-    return ui;
-  };
+  const ensureUI = (): UI => host.ensure();
 
   /** 抓取并复制；按钮和面板共用，同一时刻只跑一个。 */
   const copy = async (): Promise<CopyOutcome> => {
@@ -102,8 +98,8 @@ export function createTranscriptButtonApp(
     if (panels) return panels;
 
     const current = ensureUI();
-    const notify = createToast(current);
-    toast = notify;
+    toast ??= createToast(current);
+    const notify = toast;
 
     const actions = createPanel(current, {
       title: '操作面板',
@@ -237,12 +233,10 @@ export function createTranscriptButtonApp(
         settleTimer = undefined;
       }
       button?.destroy();
-      toast?.destroy();
       button = null;
       toast = null;
       panels = null;
-      ui?.destroy();
-      ui = null;
+      host.destroy();
     },
   };
 }

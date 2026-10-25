@@ -1,4 +1,5 @@
 import { createGmApi, createUserscript } from '@shared';
+import { createUiHost } from '@ui';
 import { installDragSensor } from './features/dnd';
 import { createOpeners } from './features/openers';
 import { createSettingsStore } from './settings';
@@ -17,6 +18,7 @@ createUserscript(createGmApi(), {
   onReady: (kit) => {
     const store = createSettingsStore(kit.gm);
     const openers = createOpeners();
+    const host = createUiHost();
 
     const sensor = installDragSensor({
       getSettings: store.get,
@@ -31,6 +33,7 @@ createUserscript(createGmApi(), {
       run: () => {
         if (!panel) {
           panel = createSettingsPanel({
+            ui: host.ensure(),
             getSettings: store.get,
             save: (patch) => void store.update(patch),
           });
@@ -42,6 +45,7 @@ createUserscript(createGmApi(), {
     return () => {
       sensor.destroy();
       panel?.destroy();
+      host.destroy();
       panel = null;
     };
   },

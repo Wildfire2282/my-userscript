@@ -1,8 +1,7 @@
 import {
   createLauncher,
   createToast,
-  mountUI,
-  ZH_LABELS,
+  createUiHost,
   type LauncherHandle,
   type PanelHandle,
   type ToastController,
@@ -39,18 +38,20 @@ export interface AppHandle {
 
 interface Session {
   ui: UI;
-  toast: ToastController;
   linkPanel: LinkPanelHandle;
   launcher: LauncherHandle | null;
 }
 
 export function createApp(options: AppOptions): AppHandle {
+  const host = createUiHost();
+  let toast: ToastController | null = null;
   let session: Session | null = null;
   let settingsPanel: SettingsPanelHandle | null = null;
 
   const notify = (message: string, variant: NotifyVariant): void => {
     // 面板里的操作都发生在 UI 创建之后；这里只是防御，不让提示缺失变成异常。
-    session?.toast[variant](message);
+    toast ??= createToast(host.ensure());
+    toast[variant](message);
   };
 
   const syncLauncher = (): void => {
@@ -79,15 +80,14 @@ export function createApp(options: AppOptions): AppHandle {
 
   const ensure = (): Session => {
     if (session) return session;
-    const ui = mountUI({ theme: 'system', labels: ZH_LABELS });
-    const toast = createToast(ui);
+    const ui = host.ensure();
     const linkPanel = createLinkPanel({
       ui,
       getCopyFormat: () => options.getSettings().copyFormat,
       copy: options.copy,
       notify,
     });
-    session = { ui, toast, linkPanel, launcher: null };
+    session = { ui, linkPanel, launcher: null };
     return session;
   };
 
@@ -108,7 +108,8 @@ export function createApp(options: AppOptions): AppHandle {
     openLinks: () => ensure().linkPanel.open(),
     openSettings: () => ensureSettings().open(),
     destroy() {
-      session?.ui.destroy();
+      host.destroy();
+      toast = null;
       session = null;
       settingsPanel = null;
     },

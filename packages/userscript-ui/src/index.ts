@@ -4,6 +4,9 @@ export { DEFAULT_LABELS, ZH_LABELS } from './core/labels';
 export type { UILabels } from './core/labels';
 export type { ResolvedTheme, Theme } from './core/theme';
 
+export { createUiHost } from './patterns/app-host';
+export type { UiHost, UiHostOptions } from './patterns/app-host';
+
 export { createButton } from './components/button';
 export type { ButtonHandle, ButtonOptions, ButtonSize, ButtonVariant } from './components/button';
 

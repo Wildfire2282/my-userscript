@@ -40,10 +40,11 @@
  */
 
 import { spawn } from 'node:child_process';
-import { existsSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, statSync } from 'node:fs';
 import { mkdir, readdir, readFile, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { artifactPath, newestArtifactInput } from './artifact-freshness.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SCRIPTS_DIR = path.join(ROOT, 'scripts');
@@ -218,26 +219,6 @@ async function discoverSlugs() {
 function clip(text) {
   const value = String(text);
   return value.length > 180 ? `${value.slice(0, 180)}…` : value;
-}
-
-/** 目录树里最新的修改时间；用来判断产物是否比源码旧。 */
-function newestTime(directory) {
-  let newest = 0;
-  for (const entry of readdirSync(directory, { withFileTypes: true })) {
-    const full = path.join(directory, entry.name);
-    // 坏链接或正好被删除的文件不该让整轮检查崩掉。
-    const time = entry.isDirectory()
-      ? newestTime(full)
-      : (() => {
-          try {
-            return statSync(full).mtimeMs;
-          } catch {
-            return 0;
-          }
-        })();
-    newest = Math.max(newest, time);
-  }
-  return newest;
 }
 
 /** 每页注入的 GM 打桩；场景只需要读 window.__gm。 */
@@ -600,7 +581,7 @@ try {
         .find((output) => output.type === 'chunk')?.code;
       if (!bundle) throw new Error('userscript-ui 内存构建未生成 JavaScript');
     } else {
-      const distFile = path.join(SCRIPTS_DIR, slug, 'dist', `${slug}.user.js`);
+      const distFile = artifactPath(path.join(SCRIPTS_DIR, slug), slug);
       if (!existsSync(distFile)) {
         throw new Error(
           `缺少产物 ${path.relative(ROOT, distFile)}，先运行 bun run build ${slug}。`,
@@ -608,26 +589,8 @@ try {
       }
       // 产物比源码旧时场景测的是旧代码，结果没有意义：直接判失败，别让它看起来“通过”。
       const distTime = statSync(distFile).mtimeMs;
-      const srcDir = path.join(SCRIPTS_DIR, slug, 'src');
-      const pkgDir = path.join(SCRIPTS_DIR, slug);
-      // 版本号与元数据也进产物（banner），只改它们而不重新构建同样是旧产物。
-      const inputTime = Math.max(
-        existsSync(srcDir) ? newestTime(srcDir) : 0,
-        ...['shared', 'userscript-ui'].map((name) => {
-          const sharedDir = path.join(ROOT, 'packages', name, 'src');
-          return existsSync(sharedDir) ? newestTime(sharedDir) : 0;
-        }),
-        ['package.json', 'userscript.meta.ts', 'userscript.meta.js']
-          .map((name) => {
-            try {
-              return statSync(path.join(pkgDir, name)).mtimeMs;
-            } catch {
-              return 0;
-            }
-          })
-          .reduce((a, b) => Math.max(a, b), 0),
-      );
-      if (inputTime > distTime) {
+      const inputTime = await newestArtifactInput(path.join(SCRIPTS_DIR, slug));
+      if (inputTime !== null && inputTime > distTime) {
         throw new Error(
           `${path.relative(ROOT, distFile)} 比 src 旧，先运行 bun run build ${slug}。`,
         );

@@ -25,7 +25,7 @@ function fixture() {
   roots.push(root);
   mkdirSync(path.join(root, 'tools'));
   mkdirSync(path.join(root, 'scripts'));
-  for (const name of ['build.mjs', 'release.mjs', 'browser-check.mjs']) {
+  for (const name of ['artifact-freshness.mjs', 'build.mjs', 'release.mjs', 'browser-check.mjs']) {
     cpSync(path.join(tools, name), path.join(root, 'tools', name));
   }
   return root;

@@ -15,8 +15,9 @@ import { createSettingsPanel, type SettingsPanelHandle } from './settings-panel'
 /**
  * 脚本的界面外壳。
  *
- * UI 只在真正需要时创建：默认显示悬浮按钮，所以启动时会建一个；用户关掉悬浮按钮后
- * 只有打开菜单才创建。面板在第一次创建后复用，不重复 `mountUI()`。
+ * UI 只在真正需要时创建：默认显示悬浮按钮，所以启动时会建链接面板（浮标点开的那个）；
+ * 功能设置面板第一次打开菜单时才建——它在页面上不可见，启动时构建只会白占布局与样式。
+ * 面板在第一次创建后复用，不重复 `mountUI()`。
  */
 
 export type NotifyVariant = 'success' | 'warning' | 'error';
@@ -50,12 +51,12 @@ interface Session {
   ui: UI;
   toast: ToastController;
   linkPanel: LinkPanelHandle;
-  settingsPanel: SettingsPanelHandle;
   launcher: LauncherHandle | null;
 }
 
 export function createApp(options: AppOptions): AppHandle {
   let session: Session | null = null;
+  let settingsPanel: SettingsPanelHandle | null = null;
 
   const notify = (message: string, variant: NotifyVariant): void => {
     // 面板里的操作都发生在 UI 创建之后；这里只是防御，不让提示缺失变成异常。
@@ -96,23 +97,30 @@ export function createApp(options: AppOptions): AppHandle {
       copy: options.copy,
       notify,
     });
-    const settingsPanel = createSettingsPanel({
-      ui,
+    session = { ui, toast, linkPanel, launcher: null };
+    return session;
+  };
+
+  const ensureSettings = (): SettingsPanelHandle => {
+    if (settingsPanel) return settingsPanel;
+    const current = ensure();
+    settingsPanel = createSettingsPanel({
+      ui: current.ui,
       getSettings: options.getSettings,
       updateSettings: options.updateSettings,
       onFloatButtonChange: syncLauncher,
     });
-    session = { ui, toast, linkPanel, settingsPanel, launcher: null };
-    return session;
+    return settingsPanel;
   };
 
   return {
     syncLauncher,
     openLinks: () => ensure().linkPanel.open(),
-    openSettings: () => ensure().settingsPanel.open(),
+    openSettings: () => ensureSettings().open(),
     destroy() {
       session?.ui.destroy();
       session = null;
+      settingsPanel = null;
     },
   };
 }

@@ -35,6 +35,19 @@
 
 状态变化时同步更新本表与目标脚本的 `README.md`。四个脚本都已迁移，`legacy/` 只做对照，不再作为发布来源。
 
+## 项目级技能
+
+`.omp/skills/` 下是按 omp 原生规范安装、并按本仓库规则适配过的技能（只在项目内生效）：
+
+| 技能 | 调用 | 用途 |
+| --- | --- | --- |
+| `improve-codebase-architecture` | `/skill:improve-codebase-architecture` | 扫描架构摩擦，生成可视化报告后再讨论方案 |
+| `retro` | `/skill:retro` | 会话复盘，把能自动拦住的问题变成检查 |
+| `diagnosing-bugs` | 自动（说「诊断 / 调试」时） | 先建能变红的复现回路，再定位原因 |
+| `writing-for-agents` | 自动（写 `AGENTS.md`、`docs/` 或技能时） | 面向 Agent 的文档写法 |
+
+各技能 `SKILL.md` 顶部的「项目适配」段优先于技能原文；与 `AGENTS.md` 冲突时以 `AGENTS.md` 为准。
+
 ## 写作规则
 
 1. **只写当前事实**：不写方案演进、工期估算、评审过程；这些内容留在提交信息或 git 历史里。
@@ -55,3 +68,4 @@
 | 改迁移步骤或验收方式 | `migration-guide.md` |
 | 改发布流程、权限或回滚方式 | `release-automation.md`、`AGENTS.md` 第 10 节 |
 | 改 UI 组件或 Token | `packages/userscript-ui/AGENTS.md` 与该包的文档；`bun run verify` 里已含 UI 的 safety / token 检查 |
+| 增删项目级技能 | 本页「项目级技能」表；技能自身的 `SKILL.md` |

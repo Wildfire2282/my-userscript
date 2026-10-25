@@ -6,6 +6,7 @@ import { createSection } from '../components/section';
 import { createSelect, type SelectHandle, type SelectOption } from '../components/select';
 import { createSwitch, type SwitchHandle } from '../components/switch';
 import type { FormControl } from '../core/form';
+import { createScope } from '../core/lifecycle';
 import type { UI } from '../core/mount';
 
 /**
@@ -123,8 +124,10 @@ export function createSettingsForm<T extends object>(
     position: 'center',
     closeLabel: `关闭${schema.title}`,
   });
+  const scope = createScope(ui);
 
   const fields: Record<string, SettingsFormField> = {};
+  const footerButtons: Array<{ destroy(): void }> = [];
   // 只为“隐藏 → 显示”跳变清一次旧错误；每次刷新都清会让保存失败的提示一碰别的控件就消失。
   const shownBefore: Record<string, boolean> = {};
 
@@ -192,14 +195,20 @@ export function createSettingsForm<T extends object>(
 
   // 控件变化：immediate 直接保存，draft 只重跑显隐。
   for (const [key, { control }] of Object.entries(fields)) {
-    control.input.addEventListener('change', () => {
-      if (options.mode === 'immediate') {
-        options.onChange?.({ [key]: (readValues() as Record<string, unknown>)[key] } as Partial<T>);
-      }
-      refresh();
-    });
+    control.input.addEventListener(
+      'change',
+      () => {
+        if (options.mode === 'immediate') {
+          options.onChange?.({
+            [key]: (readValues() as Record<string, unknown>)[key],
+          } as Partial<T>);
+        }
+        refresh();
+      },
+      { signal: scope.signal },
+    );
     if (control.input instanceof HTMLInputElement && control.input.type !== 'checkbox') {
-      control.input.addEventListener('input', () => refresh());
+      control.input.addEventListener('input', () => refresh(), { signal: scope.signal });
     }
   }
 
@@ -257,6 +266,7 @@ export function createSettingsForm<T extends object>(
         panel.close();
       },
     });
+    footerButtons.push(cancel, save);
     panel.setFooter([cancel.el, save.el]);
   } else {
     const closeButton = createButton(ui, {
@@ -264,8 +274,18 @@ export function createSettingsForm<T extends object>(
       variant: 'secondary',
       onClick: () => panel.close(),
     });
+    footerButtons.push(closeButton);
     panel.setFooter([closeButton.el]);
   }
+
+  const teardown = () => {
+    for (const { control, field } of Object.values(fields)) {
+      field.destroy();
+      control.destroy?.();
+    }
+    for (const button of footerButtons) button.destroy();
+  };
+  scope.onDestroy(teardown);
 
   return {
     panel,
@@ -278,6 +298,9 @@ export function createSettingsForm<T extends object>(
     },
     close: () => panel.close(),
     isOpen: () => panel.isOpen(),
-    destroy: () => panel.destroy(),
+    destroy: () => {
+      panel.destroy();
+      scope.destroy();
+    },
   };
 }

@@ -196,4 +196,32 @@ describe('createSettingsForm', () => {
     expect(onSubmit).toHaveBeenCalledWith({ enabled: false, name: '' });
     form.destroy();
   });
+
+  it('form.destroy() 后控件变化不再触发回调', () => {
+    const host = setup();
+    const onChange = vi.fn();
+    const form = createSettingsForm<Values>(
+      host,
+      {
+        title: '功能设置',
+        sections: [
+          {
+            title: '常规',
+            fields: [{ key: 'enabled', type: 'switch', label: '启用' }],
+          },
+        ],
+      },
+      { mode: 'immediate', get: () => ({ enabled: true, name: 'a' }), onChange },
+    );
+    form.open();
+    const input = form.fields['enabled']?.control.input;
+    if (!(input instanceof HTMLInputElement)) throw new Error('switch 控件应为 checkbox');
+    input.checked = false;
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+    expect(onChange).toHaveBeenCalledTimes(1);
+
+    form.destroy();
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+    expect(onChange).toHaveBeenCalledTimes(1);
+  });
 });

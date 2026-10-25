@@ -5,6 +5,8 @@
 export interface FormControl<E extends HTMLElement = HTMLElement, I extends HTMLElement = E> {
   readonly el: E;
   readonly input: I;
+  /** 组件的清理入口；自定义控件可以不提供。 */
+  readonly destroy?: () => void;
 }
 
 /**

@@ -17,28 +17,3 @@ export interface ViewportSize {
   width: number;
   height: number;
 }
-
-export interface ClampBox {
-  left: number;
-  top: number;
-  width: number;
-  height: number;
-}
-
-/**
- * 把矩形收回视口内，留 `margin` 边距。
- *
- * @param box 矩形左上与尺寸
- * @param viewport 视口尺寸
- * @param margin 四周边距；默认 0
- */
-export function clampToViewport(
-  box: ClampBox,
-  viewport: ViewportSize,
-  margin = 0,
-): { left: number; top: number } {
-  return {
-    left: clamp(box.left, margin, viewport.width - box.width - margin),
-    top: clamp(box.top, margin, viewport.height - box.height - margin),
-  };
-}

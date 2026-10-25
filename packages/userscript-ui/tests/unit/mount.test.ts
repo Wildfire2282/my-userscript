@@ -1,8 +1,21 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { mountUI } from '../../src/index';
+import { isOwnUiNode, mountUI } from '../../src/index';
 
 afterEach(() => {
   document.querySelectorAll('userscript-ui-root').forEach((host) => host.remove());
+});
+
+describe('isOwnUiNode', () => {
+  it('recognizes nodes inside the mounted root and its light DOM', () => {
+    const ui = mountUI({ theme: 'light' });
+    const inside = document.createElement('p');
+    ui.container.append(inside);
+
+    expect(isOwnUiNode(inside)).toBe(true);
+    expect(isOwnUiNode(ui.container)).toBe(true);
+    expect(isOwnUiNode(document.body)).toBe(false);
+    expect(isOwnUiNode(null)).toBe(false);
+  });
 });
 
 describe('mountUI', () => {

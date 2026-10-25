@@ -4,9 +4,10 @@
  * 目录分组（见 docs/kit.md 第 2 节）：
  * - `host/`：GM 适配、存储、剪贴板、设置仓库
  * - `settings/`：设置定义（第 2 步）
- * - `runtime/`：启动、菜单、frame、日志（第 3 步）
+ * - `runtime/`：启动、安装锁、站点标识、日志
  * - `dom/`：真实事件目标、可编辑判定、视口夹紧（第 6 步）
- * - `url/`：URL 黑名单与解析（第 6 步）
+ *
+ * URL 解析与黑名单只有一处用，留在脚本内。
  *
  * 规则：子目录内部可以深导入（如 `@shared/host/gm`），跨脚本只从门面拿
  * 已确认多脚本共用的符号；未迁移的分组不建空模块。
@@ -26,8 +27,8 @@ export type {
 } from './settings/define-settings';
 export { createLogger, guard } from './runtime/logger';
 export type { Logger } from './runtime/logger';
-export { createUserscript, installOnce, siteKey } from './runtime/boot';
+export { createUserscript, siteKey } from './runtime/boot';
 export type { MenuItem, UserscriptKit, UserscriptOptions } from './runtime/boot';
 export { deepActiveElement, isEditableField, isInsideEditable } from './dom/editable';
-export { clamp, clampToViewport } from './dom/position';
-export type { ClampBox, ViewportSize } from './dom/position';
+export { clamp } from './dom/position';
+export type { ViewportSize } from './dom/position';

@@ -37,10 +37,25 @@ export interface UI {
 
 const HOST_TAG = 'userscript-ui-root';
 const DEFAULT_Z_INDEX = 2_147_483_000;
+const ROOT_ATTRIBUTE = 'data-ds-root';
+
+/**
+ * 节点是否来自本仓库脚本自己的界面。
+ *
+ * 脚本要判断鼠标、选区、扫描结果是否落在自己的面板里（否则会把自己的按钮
+ * 当页面内容处理），而宿主标记只由这里定义，所以判定也留在这里。
+ */
+export function isOwnUiNode(node: Node | null): boolean {
+  if (!node) return false;
+  const element = node instanceof Element ? node : node.parentElement;
+  if (element?.closest(`[${ROOT_ATTRIBUTE}]`)) return true;
+  const root = node.getRootNode();
+  return root instanceof ShadowRoot && root.host?.hasAttribute(ROOT_ATTRIBUTE) === true;
+}
 
 export function mountUI(options: UIOptions = {}): UI {
   const host = document.createElement(HOST_TAG);
-  host.setAttribute('data-ds-root', '');
+  host.setAttribute(ROOT_ATTRIBUTE, '');
 
   // Inline important rules keep the host's own box stable even when the page
   // uses aggressive global selectors such as `* { ... !important }`.

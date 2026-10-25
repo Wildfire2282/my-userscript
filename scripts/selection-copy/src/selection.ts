@@ -1,7 +1,6 @@
 import type { SelectionSnapshot } from './gesture';
 import { deepActiveElement, isInsideEditable } from '@shared';
-
-export { isInsideEditable };
+import { isOwnUiNode } from '@ui';
 
 /**
  * 选区与焦点相关的 DOM 读取。
@@ -34,20 +33,6 @@ export function isTextControl(
   element: Element | null,
 ): element is HTMLInputElement | HTMLTextAreaElement {
   return element?.localName === 'input' || element?.localName === 'textarea';
-}
-
-/**
- * 元素是不是本脚本（或多个脚本共用的界面）自己的 Shadow DOM。
- *
- * 在设置面板里选中说明文字不该触发复制，否则用户的剪贴板会被自己刚读的文案覆盖。
- * `data-ds-root` 是 `@ui` 挂载宿主的固定标记，跨脚本也成立。
- */
-export function isInsideOwnUi(node: Node | null): boolean {
-  if (!node) return false;
-  const element = elementOf(node);
-  if (element?.closest('[data-ds-root]')) return true;
-  const root = node.getRootNode();
-  return root instanceof ShadowRoot && root.host?.hasAttribute('data-ds-root') === true;
 }
 
 /** 焦点可能落在 Shadow Root 内部，`document.activeElement` 只会给出宿主元素。 */
@@ -129,9 +114,9 @@ export function isDisabledTarget(
 ): boolean {
   // 自己的界面永远不参与：面板里的说明文字被选中时不能覆盖剪贴板。
   if (
-    isInsideOwnUi(target instanceof Node ? target : null) ||
-    isInsideOwnUi(selection?.anchorNode ?? null) ||
-    isInsideOwnUi(selection?.focusNode ?? null)
+    isOwnUiNode(target instanceof Node ? target : null) ||
+    isOwnUiNode(selection?.anchorNode ?? null) ||
+    isOwnUiNode(selection?.focusNode ?? null)
   ) {
     return true;
   }

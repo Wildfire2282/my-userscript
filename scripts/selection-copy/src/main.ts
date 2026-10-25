@@ -1,7 +1,7 @@
-import { createClipboard, createGmApi, createUserscript } from '@shared';
+import { createClipboard, createGmApi, createUserscript, siteKey } from '@shared';
 import { createCopyAction } from './features/copy-action';
 import { installCopySensor } from './features/sensor';
-import { createSettingsStore, topSiteKey } from './settings';
+import { createSettingsStore } from './settings';
 import { createUiHost } from './ui/app';
 import { createSettingsPanel, type SettingsPanelHandle } from './ui/settings-panel';
 
@@ -25,7 +25,7 @@ createUserscript(createGmApi(), {
   topFrameOnly: false,
   onReady: (kit) => {
     const store = createSettingsStore(kit.gm);
-    const site = topSiteKey(window);
+    const site = siteKey(window);
     const app = createUiHost();
 
     const copy = createCopyAction({

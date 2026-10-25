@@ -1,4 +1,4 @@
-import { clamp } from '@shared';
+import { clamp, type ViewportSize } from '@shared';
 import { INDICATOR, type CopyFeedbackVariant } from '../config';
 import type { AnchorBox } from '../features/geometry';
 
@@ -8,11 +8,6 @@ import type { AnchorBox } from '../features/geometry';
  * 位置计算是纯函数，方便在 Vitest 里覆盖贴边、贴顶翻转、选区已滚出视口这些边界；
  * 实际的显示与淡出由 `createIndicator` 负责。
  */
-
-export interface Viewport {
-  width: number;
-  height: number;
-}
 
 export interface IndicatorPoint {
   left: number;
@@ -34,7 +29,7 @@ export interface IndicatorPoint {
 export function indicatorPosition(
   point: { x: number; y: number } | null,
   rect: AnchorBox | null,
-  viewport: Viewport,
+  viewport: ViewportSize,
   variant: CopyFeedbackVariant = 'success',
 ): IndicatorPoint {
   const width = INDICATOR.widthPx[variant];

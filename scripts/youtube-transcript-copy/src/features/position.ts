@@ -5,16 +5,11 @@
  * 换分辨率或改窗口大小时只需要重新夹紧，不需要知道页面布局。
  */
 
-import { clamp } from '@shared';
+import { clamp, type ViewportSize } from '@shared';
 
 export interface ButtonPosition {
   right: number;
   top: number;
-}
-
-export interface ViewportSize {
-  width: number;
-  height: number;
 }
 
 /** 按钮用的是 `@ui` 的 `size: 'lg'` 图标按钮，等于 `--ds-control-h-lg`；夹紧时按它留边。 */

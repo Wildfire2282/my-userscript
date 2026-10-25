@@ -1,3 +1,4 @@
+import { isOwnUiNode } from '@ui';
 import type { Settings } from '../settings';
 import {
   decideDrag,
@@ -34,16 +35,6 @@ const CLICK_SWALLOW_MS = 400;
 function targetOf(event: Event): Element | null {
   const target = realTarget(event);
   return target instanceof Element ? target : null;
-}
-
-/**
- * 是否来自脚本自己的界面（@ui 挂在 shadow root 里）。
- *
- * 在设置面板里拖选说明文字只是想复制，不该变成搜索；输入框另有 `isInputElement` 拦。
- */
-function isOwnUi(node: Element | null): boolean {
-  const root = node?.getRootNode();
-  return root instanceof ShadowRoot && root.host.matches('userscript-ui-root[data-ds-root]');
 }
 
 export function installDragSensor(deps: DragSensorDeps): DragSensor {
@@ -107,7 +98,7 @@ export function installDragSensor(deps: DragSensorDeps): DragSensor {
   const handleDragStart = (event: DragEvent) => {
     reset();
     if (event.defaultPrevented) return;
-    if (isOwnUi(targetOf(event))) return;
+    if (isOwnUiNode(targetOf(event))) return;
     // 多选、系统级手势留给浏览器；Shift 不拦，它表示“这一次前台打开”。
     if (event.ctrlKey || event.metaKey || event.altKey) return;
     // 输入框保留原生“移动文字”拖拽。

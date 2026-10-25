@@ -1,8 +1,6 @@
+import { isOwnUiNode } from '@ui';
 import { collectLinks, type LinkCandidate, type LinkItem } from '../links';
 import { bestTitle } from './titles';
-
-/** 本脚本自己的界面宿主：扫进去只会把面板里的按钮和目标当链接。 */
-const OWN_UI_SELECTOR = 'userscript-ui-root, [data-ds-root]';
 
 /**
  * 递归收 `open` 影子节点里的链接：组件化页面常把弹窗、播放器里的 `<a>` 藏在这里。
@@ -15,7 +13,8 @@ function collectAnchors(root: ParentNode, found: HTMLAnchorElement[] = []): HTML
   const scope = root as Document | DocumentFragment | Element;
   if (typeof scope.querySelectorAll !== 'function') return found;
   for (const element of scope.querySelectorAll('*')) {
-    if (element.matches(OWN_UI_SELECTOR)) continue;
+    // 自己的界面：扫进去只会把面板里的按钮和目标当链接。
+    if (isOwnUiNode(element)) continue;
     if (element.tagName === 'A' && element.hasAttribute('href')) {
       found.push(element as HTMLAnchorElement);
     }

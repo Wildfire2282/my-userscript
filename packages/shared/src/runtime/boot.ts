@@ -19,7 +19,6 @@ export function installOnce(attribute: string): boolean {
  *
  * 同域 iframe 里 `window.top.location` 可读；跨域读顶层会抛错，回退读
  * `location.ancestorOrigins`（顶层在最后），再回退本帧。无主机名用 protocol。
- * selection-copy 的 `topSiteKey` 语义与此一致，第 6 步搬纯函数时可合。
  *
  * @param win 当前 frame 的 window；测试里传假对象
  */

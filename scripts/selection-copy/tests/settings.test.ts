@@ -4,10 +4,8 @@ import {
   DEFAULT_SETTINGS,
   SETTINGS_KEY,
   createSettingsStore,
-  frameSiteKey,
   isEnabledOn,
   normalizeSettings,
-  siteKey,
   siteLabel,
   withSiteEnabled,
 } from '../src/settings';
@@ -67,47 +65,9 @@ describe('normalizeSettings', () => {
 });
 
 describe('站点标识', () => {
-  it('HTTP(S) 用主机名并转小写', () => {
-    expect(siteKey({ hostname: 'Example.COM', protocol: 'https:' })).toBe('example.com');
-  });
-
-  it('没有主机名的本地页面用协议名', () => {
-    expect(siteKey({ hostname: '', protocol: 'file:' })).toBe('file');
-    expect(siteKey({ hostname: '', protocol: '' })).toBe('unknown');
-  });
-
   it('面板里把 file 显示成可读名称', () => {
     expect(siteLabel('file')).toBe('本机文件');
     expect(siteLabel('example.com')).toBe('example.com');
-  });
-});
-
-describe('顶层站点', () => {
-  const self = { hostname: 'frame.example', protocol: 'https:' };
-
-  it('同源 frame 直接用顶层页面的主机名', () => {
-    expect(
-      frameSiteKey({
-        self,
-        top: { hostname: 'www.example.com', protocol: 'https:' },
-        ancestorOrigins: ['https://www.example.com'],
-      }),
-    ).toBe('www.example.com');
-  });
-
-  it('跨域时用 ancestorOrigins 里最顶层的那一项', () => {
-    expect(
-      frameSiteKey({
-        self,
-        top: null,
-        ancestorOrigins: ['https://parent.example', 'https://www.example.com'],
-      }),
-    ).toBe('www.example.com');
-  });
-
-  it('来源不可解析时退回本帧主机名', () => {
-    expect(frameSiteKey({ self, top: null, ancestorOrigins: ['null'] })).toBe('frame.example');
-    expect(frameSiteKey({ self, top: null, ancestorOrigins: [] })).toBe('frame.example');
   });
 });
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { deepActiveElement, isEditableField, isInsideEditable } from '../src/dom/editable';
-import { clamp, clampToViewport } from '../src/dom/position';
+import { clamp } from '../src/dom/position';
 
 describe('isEditableField', () => {
   it('表单控件本身算可编辑', () => {
@@ -66,17 +66,5 @@ describe('clamp', () => {
     expect(clamp(-1, 0, 10)).toBe(0);
     expect(clamp(11, 0, 10)).toBe(10);
     expect(clamp(5, 8, 3)).toBe(8);
-  });
-
-  it('clampToViewport 留边距', () => {
-    expect(
-      clampToViewport({ left: -5, top: -5, width: 36, height: 36 }, { width: 100, height: 100 }),
-    ).toEqual({
-      left: 0,
-      top: 0,
-    });
-    expect(
-      clampToViewport({ left: 90, top: 90, width: 36, height: 36 }, { width: 100, height: 100 }, 8),
-    ).toEqual({ left: 56, top: 56 });
   });
 });

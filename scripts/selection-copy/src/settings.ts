@@ -64,24 +64,6 @@ export function normalizeSettings(stored: unknown): Settings {
   };
 }
 
-/** 站点标识需要的最小 Location 形状，方便测试传入假对象。 */
-export interface SiteLocation {
-  hostname: string;
-  protocol: string;
-}
-
-/**
- * 站点标识：HTTP(S) 用主机名，`file:` 等没有主机名的页面用协议名。
- *
- * 不用完整 origin：同一站点在 http / https 下应共用“本站暂停”的选择。
- */
-export function siteKey(location: SiteLocation): string {
-  const host = location.hostname.trim().toLowerCase();
-  if (host !== '') return host;
-  const protocol = location.protocol.replace(/:$/, '').toLowerCase();
-  return protocol === '' ? 'unknown' : protocol;
-}
-
 /** 面板里展示的站点名；`file` 不是真实主机名，换成中文说明。 */
 export function siteLabel(site: string): string {
   return site === 'file' ? '本机文件' : site;
@@ -96,66 +78,6 @@ export function isEnabledOn(settings: Settings, site: string): boolean {
 export function withSiteEnabled(settings: Settings, site: string, enabled: boolean): Settings {
   const others = settings.disabledSites.filter((item) => item !== site);
   return { ...settings, disabledSites: enabled ? others : [...others, site] };
-}
-
-/** 计算站点时需要知道的 frame 关系；由 `topSiteKey` 从真实 window 提取。 */
-export interface FrameSiteContext {
-  self: SiteLocation;
-  /** 同源时是顶层页面的位置；跨域读不到时为 null。 */
-  top: SiteLocation | null;
-  /** `location.ancestorOrigins`，顺序从最近的父级到顶层。 */
-  ancestorOrigins: readonly string[];
-}
-
-/**
- * 顶层页面决定“当前网站”。
- *
- * 用户在面板里看到的是地址栏里的站点，不是某个广告 / 播放器等 iframe 的域名；
- * 暂停顶层站点后，同页 iframe 也应当停止复制。优先读同源 `top.location`，
- * 跨域时退到 Chromium / WebKit 的 `ancestorOrigins`，再退到本帧。
- */
-export function frameSiteKey(context: FrameSiteContext): string {
-  if (context.top) return siteKey(context.top);
-  for (let index = context.ancestorOrigins.length - 1; index >= 0; index -= 1) {
-    const origin = context.ancestorOrigins[index];
-    if (!origin) continue;
-    try {
-      return siteKey(new URL(origin));
-    } catch {
-      // 不透明来源（sandbox / data:）解析不了，继续看下一个。
-    }
-  }
-  return siteKey(context.self);
-}
-
-function readAncestorOrigins(location: Location): string[] {
-  const origins = (location as Location & { ancestorOrigins?: DOMStringList }).ancestorOrigins;
-  if (!origins) return [];
-  const list: string[] = [];
-  for (let index = 0; index < origins.length; index += 1) {
-    const value = origins.item(index);
-    if (value) list.push(value);
-  }
-  return list;
-}
-
-/** 当前 frame 所属的站点；顶层页面就是它自己。 */
-export function topSiteKey(win: Window): string {
-  if (win.top === win) return siteKey(win.location);
-
-  let top: SiteLocation | null = null;
-  try {
-    const location = win.top?.location;
-    if (location) top = { hostname: location.hostname, protocol: location.protocol };
-  } catch {
-    // 跨域：top.location 不可读，改用 ancestorOrigins。
-  }
-
-  return frameSiteKey({
-    self: win.location,
-    top,
-    ancestorOrigins: readAncestorOrigins(win.location),
-  });
 }
 
 /** 设置的读取与保存：每次读取都看存储，iframe 与其它标签页的改动立即生效。 */

@@ -1,7 +1,5 @@
 import { isEditableField } from '@shared';
 
-export { isEditableField };
-
 /**
  * 事件发生处最近的可拖动祖先（`draggable="true"`）。
  *

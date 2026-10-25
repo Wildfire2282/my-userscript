@@ -5,8 +5,6 @@ import {
   getActiveElement,
   getActiveTextControl,
   isDisabledTarget,
-  isInsideEditable,
-  isInsideOwnUi,
   isTextControl,
   readSelectionText,
   readTextControlText,
@@ -35,35 +33,6 @@ describe('isTextControl', () => {
     expect(isTextControl(document.createElement('textarea'))).toBe(true);
     expect(isTextControl(document.createElement('div'))).toBe(false);
     expect(isTextControl(null)).toBe(false);
-  });
-});
-
-describe('isInsideEditable', () => {
-  beforeEach(() => {
-    document.body.replaceChildren();
-  });
-
-  it('可编辑区域自身与后代都算在内', () => {
-    const editor = document.createElement('div');
-    editor.setAttribute('contenteditable', 'true');
-    const paragraph = document.createElement('p');
-    editor.appendChild(paragraph);
-    document.body.appendChild(editor);
-    expect(isInsideEditable(editor)).toBe(true);
-    expect(isInsideEditable(paragraph)).toBe(true);
-  });
-
-  it('普通段落不算可编辑', () => {
-    const paragraph = document.createElement('p');
-    document.body.appendChild(paragraph);
-    expect(isInsideEditable(paragraph)).toBe(false);
-  });
-
-  it('contenteditable="false" 自身不算可编辑', () => {
-    const paragraph = document.createElement('p');
-    paragraph.setAttribute('contenteditable', 'false');
-    document.body.appendChild(paragraph);
-    expect(isInsideEditable(paragraph)).toBe(false);
   });
 });
 
@@ -223,7 +192,6 @@ describe('门控', () => {
     range.selectNodeContents(paragraph);
     window.getSelection()?.addRange(range);
 
-    expect(isInsideOwnUi(paragraph)).toBe(true);
     expect(isDisabledTarget(window.getSelection(), paragraph, null)).toBe(true);
   });
 

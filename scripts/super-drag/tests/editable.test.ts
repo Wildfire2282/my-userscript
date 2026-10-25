@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { beforeEach, describe, expect, it } from 'vitest';
-import { draggableHostOf, isEditableField, isInputElement } from '../src/features/editable';
+import { draggableHostOf, isInputElement } from '../src/features/editable';
 
 beforeEach(() => {
   document.body.replaceChildren();
@@ -18,29 +18,6 @@ function dispatchedOn(el: Element): boolean {
   el.dispatchEvent(new MouseEvent('click', { bubbles: true }));
   return captured.value;
 }
-
-describe('isEditableField', () => {
-  it('表单控件为可编辑', () => {
-    for (const tag of ['input', 'textarea', 'select']) {
-      expect(isEditableField(document.createElement(tag))).toBe(true);
-    }
-  });
-
-  it('contenteditable 与 role=textbox 为可编辑', () => {
-    const editable = document.createElement('div');
-    editable.setAttribute('contenteditable', 'true');
-    expect(isEditableField(editable)).toBe(true);
-
-    const textbox = document.createElement('div');
-    textbox.setAttribute('role', 'textbox');
-    expect(isEditableField(textbox)).toBe(true);
-  });
-
-  it('普通元素与空值不是可编辑', () => {
-    expect(isEditableField(document.createElement('div'))).toBe(false);
-    expect(isEditableField(null)).toBe(false);
-  });
-});
 
 describe('isInputElement', () => {
   it('输入框自身的拖拽不接管', () => {

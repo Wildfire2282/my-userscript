@@ -2,15 +2,21 @@ import {
   createLauncher,
   createToast,
   createUiHost,
+  icon,
   type LauncherHandle,
   type PanelHandle,
   type ToastController,
   type UI,
 } from '@ui';
 import type { Settings } from '../settings';
-import { linkIcon } from './icons';
 import { createLinkPanel, type LinkPanelHandle } from './link-panel';
 import { createSettingsPanel, type SettingsPanelHandle } from './settings-panel';
+
+/** 悬浮按钮的链接图标；线条规则与 `@ui` 内置图标一致。 */
+const LINK_ICON_PATHS = [
+  'M10 13a5 5 0 0 0 7.07 0l2.12-2.12a5 5 0 0 0-7.07-7.07L11 4',
+  'M14 11a5 5 0 0 0-7.07 0L4.81 13.12a5 5 0 0 0 7.07 7.07L13 20',
+];
 
 /**
  * 脚本的界面外壳。
@@ -72,7 +78,7 @@ export function createApp(options: AppOptions): AppHandle {
       label: '打开链接面板',
       closeLabel: '关闭链接面板',
       panel: launcherPanel,
-      icon: linkIcon(),
+      icon: icon(LINK_ICON_PATHS, 18),
     });
     // 链接面板居中显示；Launcher 默认会把面板摆到自己的角落。
     current.linkPanel.panel.setPosition('center');

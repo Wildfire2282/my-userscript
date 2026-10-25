@@ -15,7 +15,8 @@ function collectAnchors(root: ParentNode, found: HTMLAnchorElement[] = []): HTML
   for (const element of scope.querySelectorAll('*')) {
     // 自己的界面：扫进去只会把面板里的按钮和目标当链接。
     if (isOwnUiNode(element)) continue;
-    if (element.tagName === 'A' && element.hasAttribute('href')) {
+    // localName 在 HTML / SVG 里都是小写；SVG 的 tagName 可能不是 'A'。
+    if (element.localName === 'a' && element.hasAttribute('href')) {
       found.push(element as HTMLAnchorElement);
     }
     if (element.shadowRoot) collectAnchors(element.shadowRoot, found);

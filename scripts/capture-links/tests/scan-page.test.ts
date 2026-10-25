@@ -87,6 +87,19 @@ describe('scanLinks', () => {
     ]);
   });
 
+  it('SVG 里的链接也能扫到', () => {
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    const link = document.createElementNS('http://www.w3.org/2000/svg', 'a');
+    link.setAttribute('href', '/svg-link');
+    link.textContent = 'SVG 链接';
+    svg.appendChild(link);
+    document.body.appendChild(svg);
+
+    expect(scanLinks(document, BASE).map((item) => [item.url, item.title])).toEqual([
+      ['https://example.com/svg-link', 'SVG 链接'],
+    ]);
+  });
+
   it('不扫描自己界面里的链接', () => {
     addLink('/page', '页面链接');
     const host = document.createElement('div');

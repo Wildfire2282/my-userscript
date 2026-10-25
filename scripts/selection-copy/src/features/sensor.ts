@@ -26,7 +26,9 @@ export function installCopySensor(options: CopySensorOptions): () => void {
     gesture = {
       startX: event.clientX,
       startY: event.clientY,
-      target: event.target,
+      // Shadow DOM 内的事件到 document 时 target 已被重定向成宿主；
+      // 记录真实节点，输入框门控与控件选区读取才拿得到内部 input。
+      target: event.composedPath()[0] ?? event.target,
       selection: snapshotSelection(doc.getSelection()),
     };
   };

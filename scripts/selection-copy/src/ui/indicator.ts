@@ -52,16 +52,12 @@ export function createIndicator(ui: UI): IndicatorHandle {
   };
 
   const show = ({ variant, rect, point: cursor }: CopyFeedback): void => {
-    const at = indicatorPosition(
-      cursor,
-      rect,
-      // 贴边判断用布局视口，避免标签压到经典滚动条下面。
-      {
-        width: document.documentElement.clientWidth,
-        height: document.documentElement.clientHeight,
-      },
-      variant,
-    );
+    // visualViewport 排除滚动条，也不会在 quirks 模式把文档高度当成视口高度。
+    const viewport = {
+      width: window.visualViewport?.width ?? window.innerWidth,
+      height: window.visualViewport?.height ?? window.innerHeight,
+    };
+    const at = indicatorPosition(cursor, rect, viewport, variant);
     const current = ++token;
     clearTimers();
 

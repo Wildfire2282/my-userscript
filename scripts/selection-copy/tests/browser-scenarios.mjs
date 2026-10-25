@@ -32,9 +32,21 @@ export function helpers() {
     };
   };
 
+  const shadowLinePoints = (startDx, endDx) => {
+    const input = document.querySelector('#shadow-host')?.shadowRoot?.querySelector('input');
+    if (!input) throw new Error('Shadow 输入框缺失');
+    const rect = input.getBoundingClientRect();
+    const y = Math.round(rect.top + rect.height / 2);
+    return {
+      start: { x: Math.round(rect.left + startDx), y },
+      end: { x: Math.round(rect.left + endDx), y },
+    };
+  };
+
   window.__page = {
     linePoints,
     point,
+    shadowLinePoints,
     selection: () => window.getSelection()?.toString().trim() ?? '',
     clipboard: () => window.__gm.clipboard.at(-1)?.text ?? '',
     writes: () => window.__gm.clipboard.length,
@@ -170,6 +182,30 @@ export const scenarios = [
       await ctx.wait(80);
       const writes = await ctx.evaluate(() => window.__page.writes());
       return { expected: '0', actual: String(writes) };
+    },
+  },
+  {
+    name: '打开输入框开关后，Shadow DOM 输入框里选中也能复制',
+    async run(ctx) {
+      const points = await ctx.evaluate(() => {
+        window.__gm.store['selection-copy:config.settings'] = {
+          copyInInputs: true,
+          copyInEditors: false,
+        };
+        return window.__page.shadowLinePoints(6, 140);
+      });
+      await ctx.input.drag(points.start, points.end);
+      await ctx.wait(80);
+      const state = await ctx.evaluate(() => ({
+        writes: window.__page.writes(),
+        text: window.__page.clipboard(),
+      }));
+      return {
+        expected: '1 次 / 剪贴板含 Shadow 文字',
+        actual: `${state.writes} 次 / ${
+          state.text.includes('Shadow') ? '剪贴板含 Shadow 文字' : `是「${state.text}」`
+        }`,
+      };
     },
   },
   {

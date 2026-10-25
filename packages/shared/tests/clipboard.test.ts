@@ -77,4 +77,35 @@ describe('createClipboard', () => {
       restoreSelection.mockRestore();
     }
   });
+
+  it('焦点在不支持选区的数字输入框时不抛错', async () => {
+    const input = document.createElement('input');
+    input.type = 'number';
+    input.value = '42';
+    document.body.appendChild(input);
+    input.focus();
+    Object.defineProperty(input, 'selectionStart', {
+      get() {
+        throw new Error('InvalidStateError');
+      },
+      configurable: true,
+    });
+    Object.defineProperty(input, 'selectionEnd', {
+      get() {
+        throw new Error('InvalidStateError');
+      },
+      configurable: true,
+    });
+
+    const command = vi.fn(() => true);
+    Object.defineProperty(document, 'execCommand', { value: command, configurable: true });
+    try {
+      const copy = createClipboard({ document });
+      await expect(copy.copy('新内容')).resolves.toBe(true);
+      expect(command).toHaveBeenCalledWith('copy');
+      expect(document.activeElement).toBe(input);
+    } finally {
+      Reflect.deleteProperty(document, 'execCommand');
+    }
+  });
 });

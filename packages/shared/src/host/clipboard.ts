@@ -58,9 +58,17 @@ function copyWithTextarea(document: Document | undefined, text: string): boolean
     active?.tagName === 'INPUT' || active?.tagName === 'TEXTAREA'
       ? (active as HTMLInputElement | HTMLTextAreaElement)
       : null;
-  const controlStart = control?.selectionStart;
-  const controlEnd = control?.selectionEnd;
-  const controlDirection = control?.selectionDirection;
+  let controlStart: number | null = null;
+  let controlEnd: number | null = null;
+  let controlDirection: 'forward' | 'backward' | 'none' | null = null;
+  try {
+    // number / email / date 等类型读取 selectionStart 会抛错；拿不到就跳过控件选区恢复。
+    controlStart = control?.selectionStart ?? null;
+    controlEnd = control?.selectionEnd ?? null;
+    controlDirection = control?.selectionDirection ?? null;
+  } catch {
+    // 不支持选区的控件：只恢复焦点与网页选区。
+  }
   const selection = document.getSelection();
   const anchor = selection?.anchorNode;
   const focus = selection?.focusNode;

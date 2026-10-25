@@ -45,8 +45,12 @@
 | `retro` | `/skill:retro` | 会话复盘，把能自动拦住的问题变成检查 |
 | `diagnosing-bugs` | 自动（说「诊断 / 调试」时） | 先建能变红的复现回路，再定位原因 |
 | `writing-for-agents` | 自动（写 `AGENTS.md`、`docs/` 或技能时） | 面向 Agent 的文档写法 |
+| `codebase-design` | 自动（设计模块接口时） | 深模块、接缝与测试面的共同词汇 |
+| `grilling` | 自动（要盘问方案 / 决策时） | 按设计树逐支问透 |
+| `domain-modeling` | 自动（梳理术语或决策记录时） | 维护领域词表与 ADR 格式 |
 
 技能内容与上游 [`mattpocock/skills`](https://github.com/mattpocock/skills) 仓库一致，不做本地修改；与 `AGENTS.md` 冲突时以 `AGENTS.md` 为准。
+后三个是 `improve-codebase-architecture` 原文调用的上游技能，为保证它完整可用而一并安装。
 
 ## 写作规则
 

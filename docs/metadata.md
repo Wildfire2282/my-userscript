@@ -111,7 +111,7 @@
 
 ## 6. 校验与发布
 
-`bun run verify:meta` 会校验：
+`bun run check:meta` 会校验：
 
 1. 必填字段齐全，单值字段不重复；
 2. `@namespace`、`@author`、`@license`、`@homepageURL`、`@supportURL`、`@source` 等于本文约定值；

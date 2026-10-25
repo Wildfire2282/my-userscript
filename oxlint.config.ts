@@ -56,6 +56,32 @@ export default defineConfig({
   ],
   overrides: [
     { files: ['tools/**/*.mjs', 'oxlint.config.ts'], env: { node: true } },
+    // 分层护栏：两个共享包互不依赖，脚本只从 @ui / @shared 取共享代码。
+    {
+      files: ['packages/shared/src/**/*.ts'],
+      rules: {
+        'no-restricted-imports': [
+          'error',
+          {
+            patterns: [{ group: ['@ui', '@ui/*'], message: '@shared 不得依赖 @ui' }],
+          },
+        ],
+      },
+    },
+    {
+      files: ['packages/userscript-ui/src/**/*.ts'],
+      rules: {
+        'no-restricted-imports': [
+          'error',
+          {
+            patterns: [
+              { group: ['@shared', '@shared/*'], message: '@ui 不得依赖 @shared' },
+              { group: ['@my-userscript/shared'], message: '@ui 不得依赖 @shared' },
+            ],
+          },
+        ],
+      },
+    },
     {
       files: [
         'scripts/*/src/**/*.ts',

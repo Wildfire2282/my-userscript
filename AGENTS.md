@@ -157,7 +157,7 @@
 | `@description` | 中文一句话，≤ 60 字，说清「在什么页面做什么」，句末不加句号 |
 | 包 `README.md` 标题 | 与 `@name` 一致 |
 
-完整字段、语言标记、GitHub 链接与字段顺序见 `docs/metadata.md`；`bun run verify:meta` 按该文档校验。
+完整字段、语言标记、GitHub 链接与字段顺序见 `docs/metadata.md`；`bun run check:meta` 按该文档校验。
 
 ### 6.3 文件与目录
 

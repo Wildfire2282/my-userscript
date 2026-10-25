@@ -7,10 +7,9 @@
 ```text
 src/
   host/       gm.ts  storage.ts  clipboard.ts  settings-store.ts
-  settings/   define-settings.ts（第 2 步）
-  runtime/    boot.ts  menu.ts  frame.ts  logger.ts（第 3 步）
-  dom/        target.ts  traverse.ts  position.ts（第 6 步）
-  url/        url.ts（第 6 步）
+  settings/   define-settings.ts
+  runtime/    boot.ts（启动、安装锁、siteKey）  logger.ts
+  dom/        editable.ts  position.ts
   index.ts    门面：只导出确认多脚本共用的符号
 ```
 

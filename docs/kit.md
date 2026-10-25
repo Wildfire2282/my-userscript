@@ -30,12 +30,11 @@
 packages/shared/src/            @shared = 套件运行时（无界面）
   host/       gm.ts  storage.ts  clipboard.ts  settings-store.ts
   settings/   define-settings.ts
-  runtime/    boot.ts  menu.ts  frame.ts  logger.ts
-  dom/        target.ts  traverse.ts  position.ts
-  url/        url.ts
-  index.ts    门面：只导出 createUserscript / defineSettings 与类型
+  runtime/    boot.ts（启动、安装锁、siteKey）  logger.ts
+  dom/        editable.ts  position.ts
+  index.ts    门面：只导出多脚本共用符号与类型
 packages/userscript-ui/src/     @ui = 表现层 + 界面编排
-  components/ 现有 27 个组件
+  components/ 现有 14 个组件
   core/       mount / lifecycle / labels / …
   patterns/   app-host.ts  settings-form.ts
 scripts/<slug>/src/             main.ts（接线）+ features/ + ui/
@@ -43,7 +42,7 @@ scripts/<slug>/src/             main.ts（接线）+ features/ + ui/
 
 规则：
 
-1. `@ui` 不依赖 `@shared`；`@shared` 不依赖 `@ui`。界面编排放 `@ui`，宿主与生命周期放 `@shared`，脚本自己接线。
+1. `@ui` 不依赖 `@shared`；`@shared` 不依赖 `@ui`。界面编排放 `@ui`，宿主与生命周期放 `@shared`，脚本自己接线。这两条边由 `oxlint.config.ts` 的 `no-restricted-imports` 拦截。
 2. 别名仍为 `@ui` / `@shared`，不做重命名：别名在 `tsconfig.json`、`tools/build.mjs`、`vitest.config.ts` 三处声明，重命名是零收益 churn。
 3. 套件模块在模块级不得有副作用（不写全局、不注册监听、不读存储），否则树摇失效。
 4. 脚本只导入实际使用的导出；套件不建「为将来预留」的空模块。
@@ -53,30 +52,27 @@ scripts/<slug>/src/             main.ts（接线）+ features/ + ui/
 
 | 模块 | 导出 | 消费者 | 语义 |
 | --- | --- | --- | --- |
-| `@ui` | `ZH_LABELS` | 4 | 中文文案预设，键覆盖 `UILabels` 全部 9 项（含 `operation`） |
+| `@ui` | `ZH_LABELS` / `isOwnUiNode` / `icon` | 4 / 3 / 1 | 中文文案预设（键覆盖 `UILabels` 全部 9 项）；界面宿主判定（`data-ds-root` 只有一处定义）；图标装配 |
 | `@shared/settings` | `defineSettings({ key, defaults, normalize? })` | 4 | 包装 `mergeDefaults` + `createSettingsStore`，返回 `get/update/reset/onChange`；`normalize` 仍由脚本提供 |
-| `@shared/runtime` | `createUserscript(options)` | 4 | 启动兜底、安装锁、frame 判断、菜单注册、页面级 `signal`、`pagehide` 清理 |
-| `@shared/runtime/frame` | `isTopFrame` / `siteKey` / `installOnce` | 3 | `siteKey` 取顶层 hostname；跨域回退 `ancestorOrigins`，再回退本帧；无 hostname 用 protocol |
+| `@shared/runtime` | `createUserscript(gmApi, options)` / `siteKey(win)` | 4 / 1 | 启动兜底、安装锁、frame 判断、菜单注册、页面级 `signal`、`pagehide` 清理；`siteKey` 取顶层 hostname，跨域回退 `ancestorOrigins`，再回退本帧 |
 | `@shared/runtime/logger` | `createLogger(slug)` / `guard(label, fn)` | 4 | 统一 `[slug]` 前缀与兜底 |
 | `@ui/patterns/app-host` | `createUiHost({ theme })` → `ensure/destroy` | 4 | 整页只 `mountUI()` 一次；Toast 由需要的脚本各自单例（统一引用会把 toast 拉进不用它的产物，+11KB）；面板懒建留在脚本 |
 | `@ui/patterns/settings-form` | `createSettingsForm(ui, schema, options)` | 3 | 声明式设置面板，见下方硬边界 |
 | `@shared/dom` | `isEditableField` / `isInsideEditable` / `deepActiveElement` | 2 | 单元素判定（super-drag 语义 + `plaintext-only`）与祖先链判定（selection-copy 全语义）并存；`realTarget` / `queryAllDeep` 各只有一处用，留脚本内 |
 | `@shared/url` | （未建） | 0 | `resolveUrl` / `extractUrlFromText` / `isImageUrl` 各只有一处用（准入要求两处）；`isBlockedScheme` 与 super-drag `isIgnorableHref` 的 `#` 语义不同，硬合并改行为；留脚本内 |
-| `@shared/dom/position` | `clamp(value, min, max)` / `clampToViewport(box, viewport, margin)` | 2 | `max < min` 时贴左上角 |
+| `@shared/dom/position` | `clamp(value, min, max)` / `ViewportSize` | 2 | `max < min` 时贴左上角；视口形状两个脚本共用 |
 
 `createUserscript` 契约：
 
 ```ts
-createUserscript<T>({
+createUserscript(gmApi: GmApi, {
   slug: string;
-  settings: SettingsDefinition<T>;
-  menus?: Array<{ label: string; run: () => void; topFrameOnly?: boolean }>;
-  topFrameOnly?: boolean;   // 默认 false：selection-copy 需要在每个 iframe 里运行
-  installLock?: boolean;    // 默认 true：documentElement 属性锁
-  runAt?: 'document-start' | 'document-end';  // 默认 document-end
-  onStart?: () => void | (() => void);        // 脚本执行时同步运行，可返回清理函数
-  onReady?: (kit) => void;                    // DOM 就绪后运行
-});
+  installLock?: string | false;  // 传属性名启用 documentElement 安装锁；省略或 false 不锁
+  topFrameOnly?: boolean;        // 默认 false：selection-copy 需要在每个 iframe 里运行
+  menus?: MenuItem[];            // 启动时注册；运行时也可用 kit.menu
+  onStart?: () => void | (() => void);  // 脚本执行时同步运行，可返回清理函数
+  onReady?: (kit: UserscriptKit) => void | (() => void);  // DOM 就绪后运行
+}): { destroy(): void };
 ```
 
 - `onStart` 同步执行，供需要抢在页面 JS 之前的行为（转写复制的网络钩子）使用。
@@ -126,7 +122,7 @@ createUserscript<T>({
 | DOM 交互 | `tests/*.test.ts` | 表单两种模式、动态显隐、校验错误、焦点与关闭 |
 | 真实浏览器 | `bun run test:browser` | 菜单 → 面板 → 保存 → 生效；selection-copy 的 iframe 用例；youtube 的 document-start 时序 |
 | 产物 | `bun run build` + 哨兵字符串 | 未用模块不入产物；体积不涨 |
-| 元数据 | `bun run verify:meta` | 授权与匹配地址零变化 |
+| 元数据 | `bun run check:meta` | 授权与匹配地址零变化 |
 
 ## 7 风险
 

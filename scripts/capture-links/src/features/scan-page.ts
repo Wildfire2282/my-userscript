@@ -13,13 +13,15 @@ function collectAnchors(root: ParentNode, found: HTMLAnchorElement[] = []): HTML
   const scope = root as Document | DocumentFragment | Element;
   if (typeof scope.querySelectorAll !== 'function') return found;
   for (const element of scope.querySelectorAll('*')) {
+    const isAnchor = element.localName === 'a' && element.hasAttribute('href');
+    const shadow = element.shadowRoot;
+    // 绝大多数元素既不是链接也没有影子树：先便宜地跳过，别对每个节点跑祖先判定。
+    if (!isAnchor && !shadow) continue;
     // 自己的界面：扫进去只会把面板里的按钮和目标当链接。
     if (isOwnUiNode(element)) continue;
     // localName 在 HTML / SVG 里都是小写；SVG 的 tagName 可能不是 'A'。
-    if (element.localName === 'a' && element.hasAttribute('href')) {
-      found.push(element as HTMLAnchorElement);
-    }
-    if (element.shadowRoot) collectAnchors(element.shadowRoot, found);
+    if (isAnchor) found.push(element as HTMLAnchorElement);
+    if (shadow) collectAnchors(shadow, found);
   }
   return found;
 }

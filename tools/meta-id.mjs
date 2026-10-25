@@ -18,3 +18,18 @@ export function scriptIdProblems(fields, expectedId, label) {
   }
   return problems;
 }
+
+/** 从 scripts.json 里取包对应的 Greasy Fork ID；清单缺失或形状不对时返回 null。 */
+export function idFromManifest(manifest, slug) {
+  const entries =
+    manifest && typeof manifest === 'object' && Array.isArray(manifest.scripts)
+      ? manifest.scripts
+      : [];
+  for (const entry of entries) {
+    if (!entry || typeof entry !== 'object') continue;
+    if (entry.package !== `scripts/${slug}`) continue;
+    if (entry.id === null || entry.id === undefined || String(entry.id).trim() === '') continue;
+    return String(entry.id);
+  }
+  return null;
+}

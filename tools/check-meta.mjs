@@ -20,7 +20,7 @@ import { access, readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { gmUsages } from './gm-usages.mjs';
-import { scriptIdProblems } from './meta-id.mjs';
+import { idFromManifest, scriptIdProblems } from './meta-id.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SCRIPTS_DIR = path.join(ROOT, 'scripts');
@@ -261,7 +261,7 @@ async function findLegacyMeta(dir) {
   return { file, text, fields: block ? parseMeta(block) : null };
 }
 
-async function checkPackage(slug) {
+async function checkPackage(slug, knownId = null) {
   const dir = path.join(SCRIPTS_DIR, slug);
   const problems = [];
   const notes = [];
@@ -281,7 +281,7 @@ async function checkPackage(slug) {
   const migrated = await hasEntry(dir);
   const source = await findSourceMeta(dir);
   const legacy = await findLegacyMeta(dir);
-  const legacyId = legacy ? (/^(\d+)-/.exec(path.basename(legacy.file))?.[1] ?? null) : null;
+  const legacyId = legacy ? (/^(\d+)-/.exec(path.basename(legacy.file))?.[1] ?? knownId) : knownId;
 
   if (!source) {
     problems.push('找不到 userscript.meta.ts / userscript.meta.js');
@@ -413,8 +413,18 @@ if (slugs.length === 0) {
 }
 
 let failed = 0;
+const knownIds = new Map();
+try {
+  const manifest = JSON.parse(await readFile(path.join(ROOT, 'scripts.json'), 'utf8'));
+  for (const slug of slugs) {
+    const id = idFromManifest(manifest, slug);
+    if (id) knownIds.set(slug, id);
+  }
+} catch {
+  // scripts.json 还没生成（首次同步前）：没有 legacy 的包无法核对 ID。
+}
 for (const slug of slugs) {
-  const result = await checkPackage(slug);
+  const result = await checkPackage(slug, knownIds.get(slug) ?? null);
   if (result.problems.length > 0) failed += 1;
   console.log(`${result.problems.length > 0 ? '失败' : '通过'} ${slug} @${result.version}`);
   for (const problem of result.problems) console.log(`  ✗ ${problem}`);

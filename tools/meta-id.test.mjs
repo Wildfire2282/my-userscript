@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { scriptIdProblems } from './meta-id.mjs';
+import { idFromManifest, scriptIdProblems } from './meta-id.mjs';
 
 function fields(download, update = download) {
   return new Map([
@@ -39,5 +39,26 @@ describe('scriptIdProblems', () => {
   it('没有可对照的 ID 或地址格式不认识时跳过', () => {
     expect(scriptIdProblems(fields('https://example.com/a.user.js'), null, 'meta')).toEqual([]);
     expect(scriptIdProblems(fields('https://example.com/a.user.js'), '579560', 'meta')).toEqual([]);
+  });
+});
+
+describe('idFromManifest', () => {
+  it('按包名取 ID，忽略无关条目', () => {
+    const manifest = {
+      scripts: [
+        { package: 'scripts/other', id: 1 },
+        { package: 'scripts/example', id: 579560 },
+      ],
+    };
+    expect(idFromManifest(manifest, 'example')).toBe('579560');
+    expect(idFromManifest(manifest, 'missing')).toBeNull();
+  });
+
+  it('清单形状不对时返回 null', () => {
+    expect(idFromManifest(null, 'example')).toBeNull();
+    expect(idFromManifest({ scripts: [null, 'x'] }, 'example')).toBeNull();
+    expect(
+      idFromManifest({ scripts: [{ package: 'scripts/example', id: '' }] }, 'example'),
+    ).toBeNull();
   });
 });

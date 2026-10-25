@@ -129,25 +129,26 @@ Dialog 打开时临时设置 `documentElement.style.overflow`，关闭后恢复�
 
 ## 验证入口
 
-- 根目录 `npm run check` 统一执行静态检查、happy-dom 单元测试、脚本构建、metadata、安全与 Token 检查，以及浏览器场景；本文不记录易过期的通过状态或测试数量。
-- `npm run test:browser -- userscript-ui` 通过 `tools/browser-check.mjs` 的 CDP 驱动执行 UI 场景，入口是 `tests/browser-entry.ts`，场景是 `tests/browser-scenarios.mjs`，宿主页面在 `tests/fixtures/`。
+- 根目录 `bun run verify` 统一执行静态检查、happy-dom 单元测试、脚本构建、metadata、安全与 Token 检查，以及浏览器场景；本文不记录易过期的通过状态或测试数量。
+- `bun run test:browser -- userscript-ui` 通过 `tools/browser-check.mjs` 的 CDP 驱动执行 UI 场景，入口是 `tests/browser-entry.ts`，场景是 `tests/browser-scenarios.mjs`，宿主页面在 `tests/fixtures/`。
 - 浏览器场景覆盖样式隔离、键盘/焦点、Dialog、Toast、Launcher、Tooltip、主题与面板尺寸等真实 DOM 行为；happy-dom 单元测试负责无需布局的组件状态与生命周期。
-- 构建使用根目录 `npm run build`，userscript metadata 使用 `npm run check:meta` 检查，不维护独立 UI 发布或体积检查链。
+- 构建使用根目录 `bun run build`，userscript metadata 使用 `bun run check:meta` 检查，不维护独立 UI 发布或体积检查链。
 
-### 19. ESLint 负责语法与规则，自定义脚本负责能力与 Token
+### 19. 语言规则与能力扫描分开（原 ESLint，已换 oxlint）
 
 两种关注点分开：
 
-- `eslint.config.js`（flat config + typescript-eslint 类型感知）管语言层面：未使用变量、浮动 Promise、误用 async 回调、`==`、`prefer-const`，并用 `no-restricted-syntax` 把 `innerHTML`/`outerHTML`/`insertAdjacentHTML`/`new Function`/`document.write` 变成错误；
-- `check-safety.mjs` 管跨文件能力扫描（不能被单文件 AST 规则可靠表达的），`check-tokens.mjs` 管 CSS 设计约束。
+> 2026-10-26 起 ESLint 换成 oxlint（见下条），本条只留历史结论：语言规则与能力扫描分开，
+> 类型感知交给类型检查器。
 
-ESLint 只对 tsconfig 覆盖的文件开类型感知；`scripts/*.mjs` 与配置文件用 `disableTypeChecked` + Node globals。
+### 20. oxlint 管语言规则，bun fmt 管格式，safety 网兜底硬规则
 
-### 20. Prettier 管格式，规则关给 Prettier
+格式化与规则分开：`bun run format` 用 `bun fmt`（Prettier 兼容）统一代码风格（单引号、100 列、尾逗号、LF）；
+`oxlint.config.ts` 管语言层面（`eqeqeq` 允许 `!= null`、未使用变量、`prefer-const`、`no-eval`、`no-new-func`、GM 全局只读）；
+`check-safety.mjs` 全仓扫描安全硬规则（oxlint 不支持 `no-restricted-syntax` 类 AST 选择器）；
+类型感知由 `bun check` 负责。`verify` 改名正是为了不挡 `bun check` 内置命令。
 
-格式化与规则分开：`npm run format` 用 Prettier 统一代码风格（单引号、100 列、尾逗号、LF），`eslint-config-prettier` 放在 flat config 最后，关掉所有与 Prettier 重叠的 ESLint 规则，两个工具不会为同一行吵架。
-
-`format:check` 进入根目录 `npm run check`，所以风格不再靠 review 提醒。Markdown 不在范围内（`.prettierignore`）：中文正文和表格会被重排成不可读的换行。
+`format:check` 进入根目录 `bun run verify`，所以风格不再靠 review 提醒。Markdown 不在范围内（`.prettierignore`）：中文正文和表格会被重排成不可读的换行。
 
 ### 21. Toast 的可视元素与播报分离
 

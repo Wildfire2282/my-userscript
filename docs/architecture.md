@@ -121,7 +121,7 @@ bun run verify           # 交付前全量：静态检查 + 单测 + 构建 + �
 | 检查 | 失败意味着 |
 | --- | --- |
 | `lint` | 违反硬规则（`innerHTML`、`outerHTML`、`document.write`、`new Function`、`==`）或类型感知问题 |
-| `format:check` | 代码风格与 Prettier 配置不一致 |
+| `format:check` | 代码风格与 `bun fmt` 不一致 |
 | `typecheck` | 类型错误，或别名 / `types` 配置缺项 |
 | `test` | 纯逻辑回归（Vitest，毫秒级） |
 | `build` | 构建失败、产物缺失，或体积超出预算（raw ≤ 200 KB / gzip ≤ 60 KB，只提示不拦） |

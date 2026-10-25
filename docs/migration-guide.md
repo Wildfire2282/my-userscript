@@ -134,8 +134,8 @@ bun run verify                   # 全量：静态检查 + 单测 + 构建 + 元
 | 场景点按钮不生效 | 只派发了 `click` | 页面侧 helper 用 `mousedown` + `mouseup` + `click` |
 | 场景依赖上一条留下的设置 | 场景之间共享了页面状态 | 每个场景都是新页面；前置条件写在场景开头 |
 | 同一条规则在单测与场景里各断言一次 | 测试边界没分清 | 纯判断进 Vitest，用户可见交互进场景，只留一层 |
-| `prettier --check` 报 legacy 快照 | 格式化工具会重排线上原版 | `.prettierignore` 排除 `scripts/*/legacy/`、`scripts.json` |
-| eslint 对未迁移脚本报类型错误 | 那些 `userscript.meta.js` 不在 tsconfig 里 | eslint `ignores` 排除 `scripts/*/userscript.meta.*` 与 `legacy/` |
+| `bun fmt --check` 报 legacy 快照 | 格式化工具会重排线上原版 | `.prettierignore` 排除 `scripts/*/legacy/`、`scripts.json` |
+| lint 对未迁移脚本报类型错误 | 那些 `userscript.meta.js` 不在 tsconfig 里 | lint 忽略规则排除 `scripts/*/userscript.meta.*` 与 `legacy/` |
 | `bun install` 报 `EPERM` | 沙箱不让写用户目录下的 npm 缓存 | `BUN_INSTALL_CACHE_DIR` 指向仓库内 `.npm-cache/` |
 
 ## 9. 完成定义

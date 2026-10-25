@@ -174,16 +174,18 @@ createLauncher(ui, {
 ## 8. 验证
 
 ```bash
-bun run verify           # lint + format + typecheck + unit + build + metadata + UI safety/tokens + 浏览器场景
-bun run lint            # ESLint (typescript-eslint, type-aware)
-bun run format          # Prettier，写入
+bun run lint            # oxlint（Rust，常驻规则见根目录 oxlint.config.ts）
+bun run format          # bun fmt（Prettier 兼容），写入
 bun run test:browser -- userscript-ui # 统一 CDP 驱动的 UI 浏览器场景
-bun run verify:ui-tokens # 单独检查组件 CSS 是否用了 --ds-* Token
+bun run check:ui-tokens # 单独检查组件 CSS 是否用了 --ds-* Token
 ```
 
-`lint` 用 ESLint flat config + typescript-eslint 类型感知规则，除了通用最佳实践，还把本项目的硬规则变成错误：`innerHTML`/`outerHTML`/`insertAdjacentHTML`、`document.write`、`new Function`、`==`（`!= null` 除外）、`prefer-const`。`eslint-config-prettier` 在最后关掉所有与格式化重叠的规则。
+`lint` 用 oxlint：通用规则（`eqeqeq` 允许 `!= null`、`prefer-const`、`no-eval`、`no-new-func`、GM 全局只读）由 `oxlint.config.ts` 声明；
+安全硬规则（`innerHTML`/`outerHTML`/`insertAdjacentHTML`/`document.write`、动态执行、网络请求）由 `check-safety.mjs` 全仓扫描兜底，
+因为 oxlint 不支持 `no-restricted-syntax` 类 AST 选择器；类型感知由 `bun check` 负责。
 
-`format` 用 Prettier 统一代码风格（单引号、100 列、尾逗号、LF）；`format:check` 在 `bun run verify` 里跑。Markdown 不在范围内（中文正文和表格会被重排），见 `.prettierignore`。
+`format` 用 `bun fmt`（Prettier 兼容，读 `.prettierrc.json`）统一代码风格（单引号、100 列、尾逗号、LF）；
+`format:check` 在 `bun run verify` 里跑。Markdown 不在范围内（中文正文和表格会被重排），见 `.prettierignore`。
 
 `check:ui-safety` 检查危险能力（HTML 字符串注入、动态执行、网络请求），`check:ui-tokens` 检查组件 CSS 里的颜色和尺寸是否都来自 Token。
 

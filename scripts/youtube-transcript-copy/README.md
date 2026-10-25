@@ -5,7 +5,7 @@
 | 项目 | 值 |
 | --- | --- |
 | Greasy Fork | [579560](https://greasyfork.org/zh-CN/scripts/579560) |
-| 当前版本 | 1.4.8（2026-10-26） |
+| 当前版本 | 1.4.9（2026-10-26） |
 | 迁移状态 | 已迁移：`src/` 模块，界面使用 `@ui` |
 | 匹配站点 | `https://www.youtube.com/*`（`document-start`） |
 | 授予权限 | `GM_setClipboard`、`GM_registerMenuCommand`、`GM_setValue`、`GM_getValue`、`GM_deleteValue` |

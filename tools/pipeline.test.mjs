@@ -252,4 +252,22 @@ describe('sync', () => {
     expect(readFileSync(legacy, 'utf8')).toBe(newer);
     expect(readFileSync(manifest, 'utf8')).toBe('{"scripts": []}');
   });
+
+  it('更新未迁移包时同步版本骨架与元数据', async () => {
+    const root = fixture();
+    const packageFile = put(
+      root,
+      'scripts/first/package.json',
+      `${JSON.stringify({ name: '@my-userscript/first', version: '1.0.0' }, null, 2)}\n`,
+    );
+    const metaFile = put(
+      root,
+      'scripts/first/userscript.meta.js',
+      '// ==UserScript==\n// @name First\n// @version 1.0.0\n// ==/UserScript==\n',
+    );
+
+    expect(await sync(syncOptions(root, 'check'))).toBe(0);
+    expect(JSON.parse(readFileSync(packageFile, 'utf8')).version).toBe('2.0.0');
+    expect(readFileSync(metaFile, 'utf8')).toBe(syncBody);
+  });
 });

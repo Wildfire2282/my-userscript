@@ -238,14 +238,23 @@ async function readIfExists(file) {
   }
 }
 
-/** 补齐包骨架（package.json / userscript.meta.js），已存在时不覆盖。 */
+/** 未迁移包（没有 src 入口）的版本与元数据跟随线上快照；已迁移包保持开发版本。 */
 async function ensurePackage(scriptsDir, slug, text, metadata) {
   const directory = path.join(scriptsDir, slug);
   await mkdir(path.join(directory, 'legacy'), { recursive: true });
 
+  const migrated = (
+    await Promise.all(
+      ['src/main.ts', 'src/main.js', 'src/index.ts', 'src/index.js'].map(
+        async (name) => (await readIfExists(path.join(directory, name))) !== null,
+      ),
+    )
+  ).some(Boolean);
+  const version = first(metadata, 'version') ?? '0.0.0';
+
   const packageFile = path.join(directory, 'package.json');
-  if ((await readIfExists(packageFile)) === null) {
-    const version = first(metadata, 'version') ?? '0.0.0';
+  const packageRaw = await readIfExists(packageFile);
+  if (packageRaw === null) {
     const description = first(metadata, 'description') ?? '';
     const packageJson = {
       name: `@my-userscript/${slug}`,
@@ -257,24 +266,39 @@ async function ensurePackage(scriptsDir, slug, text, metadata) {
     };
     await writeFile(packageFile, `${JSON.stringify(packageJson, null, 2)}\n`, 'utf8');
     console.log(`  已创建 scripts/${slug}/package.json`);
+  } else if (!migrated) {
+    try {
+      const manifest = JSON.parse(packageRaw.toString('utf8'));
+      if (manifest.version !== version) {
+        manifest.version = version;
+        await writeFile(packageFile, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
+        console.log(`  已更新 scripts/${slug}/package.json 版本`);
+      }
+    } catch {
+      console.error(`  警告：scripts/${slug}/package.json 无法解析，未更新版本`);
+    }
   }
 
-  // 已迁移的包用 .ts 保存元数据（版本由构建注入），两种后缀都算已存在，
-  // 否则每次 sync 都会多出一个过期、不参与构建的 .js 副本。
-  const hasMeta = await Promise.all(
-    ['userscript.meta.ts', 'userscript.meta.js'].map(
-      async (name) => (await readIfExists(path.join(directory, name))) !== null,
-    ),
-  );
-  if (hasMeta.some(Boolean)) return;
-
+  // 已迁移的包用 .ts 保存元数据（版本由构建注入），不要生成过期 .js 副本。
+  const metaTs = path.join(directory, 'userscript.meta.ts');
+  if ((await readIfExists(metaTs)) !== null) return;
+  const metaJs = path.join(directory, 'userscript.meta.js');
   const banner = extractBanner(text);
-  if (banner) {
-    await writeFile(path.join(directory, 'userscript.meta.js'), banner, 'utf8');
-    console.log(`  已创建 scripts/${slug}/userscript.meta.js`);
-  } else {
-    console.error(`  警告：scripts/${slug}/ 的下载内容没有完整元数据块，未创建 userscript.meta.js`);
+  if ((await readIfExists(metaJs)) !== null) {
+    if (migrated) return;
+    if (banner) {
+      await writeFile(metaJs, banner, 'utf8');
+      console.log(`  已更新 scripts/${slug}/userscript.meta.js`);
+    }
+    return;
   }
+  if (migrated) return;
+  if (!banner) {
+    console.error(`  警告：scripts/${slug}/ 的下载内容没有完整元数据块，未创建 userscript.meta.js`);
+    return;
+  }
+  await writeFile(metaJs, banner, 'utf8');
+  console.log(`  已创建 scripts/${slug}/userscript.meta.js`);
 }
 
 /** 深比较用：键排序，值格式无关。 */

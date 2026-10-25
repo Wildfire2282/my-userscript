@@ -161,7 +161,7 @@ Windows 提权终端启动测试浏览器时禁用降权重启，避免 Chrome �
 | 构建 | 自研 `tools/build.mjs` + Vite IIFE，不引入 `vite-plugin-monkey` | 单文件、banner、CSS 内联已满足需求，插件带来的权限收集与配置成本没有收益 |
 | 版本 | `package.json` 唯一来源，构建时注入 | 元数据与包版本两处手写必然漂移 |
 | 元数据 lint | 只用 `tools/check-meta.mjs`，不引入 `eslint-plugin-userscripts` | 该插件只认 `.user.js` 里的元数据块，而本仓元数据在 `.ts`、产物不提交；`use-homepage-and-url` 要求非标准 `@homepage`，`align-attributes` 的自动修复会重排整块并插入 `@homepage`，与 `metadata.md` 的字段清单冲突；`@match` 语法它也不校验，唯一能补的是未使用 `@grant` 的拼写，价值低于多一个 devDependency |
-| 共享内核 | 只收纳 `gm`、`storage`、`settings-store` 与 `clipboard` | 重复事实来自多个 legacy 脚本；其余抽象尚无稳定复用 |
+| 共享内核 | `host`（GM 适配、存储、剪贴板、设置仓库）+ `settings.defineSettings` + `runtime`（启动、安装锁、日志）+ `dom`（可编辑判定、焦点穿透、夹紧）+ `@ui/patterns`（界面宿主、设置表单）；`url` 因只有一处用留脚本内 | 2026-10-25 七步迁移完成（见 `kit.md` 第 5 节）；准入仍是“两处复用才收”，其余抽象尚无稳定复用 |
 | UI 复用 | 源码直引，按需 tree-shake | 不发布运行时包，不引入全局样式与远程资源 |
 | 测试分层 | 纯逻辑走 Vitest，用户可见交互走真实浏览器；同一事实只在一层断言 | 两层都断言同一规则会让维护成本翻倍，失败时也看不出该改哪一层 |
 | 浏览器验证 | 自建 CDP 驱动，不用 Playwright；每个场景独立重载页面 | 环境已有 Chrome/Edge，避免下载浏览器与额外依赖；场景互不污染，可单独删除或调试 |

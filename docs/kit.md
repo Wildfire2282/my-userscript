@@ -1,7 +1,7 @@
 # 开发套件（userscript kit）
 
 > 读者：Agent。人类入口仍是根目录 `README.md`。
-> 状态：方案已定，待执行（2026-10-25）。执行时更新第 5 节状态列；全部完成后删掉状态列与迁移表，只保留设计、模块规则与技术依据。
+> 状态：已落地（2026-10-25），七步迁移完成，见第 5 节迁移记录。
 
 ## 1 目标与边界
 
@@ -100,28 +100,23 @@ createUserscript<T>({
 6. 错误边界：启动、菜单回调、面板打开三层捕获；界面失败不得影响脚本主功能。
 7. 不新建第二套浏览器夹具：套件行为通过 4 个脚本现有场景验证，纯逻辑用单测。
 
-## 5 迁移步骤
+## 5 迁移记录（2026-10-25 已完成）
 
-一次一个提交，`main` 始终可构建可安装。每步完成后跑 `npm run build <slug>` 与 `npm run check`，把净删除行数写进提交信息。
+七步一次一个提交，`main` 全程可构建可安装；行为等价清单（字段与顺序、文案、
+默认值、保存时机、存储键、菜单项）逐脚本核对，见各提交内的取证。
+实施中偏离方案的两处（均为执行时按护栏修正）：
 
-| 步 | 内容 | 触及 | 行为变化 | 净变化（估算） | 状态 |
-| --- | --- | --- | --- | --- | --- |
-| 0 | `@shared` 目录分组、门面 `index.ts`、新增 `packages/shared/AGENTS.md`、`architecture.md` 分层与决策 | 移动 + 文档 | 无（产物逐字节不变） | 0 | 已完成（2026-10-25；构建切到 `rolldownOptions`，产物逐字节不变见提交内取证） |
-| 1 | `ZH_LABELS` + `createLogger` | `@ui/core/labels.ts`、`@shared/runtime/logger.ts`、4 个脚本 UI | 仅 `operation` 补中文 aria 名 | −90 | 已完成（2026-10-25） |
-| 2 | `defineSettings` | 3 个 `settings.ts`（youtube 双键 `pos`/`strategy` 带缓存与删除，不在范围内） | 无 | −40 | 已完成（2026-10-25） |
-| 3 | `createUserscript`，顺序 super-drag → capture-links → youtube → selection-copy | 4 个 `main.ts` | 卸载时真正清理监听；补启动兜底 | −230 | 已完成（2026-10-25） |
-| 4 | `createUiHost`，顺序 capture-links → youtube → selection-copy → super-drag | 3 个 `ui/app.ts` + 1 处内联 | 无（Toast 改为按需单例，不进不用它的产物） | −125 | 已完成（2026-10-25） |
-| 5 | `createSettingsForm`，顺序 capture-links → selection-copy → super-drag | 3 个设置面板 | 无 | −300 | 已完成（2026-10-25） |
-| 6 | `dom`（可编辑判定×2、焦点穿透）/`position`（夹紧原语）纯函数搬入；`url` 按准入留脚本内 | 3 个脚本 features | super-drag `contenteditable=""`/`plaintext-only` 目标此前误判为不可编辑，现交还页面（修复） | −80 | 已完成（2026-10-25） |
-| 7 | 清理死代码、脚本 `README.md` / `CHANGELOG.md`、四条 patch 版本 | 文档 + `package.json` | 无 | — | 待做 |
+- `createUiHost` 不含 Toast：统一引用会把 toast 全套拉进不用它的产物（+11KB），
+  改为需要的脚本各自单例；`createUiHost` 只做 UI 单例与销毁。
+- `url` 整块未搬：各函数只有一处用（准入要求两处），`isBlockedScheme` 与
+  super-drag `isIgnorableHref` 的 `#` 语义不同；留脚本内。
 
-每步的行为等价清单（逐脚本核对六项）：字段与顺序、文案、默认值、保存时机、存储键（`settings` / `pos` / `strategy` / `selection-copy:config.settings`）、菜单项与快捷键。
+实施中确认的行为变化（三处，均在提交信息与 CHANGELOG 中说明）：
 
-步骤内的实现要求：
-
-- 第 0 步顺带把 `tools/build.mjs` 的 `rollupOptions` 改为 `rolldownOptions`（Vite 8 已把前者标记为废弃别名），核对 banner 与产物体积不变。
-- 第 3 步中 youtube 的 `installNetworkCapture` 必须留在 `onStart`；selection-copy 必须传 `topFrameOnly: false`。
-- 第 5 步只迁表单；youtube 的设置面板是「清空策略记忆」按钮，不是表单，保持脚本内实现。
+- 无标题操作面板 aria 由英文 `Operations` 变中文 `操作`（补 `operation` 中文文案）。
+- 卸载时真正清理监听（原来各脚本的 dispose 全丢弃）。
+- super-drag `contenteditable=""` / `plaintext-only` 目标此前误判为不可编辑，
+  现交还页面（修复）。
 
 ## 6 验证矩阵
 
@@ -164,9 +159,3 @@ Context7 核对结论：
 ```bash
 node -e "const s=require('fs').readFileSync('scripts/capture-links/dist/capture-links.user.js','utf8');console.log('createAlert', s.includes('createAlert'))"
 ```
-
-## 9 待确认
-
-1. 是否顺带补 `operation` 中文文案（默认补）。
-2. 是否把 `tools/build.mjs` 切到 `rolldownOptions`（默认切，产物不变）。
-3. 本次是否发布四条 patch 版本（默认不推送，等维护者确认发布）。

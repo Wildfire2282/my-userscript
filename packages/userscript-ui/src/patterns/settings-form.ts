@@ -188,7 +188,8 @@ export function createSettingsForm<T extends object>(
       const shown = options.visible(key, values);
       // 隐藏整个字段：只藏控件会把标签与说明留在面板里。
       field.el.hidden = !shown;
-      if (shown && shownBefore[key] === false) field.setError(undefined);
+      // 重新显示时连控件的红框一起清掉，不然会出现“红框但没有错误说明”。
+      if (shown && shownBefore[key] === false) setError(key, undefined);
       shownBefore[key] = shown;
     }
   };

@@ -224,4 +224,48 @@ describe('createSettingsForm', () => {
     input.dispatchEvent(new Event('change', { bubbles: true }));
     expect(onChange).toHaveBeenCalledTimes(1);
   });
+
+  it('字段隐藏后重新显示时清掉控件红框', () => {
+    const host = setup();
+    const form = createSettingsForm<Values>(
+      host,
+      {
+        title: '功能设置',
+        sections: [
+          {
+            title: '常规',
+            fields: [
+              { key: 'enabled', type: 'switch', label: '启用' },
+              { key: 'name', type: 'input', label: '名称' },
+            ],
+          },
+        ],
+      },
+      {
+        mode: 'draft',
+        get: () => ({ enabled: true, name: '' }),
+        visible: (key, values) => key !== 'name' || values.enabled,
+        validate: (key) => (key === 'name' ? '不能为空' : undefined),
+        onSubmit: () => false,
+      },
+    );
+    form.open();
+    const nameInput = form.fields['name']?.control.input;
+    const enabledInput = form.fields['enabled']?.control.input;
+    if (!(nameInput instanceof HTMLInputElement) || !(enabledInput instanceof HTMLInputElement)) {
+      throw new Error('控件类型不对');
+    }
+
+    const buttons = [...form.panel.footer.querySelectorAll('button')];
+    buttons[1]?.click();
+    expect(nameInput.getAttribute('data-ds-invalid')).toBe('');
+
+    enabledInput.checked = false;
+    enabledInput.dispatchEvent(new Event('change', { bubbles: true }));
+    enabledInput.checked = true;
+    enabledInput.dispatchEvent(new Event('change', { bubbles: true }));
+
+    expect(nameInput.hasAttribute('data-ds-invalid')).toBe(false);
+    expect(nameInput.hasAttribute('aria-invalid')).toBe(false);
+  });
 });

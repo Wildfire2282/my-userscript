@@ -55,7 +55,11 @@ export function createIndicator(ui: UI): IndicatorHandle {
     const at = indicatorPosition(
       cursor,
       rect,
-      { width: window.innerWidth, height: window.innerHeight },
+      // 贴边判断用布局视口，避免标签压到经典滚动条下面。
+      {
+        width: document.documentElement.clientWidth,
+        height: document.documentElement.clientHeight,
+      },
       variant,
     );
     const current = ++token;

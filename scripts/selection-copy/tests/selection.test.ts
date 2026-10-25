@@ -207,4 +207,37 @@ describe('门控', () => {
       false,
     );
   });
+
+  it('没有 selectionStart 的数字输入框在键盘手势下也被输入框门控', () => {
+    const input = document.createElement('input');
+    input.type = 'number';
+    input.value = '42';
+    document.body.appendChild(input);
+    input.focus();
+
+    expect(getActiveTextControl()).toBeNull();
+    expect(isDisabledTarget(null, null, null)).toBe(true);
+    expect(isDisabledTarget(null, null, null, { copyInInputs: true, copyInEditors: false })).toBe(
+      false,
+    );
+  });
+
+  it('焦点在自己的面板里时，键盘手势不复制页面旧选区', () => {
+    const paragraph = document.createElement('p');
+    paragraph.textContent = '页面旧选区';
+    document.body.appendChild(paragraph);
+    const range = document.createRange();
+    range.selectNodeContents(paragraph);
+    window.getSelection()?.addRange(range);
+
+    const host = document.createElement('div');
+    host.setAttribute('data-ds-root', '');
+    document.body.appendChild(host);
+    const shadow = host.attachShadow({ mode: 'open' });
+    const button = document.createElement('button');
+    shadow.appendChild(button);
+    button.focus();
+
+    expect(isDisabledTarget(window.getSelection(), null, null)).toBe(true);
+  });
 });

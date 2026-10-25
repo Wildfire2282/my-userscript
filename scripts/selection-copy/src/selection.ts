@@ -116,7 +116,9 @@ export function isDisabledTarget(
   if (
     isOwnUiNode(target instanceof Node ? target : null) ||
     isOwnUiNode(selection?.anchorNode ?? null) ||
-    isOwnUiNode(selection?.focusNode ?? null)
+    isOwnUiNode(selection?.focusNode ?? null) ||
+    // 键盘手势没有鼠标目标：焦点已经进到自己的面板时，不要把页面旧选区再复制一次。
+    (target === null && isOwnUiNode(getActiveElement()))
   ) {
     return true;
   }
@@ -125,7 +127,9 @@ export function isDisabledTarget(
     if (isTextControl(elementOf(target))) return true;
     if (isTextControl(elementOf(selection?.anchorNode))) return true;
     if (isTextControl(elementOf(selection?.focusNode))) return true;
-    if (control !== null && target === null) return true;
+    // number / email 等控件没有 selectionStart，getActiveTextControl 拿不到它；
+    // 键盘全选时仍要按“焦点在输入框”拦下，不能只信控件自身的选区。
+    if (target === null && (control !== null || isTextControl(getActiveElement()))) return true;
   }
   if (!scope.copyInEditors) {
     if (isInsideEditable(elementOf(target))) return true;

@@ -1,9 +1,9 @@
 import {
   createGmApi,
-  defineSettings,
+  createSettingsStore as createSharedSettingsStore,
   mergeDefaults,
   type GmApi,
-  type DefinedSettings,
+  type SettingsStore as SharedSettingsStore,
 } from '@shared';
 
 /**
@@ -81,7 +81,7 @@ export function withSiteEnabled(settings: Settings, site: string, enabled: boole
 }
 
 /** 设置的读取与保存：每次读取都看存储，iframe 与其它标签页的改动立即生效。 */
-export type SettingsStore = DefinedSettings<Settings>;
+export type SettingsStore = SharedSettingsStore<Settings>;
 
 /**
  * 创建设置仓库；读取与写回的通用逻辑在 `@shared`。
@@ -89,10 +89,9 @@ export type SettingsStore = DefinedSettings<Settings>;
  * @param api GM 适配层；测试里可以传入假实现
  */
 export function createSettingsStore(api: GmApi = createGmApi()): SettingsStore {
-  return defineSettings({
+  return createSharedSettingsStore({
     api,
     key: SETTINGS_KEY,
-    defaults: DEFAULT_SETTINGS,
     normalize: normalizeSettings,
   });
 }

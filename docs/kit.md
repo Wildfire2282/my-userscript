@@ -29,7 +29,6 @@
 ```text
 packages/shared/src/            @shared = 套件运行时（无界面）
   host/       gm.ts  storage.ts  clipboard.ts  settings-store.ts
-  settings/   define-settings.ts
   runtime/    boot.ts（启动、安装锁、siteKey）  logger.ts
   dom/        editable.ts  position.ts
   index.ts    门面：只导出多脚本共用符号与类型
@@ -53,7 +52,7 @@ scripts/<slug>/src/             main.ts（接线）+ features/ + ui/
 | 模块 | 导出 | 消费者 | 语义 |
 | --- | --- | --- | --- |
 | `@ui` | `ZH_LABELS` / `isOwnUiNode` / `icon` | 4 / 3 / 1 | 中文文案预设（键覆盖 `UILabels` 全部 9 项）；界面宿主判定（`data-ds-root` 只有一处定义）；图标装配 |
-| `@shared/settings` | `defineSettings({ key, defaults, normalize? })` | 4 | 包装 `mergeDefaults` + `createSettingsStore`，返回 `get/update/reset/onChange`；`normalize` 仍由脚本提供 |
+| `@shared/host` | `createSettingsStore({ api, key, normalize })` | 3 | 每次读取看存储；写入失败保留本页新值，外部写入后作废；`normalize` 由脚本提供 |
 | `@shared/runtime` | `createUserscript(gmApi, options)` / `siteKey(win)` | 4 / 1 | 启动兜底、安装锁、frame 判断、菜单注册、页面级 `signal`、`pagehide` 清理；`siteKey` 取顶层 hostname，跨域回退 `ancestorOrigins`，再回退本帧 |
 | `@shared/runtime/logger` | `createLogger(slug)` / `guard(label, fn)` | 4 | 统一 `[slug]` 前缀与兜底 |
 | `@ui/patterns/app-host` | `createUiHost({ theme })` → `ensure/destroy` | 4 | 整页只 `mountUI()` 一次；Toast 由需要的脚本各自单例（统一引用会把 toast 拉进不用它的产物，+11KB）；面板懒建留在脚本 |

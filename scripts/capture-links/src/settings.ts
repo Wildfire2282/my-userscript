@@ -1,9 +1,9 @@
 import {
   createGmApi,
-  defineSettings,
+  createSettingsStore as createSharedSettingsStore,
   mergeDefaults,
   type GmApi,
-  type DefinedSettings,
+  type SettingsStore as SharedSettingsStore,
 } from '@shared';
 
 /** 复制到剪贴板的格式；线上旧键 `copyFormat` 的取值。 */
@@ -47,7 +47,7 @@ export function normalizeSettings(stored: unknown): Settings {
 }
 
 /** 设置的读取与保存入口；每次读取都看存储，别处改了设置本页立即按新值工作。 */
-export type SettingsStore = DefinedSettings<Settings>;
+export type SettingsStore = SharedSettingsStore<Settings>;
 
 /**
  * 创建设置仓库；读取与写回的通用逻辑在 `@shared`。
@@ -55,10 +55,9 @@ export type SettingsStore = DefinedSettings<Settings>;
  * @param api GM 适配层；测试里可以传入假实现
  */
 export function createSettingsStore(api: GmApi = createGmApi()): SettingsStore {
-  return defineSettings({
+  return createSharedSettingsStore({
     api,
     key: SETTINGS_KEY,
-    defaults: DEFAULT_SETTINGS,
     normalize: normalizeSettings,
   });
 }

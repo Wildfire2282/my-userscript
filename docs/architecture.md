@@ -26,7 +26,7 @@
 | 路径 | 职责 |
 | --- | --- |
 | `packages/userscript-ui/` | UI 设计体系，仓库内普通包（原 `userscript-ui` 子模块已并入）；源码由 `@ui` 别名直引，不再单独发布或单独验收 |
-| `packages/shared/` | 套件运行时（无界面）：`host/`（GM 适配、设置合并与读写、设置仓库、剪贴板）、`settings/`（设置定义）、`runtime/`（启动、安装锁、站点标识、日志）、`dom/`（可编辑判定、焦点穿透、视口夹紧）；门面只导出多脚本共用的符号，规则见 `packages/shared/AGENTS.md` |
+| `packages/shared/` | 套件运行时（无界面）：`host/`（GM 适配、设置合并与读写、设置仓库、剪贴板）、`runtime/`（启动、安装锁、站点标识、日志）、`dom/`（可编辑判定、焦点穿透、视口夹紧）；门面只导出多脚本共用的符号，规则见 `packages/shared/AGENTS.md` |
 | `scripts/<slug>/` | 一个脚本一个 Bun workspace 包 |
 | `scripts/<slug>/userscript.meta.ts` | 静态元数据（名称、匹配、权限），不含 `@version` |
 | `scripts/<slug>/src/` | 模块化源码，入口 `src/main.ts` |
@@ -159,7 +159,8 @@ Windows 提权终端启动测试浏览器时禁用降权重启，避免 Chrome �
 | 类型检查 | `bun check`（Bun 内置，多核并行），`typescript` 包仅留给 `tools/gm-usages.mjs` 的 AST 扫描 | `bun check` 全项目约 60ms 且与 tsc 同错 |
 | 版本 | `package.json` 唯一来源，构建时注入 | 元数据与包版本两处手写必然漂移 |
 | 元数据 lint | 只用 `tools/check-meta.mjs`，不引入 `eslint-plugin-userscripts` | 该插件只认 `.user.js` 里的元数据块，而本仓元数据在 `.ts`、产物不提交；`use-homepage-and-url` 要求非标准 `@homepage`，`align-attributes` 的自动修复会重排整块并插入 `@homepage`，与 `metadata.md` 的字段清单冲突；`@match` 语法它也不校验，唯一能补的是未使用 `@grant` 的拼写，价值低于多一个 devDependency |
-| 共享内核 | `host`（GM 适配、存储、剪贴板、设置仓库）+ `settings.defineSettings` + `runtime`（启动、安装锁、站点标识、日志）+ `dom`（可编辑判定、焦点穿透、夹紧）+ `@ui`（界面宿主、设置表单、界面宿主判定）；`url` 因只有一处用留脚本内 | 准入是“两处复用才收”，其余抽象尚无稳定复用；迁移过程见 git 历史 |
+| 共享内核 | `host`（GM 适配、存储、剪贴板、设置仓库）+ `runtime`（启动、安装锁、站点标识、日志）+ `dom`（可编辑判定、焦点穿透、夹紧）+ `@ui`（界面宿主、设置表单、界面宿主判定）；`url` 因只有一处用留脚本内 | 准入是“两处复用才收”，其余抽象尚无稳定复用；迁移过程见 git 历史 |
+| 设置读写 | 三个脚本直接调用 `createSettingsStore`，只保留 `get/update` | 通用的恢复默认与订阅包装没有生产调用者，恢复默认还绕过了写失败兜底；出现第二个真实消费者再按准入加回 |
 | UI 复用 | 源码直引，按需 tree-shake | 不发布运行时包，不引入全局样式与远程资源 |
 | 测试分层 | 纯逻辑走 Vitest（Bun 调度；Bun 下 `forks` 池，因 `vmThreads` worker 在 Bun module runner 下解析失败），用户可见交互走真实浏览器；同一事实只在一层断言 | 两层都断言同一规则会让维护成本翻倍，失败时也看不出该改哪一层；原生 `bun test` 已验证不可行（`toHaveBeenCalledExactlyOnceWith`、fake timer 语义、FormData 行为三处与 vitest 不一致，改单测是降级断言） |
 | 浏览器验证 | 自建 CDP 驱动，不用 Playwright；每个场景独立重载页面 | 环境已有 Chrome/Edge，避免下载浏览器与额外依赖；场景互不污染，可单独删除或调试 |

@@ -3,7 +3,6 @@
  *
  * 目录分组（见 docs/kit.md 第 2 节）：
  * - `host/`：GM 适配、存储、剪贴板、设置仓库
- * - `settings/`：设置定义（第 2 步）
  * - `runtime/`：启动、安装锁、站点标识、日志
  * - `dom/`：真实事件目标、可编辑判定、视口夹紧（第 6 步）
  *
@@ -19,12 +18,6 @@ export type { Clipboard } from './host/clipboard';
 export { mergeDefaults } from './host/storage';
 export { createSettingsStore } from './host/settings-store';
 export type { SettingsStore } from './host/settings-store';
-export { defineSettings } from './settings/define-settings';
-export type {
-  DefinedSettings,
-  DefineSettingsOptions,
-  SettingsDefinition,
-} from './settings/define-settings';
 export { createLogger, guard } from './runtime/logger';
 export type { Logger } from './runtime/logger';
 export { createUserscript, siteKey } from './runtime/boot';

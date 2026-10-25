@@ -7,7 +7,6 @@
 ```text
 src/
   host/       gm.ts  storage.ts  clipboard.ts  settings-store.ts
-  settings/   define-settings.ts
   runtime/    boot.ts（启动、安装锁、siteKey）  logger.ts
   dom/        editable.ts  position.ts
   index.ts    门面：只导出确认多脚本共用的符号

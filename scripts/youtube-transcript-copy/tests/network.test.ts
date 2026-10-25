@@ -142,6 +142,25 @@ describe('installNetworkCapture consumption', () => {
     }
   });
 
+  it('换台后迟到的旧视频字幕不覆盖新视频的完整面板', () => {
+    const { win, scope, FakeXHR } = captureHarness();
+    const capture = installNetworkCapture(win);
+    try {
+      const old = new FakeXHR();
+      old.open('GET', '/api/timedtext?v=abc');
+      scope.location.search = '?v=xyz';
+      const current = new FakeXHR();
+      current.open('POST', '/youtubei/v1/get_panel');
+      current.load(PANEL);
+      expect(capture.get()).toEqual([{ start: 1000, text: '台词' }]);
+
+      old.load(TIMEDTEXT);
+      expect(capture.get()).toEqual([{ start: 1000, text: '台词' }]);
+    } finally {
+      capture.restore();
+    }
+  });
+
   it('abort 后 open 非捕获 URL 不让旧 listener 接收新响应', () => {
     const { win, FakeXHR } = captureHarness();
     const capture = installNetworkCapture(win);

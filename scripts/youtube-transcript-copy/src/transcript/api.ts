@@ -46,8 +46,10 @@ export async function requestPanel(
     const request = async (
       endpoint: string,
       payload: Record<string, unknown>,
+      query = '',
     ): Promise<unknown> => {
-      const response = await fetchImpl(`${API_ROOT}${endpoint}?prettyPrint=false`, {
+      const suffix = query === '' ? '' : `&${query}`;
+      const response = await fetchImpl(`${API_ROOT}${endpoint}?prettyPrint=false${suffix}`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ context, ...payload }),
@@ -77,7 +79,8 @@ export async function requestPanel(
     const params =
       panel?.content?.continuationItemRenderer?.continuationEndpoint?.getTranscriptEndpoint?.params;
     if (typeof params !== 'string' || params === '') return null;
-    const data = await request('get_transcript', { params });
+    // 令牌请求没有视频 ID；不显式带上，网络钩子会把迟到的 A 文稿归到当前 B。
+    const data = await request('get_transcript', { params }, `v=${encodeURIComponent(videoId)}`);
     return extractFromPanelResponse(data);
   } catch {
     return null;

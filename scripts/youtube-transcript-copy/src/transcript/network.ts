@@ -127,6 +127,8 @@ export function installNetworkCapture(
   // 按响应时的 ID 收下就会把上一个视频的字幕送给新视频。
   const accept = (url: string, data: unknown, videoIdAtRequest: string): void => {
     if (!active) return;
+    // 请求还在路上时已经换台：这份迟到的 A 文稿不能覆盖 B 的捕获。
+    if (videoIdAtRequest !== currentVideoId()) return;
     const next = nextCapture(state, videoIdAtRequest, url, parseCapturedResponse(url, data));
     if (next) state = next;
   };

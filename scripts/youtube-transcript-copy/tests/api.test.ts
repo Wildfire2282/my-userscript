@@ -104,6 +104,8 @@ describe('requestPanel', () => {
     await expect(requestPanel('vid', fetchImpl as unknown as typeof fetch)).resolves.toEqual([
       { start: 1000, text: '目标视频文稿' },
     ]);
+    const transcriptCall = fetchImpl.mock.calls.find(([url]) => url.includes('/get_transcript?'));
+    expect(transcriptCall?.[0]).toContain('v=vid');
   });
 
   it('视频没有转写令牌时不请求转写接口', async () => {

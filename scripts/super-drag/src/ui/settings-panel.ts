@@ -1,11 +1,8 @@
 import {
   createButton,
-  createField,
-  createInput,
-  createPanel,
-  createSection,
-  createSelect,
-  createSwitch,
+  createSettingsForm,
+  type InputHandle,
+  type SelectHandle,
   type UI,
 } from '@ui';
 import {
@@ -37,205 +34,218 @@ export interface SettingsPanelHandle {
   destroy(): void;
 }
 
+/**
+ * 表单拍平的值：开关三项拍平，嵌套的 `dragKinds` 在提交/回填时还原。
+ * form 只认一层键，嵌套结构由这里翻译。
+ */
+interface FlatValues {
+  text: boolean;
+  link: boolean;
+  image: boolean;
+  defaultEngine: string;
+  customEngineUrl: string;
+  urlTextAction: string;
+  linkOpenMode: string;
+  imageAction: string;
+}
+
+function flatten(settings: Settings): FlatValues {
+  return {
+    text: settings.dragKinds.text,
+    link: settings.dragKinds.link,
+    image: settings.dragKinds.image,
+    defaultEngine: settings.defaultEngine,
+    customEngineUrl: settings.customEngineUrl,
+    urlTextAction: settings.urlTextAction,
+    linkOpenMode: settings.linkOpenMode,
+    imageAction: settings.imageAction,
+  };
+}
+
+function isInvalidControl(control: unknown): control is InputHandle | SelectHandle {
+  return (
+    !!control &&
+    typeof control === 'object' &&
+    'setInvalid' in control &&
+    typeof control.setInvalid === 'function'
+  );
+}
+
+function isOptionsControl(control: unknown): control is SelectHandle {
+  return (
+    !!control &&
+    typeof control === 'object' &&
+    'setOptions' in control &&
+    typeof control.setOptions === 'function'
+  );
+}
+
 export function createSettingsPanel(options: SettingsPanelOptions): SettingsPanelHandle {
-  const { ui } = options;
-  const initial = options.getSettings();
-
-  const panel = createPanel(ui, {
-    title: '功能设置',
-    description:
-      '拖拽选中文字搜索，拖拽链接或图片在新标签页打开；按住 Shift 这一次前台打开，按 Esc 取消。',
-    open: false,
-    position: 'center',
-    closeLabel: '关闭设置',
-  });
-
-  const kindsSection = createSection(ui, {
-    title: '拖拽类型',
-    description: '关掉某一类后，这类拖拽交还网页的原生行为',
-  });
-  const textSwitch = createSwitch(ui, { checked: initial.dragKinds.text });
-  const linkSwitch = createSwitch(ui, { checked: initial.dragKinds.link });
-  const imageSwitch = createSwitch(ui, { checked: initial.dragKinds.image });
-  kindsSection.body.append(
-    createField(ui, {
-      label: '文字',
-      description: '选中文字后拖动即搜索',
-      control: textSwitch,
-      inline: true,
-    }).el,
-    createField(ui, {
-      label: '链接',
-      description: '拖动链接在新标签页打开',
-      control: linkSwitch,
-      inline: true,
-    }).el,
-    createField(ui, {
-      label: '图片',
-      description: '拖动图片在新标签页查看',
-      control: imageSwitch,
-      inline: true,
-    }).el,
+  const form = createSettingsForm<FlatValues>(
+    options.ui,
+    {
+      title: '功能设置',
+      description:
+        '拖拽选中文字搜索，拖拽链接或图片在新标签页打开；按住 Shift 这一次前台打开，按 Esc 取消。',
+      sections: [
+        {
+          title: '拖拽类型',
+          description: '关掉某一类后，这类拖拽交还网页的原生行为',
+          fields: [
+            {
+              key: 'text',
+              type: 'switch',
+              label: '文字',
+              description: '选中文字后拖动即搜索',
+            },
+            {
+              key: 'link',
+              type: 'switch',
+              label: '链接',
+              description: '拖动链接在新标签页打开',
+            },
+            {
+              key: 'image',
+              type: 'switch',
+              label: '图片',
+              description: '拖动图片在新标签页查看',
+            },
+          ],
+        },
+        {
+          title: '文字拖拽',
+          fields: [
+            {
+              key: 'defaultEngine',
+              type: 'select',
+              label: '搜索引擎',
+              description: '拖动选中的文字即用它搜索',
+              options: engineOptions(options.getSettings()),
+            },
+            {
+              key: 'customEngineUrl',
+              type: 'input',
+              label: '自定义搜索地址',
+              description: '用 {keyword} 占位，需以 http:// 或 https:// 开头',
+            },
+            {
+              key: 'urlTextAction',
+              type: 'select',
+              label: '拖动的文字是网址时',
+              description: '选「直接打开」时不再经过搜索引擎',
+              options: [
+                { value: 'open', label: '直接打开' },
+                { value: 'search', label: '仍然搜索' },
+              ],
+            },
+          ],
+        },
+        {
+          title: '链接与图片',
+          fields: [
+            {
+              key: 'linkOpenMode',
+              type: 'select',
+              label: '新标签页打开方式',
+              description:
+                '链接、图片和搜索结果都按这里的方式打开；按住 Shift 时这一次总是前台打开',
+              options: [
+                { value: 'background', label: '后台打开（停留在当前页）' },
+                { value: 'foreground', label: '前台打开（立即切换过去）' },
+              ],
+            },
+            {
+              key: 'imageAction',
+              type: 'select',
+              label: '拖拽图片时',
+              description: '查看器适合专注看图；原图适合保存或交给浏览器自带的图片页',
+              options: [
+                { value: 'viewer', label: '打开深色查看器' },
+                { value: 'original', label: '直接打开原图' },
+              ],
+            },
+          ],
+        },
+      ],
+    },
+    {
+      mode: 'draft',
+      get: () => flatten(options.getSettings()),
+      // 自定义地址只在选了“自定义”时显示。
+      visible: (key, values) =>
+        key !== 'customEngineUrl' || values.defaultEngine === CUSTOM_ENGINE_ID,
+      // 空地址交给保存时校验，避免刚打开面板就红一片。
+      validate: (key, value, values) =>
+        key === 'customEngineUrl' && values.defaultEngine === CUSTOM_ENGINE_ID && value !== ''
+          ? (validateCustomEngineUrl(String(value)) ?? undefined)
+          : undefined,
+      onSubmit: (values) => {
+        const customEngineUrl = values.customEngineUrl.trim();
+        if (values.defaultEngine === CUSTOM_ENGINE_ID) {
+          const problem = validateCustomEngineUrl(customEngineUrl);
+          if (problem) {
+            const custom = form.fields['customEngineUrl'];
+            const control: unknown = custom?.control;
+            // 自定义地址是 input 控件：标红输入框并在字段下展示文案。
+            if (isInvalidControl(control)) control.setInvalid(true);
+            custom?.field.setError(problem);
+            return false;
+          }
+        }
+        options.save({
+          dragKinds: { text: values.text, link: values.link, image: values.image },
+          defaultEngine: values.defaultEngine,
+          customEngineUrl,
+          urlTextAction: values.urlTextAction === 'search' ? 'search' : 'open',
+          linkOpenMode: values.linkOpenMode === 'foreground' ? 'foreground' : 'background',
+          imageAction: values.imageAction === 'original' ? 'original' : 'viewer',
+        });
+      },
+    },
   );
 
-  const textSection = createSection(ui, { title: '文字拖拽' });
-  const engine = createSelect(ui, {
-    options: engineOptions(initial),
-    value: initial.defaultEngine,
-    onChange: () => refresh(),
-  });
-  const engineField = createField(ui, {
-    label: '搜索引擎',
-    description: '拖动选中的文字即用它搜索',
-    control: engine,
-  });
-
-  const customInput = createInput(ui, {
-    type: 'url',
-    placeholder: 'https://www.google.com/search?q={keyword}',
-    autocomplete: 'off',
-    onInput: () => refresh(),
-  });
-  const customField = createField(ui, {
-    label: '自定义搜索地址',
-    description: '用 {keyword} 占位，需以 http:// 或 https:// 开头',
-    control: customInput,
-  });
-
-  const urlTextAction = createSelect(ui, {
-    options: [
-      { value: 'open', label: '直接打开' },
-      { value: 'search', label: '仍然搜索' },
-    ],
-    value: initial.urlTextAction,
-    onChange: () => refresh(),
-  });
-  const urlTextActionField = createField(ui, {
-    label: '拖动的文字是网址时',
-    description: '选「直接打开」时不再经过搜索引擎',
-    control: urlTextAction,
-  });
-
-  textSection.body.append(engineField.el, customField.el, urlTextActionField.el);
-
-  const linkSection = createSection(ui, { title: '链接与图片' });
-  const openMode = createSelect(ui, {
-    options: [
-      { value: 'background', label: '后台打开（停留在当前页）' },
-      { value: 'foreground', label: '前台打开（立即切换过去）' },
-    ],
-    value: initial.linkOpenMode,
-    onChange: () => refresh(),
-  });
-  const openModeField = createField(ui, {
-    label: '新标签页打开方式',
-    description: '链接、图片和搜索结果都按这里的方式打开；按住 Shift 时这一次总是前台打开',
-    control: openMode,
-  });
-
-  const imageAction = createSelect(ui, {
-    options: [
-      { value: 'viewer', label: '打开深色查看器' },
-      { value: 'original', label: '直接打开原图' },
-    ],
-    value: initial.imageAction,
-    onChange: () => refresh(),
-  });
-  const imageActionField = createField(ui, {
-    label: '拖拽图片时',
-    description: '查看器适合专注看图；原图适合保存或交给浏览器自带的图片页',
-    control: imageAction,
-  });
-
-  linkSection.body.append(openModeField.el, imageActionField.el);
-  panel.body.append(kindsSection.el, textSection.el, linkSection.el);
-
-  /** 表单当前值；不改动已保存的设置。 */
-  const draft = (): Settings => ({
-    ...options.getSettings(),
-    dragKinds: {
-      text: textSwitch.isChecked(),
-      link: linkSwitch.isChecked(),
-      image: imageSwitch.isChecked(),
+  // 恢复默认按钮：按钮型动作留脚本，不进 schema。
+  const reset = createButton(options.ui, {
+    label: '恢复默认',
+    variant: 'ghost',
+    onClick: () => {
+      form.fill(flatten(defaultSettings()));
+      refreshDerived();
     },
-    defaultEngine: engine.getValue(),
-    customEngineUrl: customInput.getValue().trim(),
-    urlTextAction: urlTextAction.getValue() === 'search' ? 'search' : 'open',
-    imageAction: imageAction.getValue() === 'original' ? 'original' : 'viewer',
-    linkOpenMode: openMode.getValue() === 'foreground' ? 'foreground' : 'background',
   });
+  // draft 模式页脚已有取消/保存：恢复默认插到最前。
+  form.panel.setFooter([reset.el, ...form.panel.footer.children]);
 
-  /** 只刷新派生显示：自定义行的显隐、示例地址、错误提示。 */
-  function refresh(): void {
-    const current = draft();
-    const isCustom = current.defaultEngine === CUSTOM_ENGINE_ID;
-    customField.el.hidden = !isCustom;
-    engineField.setDescription(`示例：${buildSearchUrl(current, PREVIEW_KEYWORD)}`);
-    // 空地址交给保存时校验，避免刚打开面板就红一片。
-    if (isCustom && current.customEngineUrl !== '') {
-      customField.setError(validateCustomEngineUrl(current.customEngineUrl) ?? undefined);
-    } else {
-      customField.setError(undefined);
+  /** 派生显示留脚本：引擎下拉选项与示例地址随存储变化，不进 schema。 */
+  function refreshDerived(): void {
+    const current = form.values();
+    // 拍平值还原成 Settings，派生函数只认完整形状。
+    const settings: Settings = {
+      ...options.getSettings(),
+      dragKinds: { text: current.text, link: current.link, image: current.image },
+      defaultEngine: current.defaultEngine,
+      customEngineUrl: current.customEngineUrl,
+      urlTextAction: current.urlTextAction === 'search' ? 'search' : 'open',
+      linkOpenMode: current.linkOpenMode === 'foreground' ? 'foreground' : 'background',
+      imageAction: current.imageAction === 'original' ? 'original' : 'viewer',
+    };
+    const engine = form.fields['defaultEngine'];
+    if (engine && isOptionsControl(engine.control)) {
+      engine.control.setOptions(engineOptions(settings));
+      engine.field.setDescription(`示例：${buildSearchUrl(settings, PREVIEW_KEYWORD)}`);
     }
   }
 
-  /** 用给定设置回填表单（打开、取消、恢复默认都走这里）。 */
-  function fillForm(next: Settings): void {
-    textSwitch.setChecked(next.dragKinds.text);
-    linkSwitch.setChecked(next.dragKinds.link);
-    imageSwitch.setChecked(next.dragKinds.image);
-    engine.setOptions(engineOptions(next));
-    engine.setValue(next.defaultEngine);
-    customInput.setValue(next.customEngineUrl);
-    urlTextAction.setValue(next.urlTextAction);
-    imageAction.setValue(next.imageAction);
-    openMode.setValue(next.linkOpenMode);
-    refresh();
-  }
-
-  const reset = createButton(ui, {
-    label: '恢复默认',
-    variant: 'ghost',
-    onClick: () => fillForm(defaultSettings()),
-  });
-
-  const cancel = createButton(ui, {
-    label: '取消',
-    variant: 'secondary',
-    onClick: () => {
-      fillForm(options.getSettings());
-      panel.close();
-    },
-  });
-
-  const save = createButton(ui, {
-    label: '保存',
-    variant: 'primary',
-    onClick: () => {
-      const next = draft();
-      if (next.defaultEngine === CUSTOM_ENGINE_ID) {
-        const problem = validateCustomEngineUrl(next.customEngineUrl);
-        if (problem) {
-          // 校验失败留在面板里，用户不会丢掉刚填的内容。
-          customField.setError(problem);
-          customInput.input.focus();
-          return;
-        }
-      }
-      options.save(next);
-      panel.close();
-    },
-  });
-
-  panel.setFooter([reset.el, cancel.el, save.el]);
-
   return {
     open() {
-      fillForm(options.getSettings());
-      panel.open();
+      form.open();
+      refreshDerived();
     },
-    close: () => panel.close(),
-    isOpen: () => panel.isOpen(),
-    destroy: () => panel.destroy(),
+    close: () => form.close(),
+    isOpen: () => form.isOpen(),
+    destroy: () => {
+      reset.destroy();
+      form.destroy();
+    },
   };
 }

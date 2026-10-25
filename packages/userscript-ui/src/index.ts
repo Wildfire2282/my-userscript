@@ -6,6 +6,16 @@ export type { ResolvedTheme, Theme } from './core/theme';
 
 export { createUiHost } from './patterns/app-host';
 export type { UiHost, UiHostOptions } from './patterns/app-host';
+export { createSettingsForm } from './patterns/settings-form';
+export type {
+  SettingsFieldSchema,
+  SettingsFormField,
+  SettingsFormHandle,
+  SettingsFormOptions,
+  SettingsFormSchema,
+  SettingsFieldType,
+  SettingsSectionSchema,
+} from './patterns/settings-form';
 
 export { createButton } from './components/button';
 export type { ButtonHandle, ButtonOptions, ButtonSize, ButtonVariant } from './components/button';

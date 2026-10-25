@@ -111,7 +111,7 @@ createUserscript<T>({
 | 2 | `defineSettings` | 3 个 `settings.ts`（youtube 双键 `pos`/`strategy` 带缓存与删除，不在范围内） | 无 | −40 | 已完成（2026-10-25） |
 | 3 | `createUserscript`，顺序 super-drag → capture-links → youtube → selection-copy | 4 个 `main.ts` | 卸载时真正清理监听；补启动兜底 | −230 | 已完成（2026-10-25） |
 | 4 | `createUiHost`，顺序 capture-links → youtube → selection-copy → super-drag | 3 个 `ui/app.ts` + 1 处内联 | 无（Toast 改为按需单例，不进不用它的产物） | −125 | 已完成（2026-10-25） |
-| 5 | `createSettingsForm`，顺序 capture-links → selection-copy → super-drag | 3 个设置面板 | 无 | −300 | 待做 |
+| 5 | `createSettingsForm`，顺序 capture-links → selection-copy → super-drag | 3 个设置面板 | 无 | −300 | 已完成（2026-10-25） |
 | 6 | `url` / `dom` / `position` 纯函数搬入 | 3 个脚本 features | 无 | −80 | 待做 |
 | 7 | 清理死代码、脚本 `README.md` / `CHANGELOG.md`、四条 patch 版本 | 文档 + `package.json` | 无 | — | 待做 |
 

@@ -26,6 +26,10 @@ describe('asDirectUrl', () => {
     expect(asDirectUrl('两个词')).toBe('');
   });
 
+  it('正则匹配但浏览器解析不了的地址交给搜索', () => {
+    expect(asDirectUrl('https://%%%')).toBe('');
+  });
+
   it('空值与超长词不当作网址', () => {
     expect(asDirectUrl('')).toBe('');
     expect(asDirectUrl(null)).toBe('');

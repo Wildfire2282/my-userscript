@@ -59,5 +59,12 @@ export function asDirectUrl(text: string | null | undefined): string {
   if (keyword === '' || keyword.length > DIRECT_URL_MAX_LEN || /\s/.test(keyword)) return '';
   const stripped = extractUrlCandidate(keyword);
   if (stripped === '') return '';
-  return looksLikeUrl(stripped) ? stripped : '';
+  if (!looksLikeUrl(stripped)) return '';
+  try {
+    // 正则只能看出“像地址”；`https://%%%` 这类交给浏览器只会得到错误页。
+    new URL(stripped);
+    return stripped;
+  } catch {
+    return '';
+  }
 }

@@ -50,6 +50,9 @@ export function installDragSensor(deps: DragSensorDeps): DragSensor {
   let swallowClickUntil = 0;
   // 浏览器补发的 click 落在拖拽起点上；只有这一次该吞，用户点别处是真实操作。
   let dragSource: Element | null = null;
+  // 自定义数据类型标记“这次拖拽由本脚本认领”，用来区分页面外的拖入。
+  // 外来文件与外来文字都可能只有 text/plain，不能靠格式猜。
+  const DRAG_MARKER = 'application/x-super-drag';
   // 顶掉浏览器自带的拖拽残影（文字 / 元素的低分辨率缩略图）。
   //
   // Chromium 只对“已渲染”的元素做快照：游离的图片、尺寸过小或未布局的节点会被
@@ -82,6 +85,7 @@ export function installDragSensor(deps: DragSensorDeps): DragSensor {
     try {
       // 不 setData 的话 Firefox 不会启动拖拽。
       transfer.setData('text/plain', text);
+      transfer.setData(DRAG_MARKER, '1');
       return true;
     } catch {
       // 选区过大等情况：放弃接管，让原生拖拽继续
@@ -147,8 +151,9 @@ export function installDragSensor(deps: DragSensorDeps): DragSensor {
 
   const isActiveDrag = (event: DragEvent): boolean => {
     if (!dragStart) return false;
-    // 外来文件拖入没有本页的 dragstart，不能沿用尚未收到 dragend 的旧载荷。
-    if (dragStart.defaultPrevented || event.dataTransfer?.types.includes('Files')) {
+    // 外来拖入没有本页写入的标记，不能沿用尚未收到 dragend 的旧载荷；
+    // 页面取消 dragstart 后也不会再有 dragend，同样按结束处理。
+    if (dragStart.defaultPrevented || !event.dataTransfer?.types.includes(DRAG_MARKER)) {
       reset();
       return false;
     }

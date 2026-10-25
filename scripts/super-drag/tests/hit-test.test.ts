@@ -20,6 +20,13 @@ describe('isIgnorableHref', () => {
     expect(isIgnorableHref('JavaScript:alert(1)')).toBe(true);
   });
 
+  it('前导空白也挡不住危险协议', () => {
+    expect(isIgnorableHref(' javascript:void(0)')).toBe(true);
+    expect(isIgnorableHref('\tjava\tscript:alert(1)')).toBe(true);
+    expect(isIgnorableHref('data:text/html,<script>alert(1)</script>')).toBe(true);
+    expect(isIgnorableHref('vbscript:msgbox(1)')).toBe(true);
+  });
+
   it('真实地址可用', () => {
     expect(isIgnorableHref('/path')).toBe(false);
     expect(isIgnorableHref('https://example.com')).toBe(false);
@@ -100,6 +107,13 @@ describe('hitTestFast', () => {
     // 浏览器里 `img.src` 对空属性会解析成当前页面地址，且此时没有选中的资源。
     Object.defineProperty(img, 'src', { value: document.baseURI });
     Object.defineProperty(img, 'currentSrc', { value: '' });
+    document.body.appendChild(img);
+    expect(hitTestFast(img)).toBeNull();
+  });
+
+  it('伪装成图片的 javascript: 地址不打开', () => {
+    const img = document.createElement('img');
+    img.setAttribute('src', ' javascript:alert(1)');
     document.body.appendChild(img);
     expect(hitTestFast(img)).toBeNull();
   });

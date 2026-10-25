@@ -23,7 +23,9 @@ export function parentAcrossShadow(node: Element): Element | null {
 }
 
 export function isIgnorableHref(href: string | null): boolean {
-  return !href || href === '#' || href.toLowerCase().startsWith('javascript:');
+  // URL 解析会去掉空白与控制字符，协议判断前先按同样规则归一化。
+  const value = href?.replace(/\s+/g, '').toLowerCase() ?? '';
+  return value === '' || value === '#' || /^(?:javascript|vbscript|data):/.test(value);
 }
 
 /** 链接的原始地址；SVG 的 `<a>` 往往只有 xlink:href。 */
@@ -47,11 +49,14 @@ export function resolveLinkHref(node: Element): string {
   }
 }
 
+const UNSAFE_IMAGE_SCHEME = /^(?:javascript|vbscript):/i;
+
 /** 图片地址；空 `src` 属性会被 `img.src` 解析成当前页面地址，不能当图片打开。 */
 function imageUrl(img: HTMLImageElement): string {
-  if (img.currentSrc !== '') return img.currentSrc;
   const raw = img.getAttribute('src');
-  return raw === null || raw.trim() === '' ? '' : img.src;
+  // `src` 为空时 `img.src` 会解析成当前页面地址；`javascript:` 伪装成图片也不要打开。
+  const candidate = img.currentSrc !== '' ? img.currentSrc : raw?.trim() ? img.src : '';
+  return UNSAFE_IMAGE_SCHEME.test(candidate.trim()) ? '' : candidate;
 }
 
 /**

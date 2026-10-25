@@ -19,6 +19,7 @@ export function helpers() {
 
   window.__page = {
     panel,
+    field,
     openMenu: () => window.__gm.menu?.(),
     point: (el) => {
       const rect = el.getBoundingClientRect();
@@ -213,7 +214,12 @@ export const scenarios = [
       const state = await ctx.evaluate(() => {
         // 合成拖拽里浏览器不保留 effectAllowed（读回来是 none），只能记录脚本请求的效果。
         const requested = [];
+        const requestedDropEffects = [];
         const descriptor = Object.getOwnPropertyDescriptor(DataTransfer.prototype, 'effectAllowed');
+        const dropDescriptor = Object.getOwnPropertyDescriptor(
+          DataTransfer.prototype,
+          'dropEffect',
+        );
         Object.defineProperty(DataTransfer.prototype, 'effectAllowed', {
           configurable: true,
           get() {
@@ -222,6 +228,16 @@ export const scenarios = [
           set(value) {
             requested.push(value);
             descriptor.set.call(this, value);
+          },
+        });
+        Object.defineProperty(DataTransfer.prototype, 'dropEffect', {
+          configurable: true,
+          get() {
+            return dropDescriptor.get.call(this);
+          },
+          set(value) {
+            requestedDropEffects.push(value);
+            dropDescriptor.set.call(this, value);
           },
         });
 
@@ -238,18 +254,29 @@ export const scenarios = [
         };
         try {
           link.dispatchEvent(new DragEvent('dragstart', init));
-          link.dispatchEvent(new DragEvent('dragover', init));
+          const over = new DragEvent('dragover', init);
+          link.dispatchEvent(over);
           link.dispatchEvent(new DragEvent('drop', init));
           link.dispatchEvent(new DragEvent('dragend', init));
+          const overPrevented = over.defaultPrevented;
+          return {
+            requested,
+            requestedDropEffects,
+            opened: window.__page.openedCount(),
+            overPrevented,
+          };
         } finally {
           Object.defineProperty(DataTransfer.prototype, 'effectAllowed', descriptor);
+          Object.defineProperty(DataTransfer.prototype, 'dropEffect', dropDescriptor);
         }
-        return { requested, opened: window.__page.openedCount() };
       });
       const copy = state.requested.includes('copy');
+      const dropCopy = state.requestedDropEffects.includes('copy');
       return {
-        expected: '复制效果 / 松手打开 1 个页面',
-        actual: `${copy ? '复制效果' : `脚本请求的是 ${JSON.stringify(state.requested)}`} / 松手打开 ${state.opened} 个页面`,
+        expected: '复制效果 / dragover 已接管 / dropEffect=copy / 松手打开 1 个页面',
+        actual: `${copy ? '复制效果' : `脚本请求的是 ${JSON.stringify(state.requested)}`} / ${
+          state.overPrevented ? 'dragover 已接管' : 'dragover 未接管'
+        } / dropEffect=${dropCopy ? 'copy' : JSON.stringify(state.requestedDropEffects)} / 松手打开 ${state.opened} 个页面`,
       };
     },
   },
@@ -455,6 +482,28 @@ export const scenarios = [
       return {
         expected: '没有拖拽数据 / 0',
         actual: `${claimed === '' ? '没有拖拽数据' : `拖拽数据「${claimed}」`} / ${opened}`,
+      };
+    },
+  },
+  {
+    name: '切换搜索引擎 → 示例地址立即跟随',
+    async run(ctx) {
+      const state = await ctx.evaluate(() => {
+        window.__page.openMenu();
+        const example = () =>
+          window.__page
+            .field('搜索引擎')
+            ?.querySelector('.ds-field-description')
+            ?.textContent.trim() ?? '';
+        const before = example();
+        window.__page.setSelect('搜索引擎', 'baidu');
+        return { before, after: example() };
+      });
+      return {
+        expected: '示例含 google.com / 示例含 baidu.com',
+        actual: `${state.before.includes('google.com') ? '示例含 google.com' : `示例是「${state.before}」`} / ${
+          state.after.includes('baidu.com') ? '示例含 baidu.com' : `示例是「${state.after}」`
+        }`,
       };
     },
   },
@@ -768,6 +817,42 @@ export const scenarios = [
       return {
         expected: '两种文件入口均放行并清状态 / 0',
         actual: `${state.passed ? '两种文件入口均放行并清状态' : '文件入口仍接管旧状态'} / ${state.opened}`,
+      };
+    },
+  },
+  {
+    name: '缺失 dragend 后从系统拖入文字 → 不打开旧链接',
+    async run(ctx) {
+      const state = await ctx.evaluate(() => {
+        const link = document.querySelector('#link');
+        const point = window.__page.point(link);
+        const init = {
+          bubbles: true,
+          cancelable: true,
+          composed: true,
+          clientX: point.x,
+          clientY: point.y,
+        };
+        // 本页拖拽后没有 dragend（拖到桌面 / DevTools 时浏览器不发）。
+        link.dispatchEvent(
+          new DragEvent('dragstart', { ...init, dataTransfer: new DataTransfer() }),
+        );
+        const opened = window.__page.openedCount();
+        // 外来文字只有 text/plain，没有 Files，也没有本脚本的标记。
+        const external = new DataTransfer();
+        external.setData('text/plain', 'external text');
+        const over = new DragEvent('dragover', { ...init, dataTransfer: external });
+        const drop = new DragEvent('drop', { ...init, dataTransfer: external });
+        document.querySelector('#text').dispatchEvent(over);
+        document.querySelector('#text').dispatchEvent(drop);
+        return {
+          passed: !over.defaultPrevented && !drop.defaultPrevented,
+          opened: window.__page.openedCount() - opened,
+        };
+      });
+      return {
+        expected: '外来文字放行 / 0',
+        actual: `${state.passed ? '外来文字放行' : '外来文字被拦'} / ${state.opened}`,
       };
     },
   },

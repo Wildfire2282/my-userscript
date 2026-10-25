@@ -236,6 +236,10 @@ export function createSettingsPanel(options: SettingsPanelOptions): SettingsPane
     }
   }
 
+  // draft 模式不会在改动时回调脚本，示例文案只能直接监听控件。
+  form.fields['defaultEngine']?.control.input.addEventListener('change', refreshDerived);
+  form.fields['customEngineUrl']?.control.input.addEventListener('input', refreshDerived);
+
   return {
     open() {
       form.open();

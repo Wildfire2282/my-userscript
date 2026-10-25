@@ -57,16 +57,32 @@ export function createScrollHint(
   const update = () => {
     const scrollable = scroller.scrollHeight > scroller.clientHeight + EDGE;
     const atEnd = scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - EDGE;
-    el.dataset.state = scrollable && !atEnd ? 'visible' : 'hidden';
+    const next = scrollable && !atEnd ? 'visible' : 'hidden';
+    // 状态没变就不碰属性：面板内容每次变化都会走到这里。
+    if (el.dataset.state !== next) el.dataset.state = next;
   };
 
-  scroller.addEventListener('scroll', update, { passive: true, signal: scope.signal });
-  window.addEventListener('resize', update, { passive: true, signal: scope.signal });
+  // 滚动、尺寸与内容变化可能在同一帧里触发多次，而 update 每次都要读布局；每帧只测一次。
+  let frame = 0;
+  const scheduleUpdate = (): void => {
+    if (frame !== 0) return;
+    if (typeof requestAnimationFrame !== 'function') {
+      update();
+      return;
+    }
+    frame = requestAnimationFrame(() => {
+      frame = 0;
+      update();
+    });
+  };
 
-  const mutations = new MutationObserver(update);
+  scroller.addEventListener('scroll', scheduleUpdate, { passive: true, signal: scope.signal });
+  window.addEventListener('resize', scheduleUpdate, { passive: true, signal: scope.signal });
+
+  const mutations = new MutationObserver(scheduleUpdate);
   mutations.observe(scroller, { childList: true, subtree: true, characterData: true });
 
-  const resize = typeof ResizeObserver === 'function' ? new ResizeObserver(update) : null;
+  const resize = typeof ResizeObserver === 'function' ? new ResizeObserver(scheduleUpdate) : null;
   resize?.observe(scroller);
 
   update();
@@ -78,6 +94,10 @@ export function createScrollHint(
       scope.destroy();
       mutations.disconnect();
       resize?.disconnect();
+      if (frame !== 0 && typeof cancelAnimationFrame === 'function') {
+        cancelAnimationFrame(frame);
+        frame = 0;
+      }
       el.remove();
     },
   };

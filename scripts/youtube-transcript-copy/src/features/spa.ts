@@ -1,9 +1,10 @@
 /**
  * YouTube 是单页应用：换视频只改 URL 与 DOM，不会重新加载脚本。
  *
- * 这里把三种信号合成一个“该检查一次了”的回调：YouTube 自己的导航事件、
- * 地址变化、以及兜底轮询。回调只做幂等的事（按钮已存在就跳过、位置不存在就补），
- * 所以多触发几次没有副作用。
+ * 这里把两种信号合成一个“该检查一次了”的回调：YouTube 自己的导航事件与兜底轮询。
+ * 曾经还观察 body 的每次 DOM 变动来抢在轮询前发现地址变化，但全页的 MutationObserver
+ * 会在 YouTube 每秒的 DOM 改动上反复回调，而地址变化本来就有导航事件和 1.5 秒轮询兜底。
+ * 回调只做幂等的事（按钮已存在就跳过、位置不存在就补），所以多触发几次没有副作用。
  */
 
 export interface WatchNavigationOptions {
@@ -27,21 +28,7 @@ export function watchNavigation(
 
   const onNavigate = (): void => notify();
 
-  const onDomChange = (): void => {
-    if (doc.location.href !== lastHref) notify();
-  };
-
   win.addEventListener('yt-navigate-finish', onNavigate);
-
-  const observer = new MutationObserver(onDomChange);
-  let observing = false;
-  const observeBody = (): void => {
-    if (observing || !doc.body) return;
-    observer.observe(doc.body, { childList: true, subtree: true });
-    observing = true;
-  };
-  observeBody();
-  if (!observing) doc.addEventListener('DOMContentLoaded', observeBody, { once: true });
 
   const timer = win.setInterval(() => {
     if (doc.location.href !== lastHref) {
@@ -54,8 +41,6 @@ export function watchNavigation(
 
   return () => {
     win.removeEventListener('yt-navigate-finish', onNavigate);
-    doc.removeEventListener('DOMContentLoaded', observeBody);
-    observer.disconnect();
     win.clearInterval(timer);
   };
 }

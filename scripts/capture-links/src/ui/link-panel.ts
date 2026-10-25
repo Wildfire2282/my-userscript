@@ -145,23 +145,36 @@ export function createLinkPanel(options: LinkPanelOptions): LinkPanelHandle {
   }
 
   function render(): void {
-    list.replaceChildren();
+    // 行可能上百条：先拼进游离片段，最后一次插入，避免每次 append 都触发布局。
+    const fragment = document.createDocumentFragment();
     if (filteredItems.length === 0) {
       const empty = document.createElement('div');
       empty.className = 'cl-empty';
       empty.textContent = '无匹配结果';
-      list.appendChild(empty);
+      fragment.appendChild(empty);
     } else {
       filteredItems
         .slice(0, shownCount)
-        .forEach((item, index) => list.appendChild(createRow(item, index)));
+        .forEach((item, index) => fragment.appendChild(createRow(item, index)));
       if (filteredItems.length > shownCount) {
         const more = document.createElement('button');
         more.type = 'button';
         more.className = 'cl-more';
         more.textContent = `显示更多（剩余 ${filteredItems.length - shownCount} 条）`;
-        list.appendChild(more);
+        fragment.appendChild(more);
       }
+    }
+    list.replaceChildren(fragment);
+    updateStats();
+  }
+
+  /**
+   * 批量勾选只同步已渲染行的勾选状态：重画整张列表会为一次点击重建上千个节点，
+   * 而行的内容并没有变。
+   */
+  function syncChecks(): void {
+    for (const input of list.querySelectorAll<HTMLInputElement>('input.cl-check')) {
+      input.checked = selectedIds.has(input.dataset.id ?? '');
     }
     updateStats();
   }
@@ -192,7 +205,7 @@ export function createLinkPanel(options: LinkPanelOptions): LinkPanelHandle {
     onClick: () => {
       // 只受当前筛选影响，不受“首屏只渲染 200 行”限制：统计里的“共 N 条”与复制结果要对得上。
       selectedIds = selectAll(selectedIds, filteredItems);
-      render();
+      syncChecks();
     },
   });
   const selectNoneButton = createButton(ui, {
@@ -200,7 +213,7 @@ export function createLinkPanel(options: LinkPanelOptions): LinkPanelHandle {
     variant: 'secondary',
     onClick: () => {
       selectedIds = selectNone(selectedIds, filteredItems);
-      render();
+      syncChecks();
     },
   });
   const invertButton = createButton(ui, {
@@ -208,7 +221,7 @@ export function createLinkPanel(options: LinkPanelOptions): LinkPanelHandle {
     variant: 'secondary',
     onClick: () => {
       selectedIds = invertSelection(selectedIds, filteredItems);
-      render();
+      syncChecks();
     },
   });
   const copyButton = createButton(ui, {

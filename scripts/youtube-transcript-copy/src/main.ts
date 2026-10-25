@@ -120,7 +120,15 @@ function start(): void {
       }
       app.sync();
     });
-    window.addEventListener('resize', () => app.sync());
+    // 拖动窗口时 resize 每帧触发多次，而每次同步都要读播放器布局；同一帧只测一次。
+    let resizeFrame = 0;
+    window.addEventListener('resize', () => {
+      if (resizeFrame !== 0) return;
+      resizeFrame = window.requestAnimationFrame(() => {
+        resizeFrame = 0;
+        app.sync();
+      });
+    });
   };
 
   if (document.readyState === 'loading') {

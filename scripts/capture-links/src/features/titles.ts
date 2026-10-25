@@ -9,7 +9,8 @@
 const MAX_TITLE_LENGTH = 200;
 
 function usableTitle(value: string | null | undefined): string | null {
-  const text = value?.trim() ?? '';
+  // title 属性里可以带换行；复制格式要求每行一条，先把空白折叠成单个空格。
+  const text = value?.replace(/\s+/g, ' ').trim() ?? '';
   return text.length > 0 && text.length < MAX_TITLE_LENGTH ? text : null;
 }
 

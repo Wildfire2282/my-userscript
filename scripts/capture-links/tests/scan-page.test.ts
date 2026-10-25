@@ -87,6 +87,20 @@ describe('scanLinks', () => {
     ]);
   });
 
+  it('不扫描自己界面里的链接', () => {
+    addLink('/page', '页面链接');
+    const host = document.createElement('div');
+    host.setAttribute('data-ds-root', '');
+    document.body.appendChild(host);
+    const shadow = host.attachShadow({ mode: 'open' });
+    const own = document.createElement('a');
+    own.setAttribute('href', '/own-ui');
+    own.textContent = '面板里的按钮';
+    shadow.appendChild(own);
+
+    expect(scanLinks(document, BASE).map((item) => item.url)).toEqual(['https://example.com/page']);
+  });
+
   it('没有链接时返回空数组', () => {
     expect(scanLinks(document, BASE)).toEqual([]);
   });

@@ -37,7 +37,7 @@ afterEach(() => {
   document.body.replaceChildren();
 });
 
-function setup() {
+function setup(count = LINK_COUNT) {
   const ui: UI = mountUI({ theme: 'light' });
   const panel = createLinkPanel({
     ui,
@@ -46,12 +46,12 @@ function setup() {
     notify: vi.fn(),
   });
   cleanup = () => ui.destroy();
-  addLinks(LINK_COUNT);
+  addLinks(count);
   panel.open();
   const list = ui.root.querySelector<HTMLElement>('.cl-list');
   const search = ui.root.querySelector<HTMLInputElement>('input[type="search"]');
   if (!list || !search) throw new Error('面板结构不对');
-  return { panel, list, search };
+  return { panel, list, search, ui };
 }
 
 describe('链接面板分页', () => {
@@ -76,5 +76,15 @@ describe('链接面板分页', () => {
     stale?.click();
     expect(rows(list)).toBe(200);
     expect(moreButton(list)).not.toBeNull();
+  });
+
+  it('键盘点「显示更多」后焦点留在新按钮上', () => {
+    const { list, ui } = setup(450);
+    const more = moreButton(list);
+    if (!more) throw new Error('缺少「显示更多」按钮');
+    more.focus();
+    more.click();
+    expect(rows(list)).toBe(400);
+    expect(moreButton(list)).toBe(ui.root.activeElement);
   });
 });

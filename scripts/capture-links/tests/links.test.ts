@@ -71,6 +71,19 @@ describe('collectLinks', () => {
     ]);
   });
 
+  it('先出现的弱标题（地址）会被后面的真实标题补上', () => {
+    const items = collectLinks(
+      [
+        { rawHref: '/home', absoluteHref: 'https://example.com/home', title: '' },
+        { rawHref: 'https://example.com/home', absoluteHref: '', title: '首页' },
+      ],
+      BASE,
+    );
+    expect(items.map((item) => [item.url, item.title])).toEqual([
+      ['https://example.com/home', '首页'],
+    ]);
+  });
+
   it('忽略空地址与重复项', () => {
     const items = collectLinks(
       [

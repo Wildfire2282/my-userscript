@@ -104,6 +104,8 @@ export function createLinkPanel(options: LinkPanelOptions): LinkPanelHandle {
       if (!(target instanceof Element) || !target.closest('.cl-more')) return;
       shownCount += PAGE_SIZE;
       render();
+      // 重画后旧按钮已被移除；还有下一批时把焦点交给新按钮，键盘用户才能继续展开。
+      list.querySelector<HTMLButtonElement>('.cl-more')?.focus();
     },
     { signal: ui.signal },
   );

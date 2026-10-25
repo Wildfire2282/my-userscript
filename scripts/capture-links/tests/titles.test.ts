@@ -46,6 +46,13 @@ describe('bestTitle', () => {
     expect(bestTitle(link, 'https://example.com')).toBe('一段 链接文字');
   });
 
+  it('title 属性里的换行折叠成空格', () => {
+    const link = document.createElement('a');
+    link.setAttribute('title', '第一行\n第二行');
+    document.body.appendChild(link);
+    expect(bestTitle(link, 'https://example.com')).toBe('第一行 第二行');
+  });
+
   it('过长的文字与标题都退回地址', () => {
     const link = document.createElement('a');
     link.textContent = '字'.repeat(200);

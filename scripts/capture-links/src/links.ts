@@ -59,8 +59,16 @@ export function collectLinks(candidates: LinkCandidate[], baseHref: string): Lin
   const seen = new Map<string, LinkItem>();
   for (const candidate of candidates) {
     const url = resolveUrl(candidate.rawHref, baseHref, candidate.absoluteHref);
-    if (url === null || seen.has(url)) continue;
-    seen.set(url, { id: url, url, title: candidate.title.trim() || url });
+    if (url === null) continue;
+    const title = candidate.title.trim() || url;
+    const existing = seen.get(url);
+    if (existing) {
+      // 首次出现可能只是图片链接（没有文字，标题退化成地址）；
+      // 后面同名地址带真实标题时补上，别让列表里两行都是地址。
+      if (existing.title === url && title !== url) existing.title = title;
+      continue;
+    }
+    seen.set(url, { id: url, url, title });
   }
   return [...seen.values()];
 }

@@ -114,6 +114,19 @@ describe('installNetworkCapture consumption', () => {
     third.restore();
   });
 
+  it('restore 不拆掉之后别人装的包装', () => {
+    const { win, FakeXHR } = captureHarness();
+    const capture = installNetworkCapture(win);
+    const laterFetch = vi.fn(() => Promise.resolve(new Response('{}')));
+    const laterOpen = vi.fn();
+    win.fetch = laterFetch;
+    // 模拟另一段代码在捕获之后重包 XHR。
+    FakeXHR.prototype.open = laterOpen;
+    capture.restore();
+    expect(win.fetch).toBe(laterFetch);
+    expect(FakeXHR.prototype.open).toBe(laterOpen);
+  });
+
   it('abort 后 open 非捕获 URL 不让旧 listener 接收新响应', () => {
     const { win, FakeXHR } = captureHarness();
     const capture = installNetworkCapture(win);

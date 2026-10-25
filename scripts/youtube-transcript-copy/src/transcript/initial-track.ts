@@ -13,6 +13,21 @@ export interface CaptionTrack {
   videoId: string;
 }
 
+/**
+ * 播放器当前挂的响应；SPA 换台后 `ytInitialPlayerResponse` 可能不更新，
+ * 这一份才是新视频的字幕轨来源。
+ */
+export function readPlayerResponse(doc: Document = document): unknown {
+  try {
+    const player = doc.querySelector<HTMLElement & { getPlayerResponse?: () => unknown }>(
+      '#movie_player',
+    );
+    return player?.getPlayerResponse?.() ?? null;
+  } catch {
+    return null;
+  }
+}
+
 function asRecord(value: unknown): Record<string, unknown> | null {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
     ? (value as Record<string, unknown>)

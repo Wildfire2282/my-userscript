@@ -206,8 +206,9 @@ export function installNetworkCapture(
       if (!active) return;
       active = false;
       state = null;
-      win.fetch = originalFetch;
-      proto.open = originalOpen;
+      // 之后可能有别的代码又包了一层；只还原自己装的那一层，别把对方的包装一起拆掉。
+      if (win.fetch === wrappedFetch) win.fetch = originalFetch;
+      if (proto.open === wrappedOpen) proto.open = originalOpen;
       captures.delete(win);
     },
   };

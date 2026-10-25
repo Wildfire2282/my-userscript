@@ -37,6 +37,31 @@ export interface WatchVisibilityOptions {
   intervalMs?: number;
 }
 
+/** 播放器当前承载的视频 ID；页面还没挂播放器或读不到时返回空串。 */
+export function readPlayerVideoId(doc: Document = document): string {
+  const player = doc.querySelector<
+    HTMLElement & { getVideoData?: () => { video_id?: unknown } | null | undefined }
+  >('#movie_player');
+  try {
+    const id = player?.getVideoData?.()?.video_id;
+    if (typeof id === 'string') return id;
+  } catch {
+    // 播放器还没初始化：继续看 watch 页属性。
+  }
+  return doc.querySelector('ytd-watch-flexy')?.getAttribute('video-id')?.trim() ?? '';
+}
+
+/**
+ * DOM 里的转写面板是否属于当前视频。
+ *
+ * 地址栏已经换台、面板节点却还是上一个视频的：同步读 DOM 会复制到别的内容。
+ * 读不到播放器 ID 时按同一视频处理，保留没有播放器信息的页面上的旧行为。
+ */
+export function isPlayerOnVideo(videoId: string, doc: Document = document): boolean {
+  const playerId = readPlayerVideoId(doc);
+  return playerId === '' || playerId === videoId;
+}
+
 /**
  * 监听播放器出现 / 消失与全屏变化。
  *

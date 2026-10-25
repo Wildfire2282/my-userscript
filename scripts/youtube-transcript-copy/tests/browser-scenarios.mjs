@@ -473,6 +473,36 @@ export const scenarios = [
     },
   },
   {
+    name: '换台后面板 DOM 还是上一个视频 → 不复制旧台词',
+    async run(ctx) {
+      await ctx.evaluate(() => {
+        const player = document.querySelector('#movie_player');
+        player.getVideoData = () => ({ video_id: 'first' });
+        history.replaceState(null, '', '?v=second');
+        const stale = document.createElement('ytd-transcript-segment-renderer');
+        stale.style.cssText = 'display:block;width:400px;height:40px';
+        const stamp = document.createElement('span');
+        stamp.textContent = '0:00';
+        const line = document.createElement('span');
+        line.textContent = '旧视频台词';
+        stale.append(stamp, line);
+        document.body.appendChild(stale);
+        window.dispatchEvent(new Event('yt-navigate-finish'));
+      });
+      const point = await ctx.evaluate(() => window.__page.center());
+      await ctx.input.click(point);
+      await ctx.wait(200);
+      const result = await ctx.evaluate(() => ({
+        state: window.__page.state(),
+        writes: window.__page.clipboardWrites(),
+      }));
+      return {
+        expected: 'error / 0',
+        actual: `${result.state} / ${result.writes}`,
+      };
+    },
+  },
+  {
     name: '按钮可拖动时不会误触复制',
     async run(ctx) {
       const point = await ctx.evaluate(() => window.__page.center());

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { readInitialTrack } from '../src/transcript/initial-track';
+import { readInitialTrack, readPlayerResponse } from '../src/transcript/initial-track';
 
 function response(baseUrl: string, videoId?: string) {
   return {
@@ -25,5 +25,22 @@ describe('readInitialTrack', () => {
     expect(readInitialTrack(response('https://www.youtube.com/api/timedtext'))).toBeNull();
     expect(readInitialTrack(response('not a URL'))).toBeNull();
     expect(readInitialTrack({ videoDetails: { videoId: 'first' } })).toBeNull();
+  });
+});
+
+describe('readPlayerResponse', () => {
+  it('优先取播放器当前响应；没有播放器时返回 null', () => {
+    document.body.replaceChildren();
+    expect(readPlayerResponse()).toBeNull();
+
+    const response = { videoDetails: { videoId: 'second' } };
+    const player = document.createElement('div');
+    player.id = 'movie_player';
+    Object.defineProperty(player, 'getPlayerResponse', {
+      value: () => response,
+      configurable: true,
+    });
+    document.body.appendChild(player);
+    expect(readPlayerResponse()).toBe(response);
   });
 });

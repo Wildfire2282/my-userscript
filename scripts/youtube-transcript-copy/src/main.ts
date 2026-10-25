@@ -1,11 +1,21 @@
 import { createClipboard, createGmApi, createUserscript } from '@shared';
 import { defaultButtonPosition, readPlayerRect } from './features/position';
 import { watchNavigation } from './features/spa';
-import { readVideoState, shouldShowButton, watchVisibility } from './features/visibility';
+import {
+  isPlayerOnVideo,
+  readVideoState,
+  shouldShowButton,
+  watchVisibility,
+} from './features/visibility';
 import { createStore } from './store';
 import { requestPanel } from './transcript/api';
 import { extractFromPanelDump, extractFromViewModel } from './transcript/extract';
-import { fetchInitialTrack, readInitialTrack, type CaptionTrack } from './transcript/initial-track';
+import {
+  fetchInitialTrack,
+  readInitialTrack,
+  readPlayerResponse,
+  type CaptionTrack,
+} from './transcript/initial-track';
 import { formatLines } from './transcript/format';
 import { installNetworkCapture } from './transcript/network';
 import { openTranscriptPanel } from './transcript/open-panel';
@@ -42,9 +52,13 @@ createUserscript(createGmApi(), {
 
     let initialTrack: CaptionTrack | null = null;
     const captureInitialTrack = (): void => {
-      const track = readInitialTrack((window as YtWindow).ytInitialPlayerResponse);
+      const videoId = currentVideoId();
+      // 首屏之后 ytInitialPlayerResponse 可能还停在旧视频；播放器自己的响应更新。
       // 新视频没有字幕时也要清空，否则策略记忆会让旧视频的轨一直占着第一位。
-      initialTrack = track;
+      initialTrack =
+        [readPlayerResponse(), (window as YtWindow).ytInitialPlayerResponse]
+          .map(readInitialTrack)
+          .find((track) => track !== null && track.videoId === videoId) ?? null;
     };
     captureInitialTrack();
 
@@ -56,8 +70,11 @@ createUserscript(createGmApi(), {
           : Promise.resolve(null),
       fromNetworkCache: () => network.get(),
       ensurePanelOpen: () => openTranscriptPanel(),
-      fromViewModel: () => extractFromViewModel(document.body),
-      fromPanelDump: () => extractFromPanelDump(document.body),
+      // 地址栏已经换台时，DOM 可能还是上一个视频的面板；同步读取没有 await 守卫。
+      fromViewModel: () =>
+        isPlayerOnVideo(currentVideoId()) ? extractFromViewModel(document.body) : null,
+      fromPanelDump: () =>
+        isPlayerOnVideo(currentVideoId()) ? extractFromPanelDump(document.body) : null,
       fromApi: (videoId) => requestPanel(videoId),
       memory: {
         get: store.getStrategy,

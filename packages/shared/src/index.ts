@@ -26,3 +26,5 @@ export type {
 } from './settings/define-settings';
 export { createLogger, guard } from './runtime/logger';
 export type { Logger } from './runtime/logger';
+export { createUserscript, installOnce, siteKey } from './runtime/boot';
+export type { MenuItem, UserscriptKit, UserscriptOptions } from './runtime/boot';

@@ -1,4 +1,4 @@
-import { createClipboard, createGmApi, createLogger, guard } from '@shared';
+import { createClipboard, createGmApi, createUserscript } from '@shared';
 import { createSettingsStore } from './settings';
 import { createApp } from './ui/app';
 
@@ -8,45 +8,31 @@ import { createApp } from './ui/app';
  * 页面本体不放任何 DOM：UI 全部在 `@ui` 的 Shadow Root 里，关掉悬浮按钮后
  * 只有菜单入口，普通页面零节点零样式。
  */
+createUserscript(createGmApi(), {
+  slug: 'capture-links',
+  // `@noframes` 已保证只在顶层跑一遍，不需要 DOM 安装锁。
+  installLock: false,
+  onReady: (kit) => {
+    const store = createSettingsStore(kit.gm);
+    const clipboard = createClipboard();
 
-const MENU_LINKS = '操作面板';
-const MENU_SETTINGS = '功能设置';
-
-function start(): void {
-  const log = createLogger('capture-links');
-  const gm = createGmApi();
-  const store = createSettingsStore(gm);
-  const clipboard = createClipboard();
-
-  const app = createApp({
-    getSettings: store.get,
-    updateSettings: (patch) => void store.update(patch),
-    copy: clipboard.copy,
-  });
-
-  app.syncLauncher();
-
-  const register = (label: string, run: () => void): void => {
-    if (!gm.registerMenuCommand(label, run)) {
-      log.warn(`菜单命令不可用：${label}`);
-    }
-  };
-  // 面板打开与扫描可能抛错：菜单回调里兜住，否则异常冒到脚本管理器且没有提示。
-  const openLinks = (): void => {
-    guard(log, '打开链接面板失败', () => {
-      app.openLinks();
+    const app = createApp({
+      getSettings: store.get,
+      updateSettings: (patch) => void store.update(patch),
+      copy: clipboard.copy,
     });
-  };
-  const openSettings = (): void => {
-    guard(log, '打开设置面板失败', () => {
-      app.openSettings();
-    });
-  };
-  register(MENU_LINKS, openLinks);
-  register(MENU_SETTINGS, openSettings);
-}
 
-// 初始化失败只影响本脚本，不能让异常冒到宿主页面。
-guard(createLogger('capture-links'), '启动失败', () => {
-  start();
+    app.syncLauncher();
+
+    kit.menu({
+      label: '操作面板',
+      run: () => app.openLinks(),
+    });
+    kit.menu({
+      label: '功能设置',
+      run: () => app.openSettings(),
+    });
+
+    return () => app.destroy();
+  },
 });

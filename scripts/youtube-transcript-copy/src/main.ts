@@ -1,4 +1,4 @@
-import { createClipboard, createGmApi, createLogger, guard } from '@shared';
+import { createClipboard, createGmApi, createUserscript } from '@shared';
 import { defaultButtonPosition, readPlayerRect } from './features/position';
 import { watchNavigation } from './features/spa';
 import { readVideoState, shouldShowButton, watchVisibility } from './features/visibility';
@@ -18,95 +18,81 @@ import { readVideoId } from './transcript/network';
  *
  * 只在顶层 frame 运行：转写面板与播放器都在主文档里，iframe 里跑一份只会重复请求。
  */
+createUserscript(createGmApi(), {
+  slug: 'youtube-transcript-copy',
+  // 无 `@noframes`，同域 iframe 也会被 `@match` 注入：顶层判断不能省。
+  topFrameOnly: true,
+  installLock: false,
+  onStart: () => {
+    const currentVideoId = (): string => readVideoId(location.search, location.pathname);
+    // 把当前视频交给网络钩子：页面还会为别的视频和翻译字幕发同样的请求，那些不能留。
+    // `document-start` 同步执行，抢在页面 JS 之前；清理只在卸载时 restore。
+    const network = installNetworkCapture(window, { currentVideoId });
+    return () => network.restore();
+  },
+  onReady: (kit) => {
+    // `document-start` 时播放器响应还没有挂到 window 上，等 DOM 就绪后再读一次。
+    // 记下它属于哪个视频：SPA 换视频后不能再拿旧视频的字幕轨。
+    const store = createStore(kit.gm);
+    const clipboard = createClipboard();
+    const currentVideoId = (): string => readVideoId(location.search, location.pathname);
+    // onStart 与 onReady 各自独立：网络钩子在 onStart 里已装，这里只拿缓存读口。
+    // 重复注入（多管理器）时复用同一份捕获，不重复包装 fetch。
+    const network = installNetworkCapture(window, { currentVideoId });
 
-const MENU_ACTIONS = '操作面板';
-const MENU_SETTINGS = '功能设置';
+    let initialTrack: CaptionTrack | null = null;
+    const captureInitialTrack = (): void => {
+      const track = readInitialTrack((window as YtWindow).ytInitialPlayerResponse);
+      // 新视频没有字幕时也要清空，否则策略记忆会让旧视频的轨一直占着第一位。
+      initialTrack = track;
+    };
+    captureInitialTrack();
 
-interface YtWindow extends Window {
-  ytInitialPlayerResponse?: unknown;
-}
-
-function start(): void {
-  if (window.top !== window.self) return;
-
-  const log = createLogger('youtube-transcript-copy');
-  const gm = createGmApi();
-  const store = createStore(gm);
-  const clipboard = createClipboard();
-  const currentVideoId = (): string => readVideoId(location.search, location.pathname);
-  // 把当前视频交给网络钩子：页面还会为别的视频和翻译字幕发同样的请求，那些不能留。
-  const network = installNetworkCapture(window, { currentVideoId });
-
-  // `document-start` 时播放器响应还没有挂到 window 上，等 DOMContentLoaded 再读一次。
-  // 记下它属于哪个视频：SPA 换视频后不能再拿旧视频的字幕轨。
-  let initialTrack: CaptionTrack | null = null;
-  const captureInitialTrack = (): void => {
-    const track = readInitialTrack((window as YtWindow).ytInitialPlayerResponse);
-    // 新视频没有字幕时也要清空，否则策略记忆会让旧视频的轨一直占着第一位。
-    initialTrack = track;
-  };
-
-  const service = createTranscriptService({
-    videoId: currentVideoId,
-    fromInitialTrack: () =>
-      initialTrack && initialTrack.videoId === currentVideoId()
-        ? fetchInitialTrack(initialTrack)
-        : Promise.resolve(null),
-    fromNetworkCache: () => network.get(),
-    ensurePanelOpen: () => openTranscriptPanel(),
-    fromViewModel: () => extractFromViewModel(document.body),
-    fromPanelDump: () => extractFromPanelDump(document.body),
-    fromApi: (videoId) => requestPanel(videoId),
-    memory: {
-      get: store.getStrategy,
-      remember: (kind, index) => store.rememberStrategy(kind, index),
-    },
-  });
-
-  const copyTranscript = async (): Promise<CopyOutcome> => {
-    const segments = await service.fetchTranscript();
-    if (segments.length === 0) return 'empty';
-    const written = await clipboard.copy(formatLines(segments));
-    return written ? 'success' : 'error';
-  };
-
-  const app = createTranscriptButtonApp({
-    getSavedPosition: store.getPosition,
-    savePosition: store.savePosition,
-    getDefaultPosition: () =>
-      defaultButtonPosition(readPlayerRect(), {
-        width: window.innerWidth,
-        height: window.innerHeight,
-      }),
-    isVisible: () => shouldShowButton(readVideoState()),
-    activate: copyTranscript,
-    clearSavedPosition: store.clearPosition,
-    clearStrategy: store.clearStrategy,
-  });
-
-  const register = (label: string, run: () => void): void => {
-    if (!gm.registerMenuCommand(label, run)) {
-      log.warn(`菜单命令不可用：${label}`);
-    }
-  };
-
-  // UI 挂载可能抛错：在菜单回调里兜住，否则异常直接冒到脚本管理器且没有提示。
-  register(MENU_ACTIONS, () => {
-    guard(log, '打开操作面板失败', () => {
-      app.openActions();
+    const service = createTranscriptService({
+      videoId: currentVideoId,
+      fromInitialTrack: () =>
+        initialTrack && initialTrack.videoId === currentVideoId()
+          ? fetchInitialTrack(initialTrack)
+          : Promise.resolve(null),
+      fromNetworkCache: () => network.get(),
+      ensurePanelOpen: () => openTranscriptPanel(),
+      fromViewModel: () => extractFromViewModel(document.body),
+      fromPanelDump: () => extractFromPanelDump(document.body),
+      fromApi: (videoId) => requestPanel(videoId),
+      memory: {
+        get: store.getStrategy,
+        remember: (kind, index) => store.rememberStrategy(kind, index),
+      },
     });
-  });
-  register(MENU_SETTINGS, () => {
-    guard(log, '打开设置面板失败', () => {
-      app.openSettings();
-    });
-  });
 
-  const boot = (): void => {
+    const copyTranscript = async (): Promise<CopyOutcome> => {
+      const segments = await service.fetchTranscript();
+      if (segments.length === 0) return 'empty';
+      const written = await clipboard.copy(formatLines(segments));
+      return written ? 'success' : 'error';
+    };
+
+    const app = createTranscriptButtonApp({
+      getSavedPosition: store.getPosition,
+      savePosition: store.savePosition,
+      getDefaultPosition: () =>
+        defaultButtonPosition(readPlayerRect(), {
+          width: window.innerWidth,
+          height: window.innerHeight,
+        }),
+      isVisible: () => shouldShowButton(readVideoState()),
+      activate: copyTranscript,
+      clearSavedPosition: store.clearPosition,
+      clearStrategy: store.clearStrategy,
+    });
+
+    kit.menu({ label: '操作面板', run: () => app.openActions() });
+    kit.menu({ label: '功能设置', run: () => app.openSettings() });
+
     app.sync();
-    watchVisibility((visible) => app.setVisible(visible));
+    const stopVisibility = watchVisibility((visible) => app.setVisible(visible));
     let lastVideoId = currentVideoId();
-    watchNavigation(() => {
+    const stopNavigation = watchNavigation(() => {
       // SPA 换视频：网络缓存的旧转写不能留给新视频，服务层按 videoId 也不会复用缓存。
       const videoId = currentVideoId();
       if (videoId !== lastVideoId) {
@@ -119,30 +105,24 @@ function start(): void {
     });
     // 拖动窗口时 resize 每帧触发多次，而每次同步都要读播放器布局；同一帧只测一次。
     let resizeFrame = 0;
-    window.addEventListener('resize', () => {
+    const onResize = (): void => {
       if (resizeFrame !== 0) return;
       resizeFrame = window.requestAnimationFrame(() => {
         resizeFrame = 0;
         app.sync();
       });
-    });
-  };
+    };
+    window.addEventListener('resize', onResize, { signal: kit.signal });
 
-  if (document.readyState === 'loading') {
-    document.addEventListener(
-      'DOMContentLoaded',
-      () => {
-        captureInitialTrack();
-        boot();
-      },
-      { once: true },
-    );
-  } else {
-    captureInitialTrack();
-    boot();
-  }
-}
-
-guard(createLogger('youtube-transcript-copy'), '启动失败', () => {
-  start();
+    return () => {
+      stopVisibility();
+      stopNavigation();
+      window.cancelAnimationFrame(resizeFrame);
+      app.destroy();
+    };
+  },
 });
+
+interface YtWindow extends Window {
+  ytInitialPlayerResponse?: unknown;
+}

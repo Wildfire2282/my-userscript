@@ -1,4 +1,4 @@
-import { createClipboard, createGmApi, createLogger, guard } from '@shared';
+import { createClipboard, createGmApi, createUserscript } from '@shared';
 import { createCopyAction } from './features/copy-action';
 import { installCopySensor } from './features/sensor';
 import { createSettingsStore, topSiteKey } from './settings';
@@ -18,52 +18,49 @@ import { createSettingsPanel, type SettingsPanelHandle } from './ui/settings-pan
  * 菜单只在顶层页面注册：每个 iframe 各注册一次会让管理器菜单里出现重复项，
  * 面板也可能被塞进看不见的小 iframe 里。
  */
+createUserscript(createGmApi(), {
+  slug: 'selection-copy',
+  installLock: 'data-selection-auto-copy-installed',
+  // 全 frame 运行（iframe 内也要复制），菜单只在顶层注册。
+  topFrameOnly: false,
+  onReady: (kit) => {
+    const store = createSettingsStore(kit.gm);
+    const site = topSiteKey(window);
+    const app = createUiHost();
 
-const INSTALL_LOCK_ATTRIBUTE = 'data-selection-auto-copy-installed';
-const MENU_LABEL = '功能设置';
-
-function start(): void {
-  const log = createLogger('selection-copy');
-  const root = document.documentElement;
-  if (!root || root.hasAttribute(INSTALL_LOCK_ATTRIBUTE)) return;
-  root.setAttribute(INSTALL_LOCK_ATTRIBUTE, '');
-
-  const gm = createGmApi();
-  const store = createSettingsStore(gm);
-  const site = topSiteKey(window);
-  const app = createUiHost();
-
-  const copy = createCopyAction({
-    clipboard: createClipboard(),
-    getSettings: store.get,
-    site,
-    showFeedback: app.showFeedback,
-  });
-
-  installCopySensor({ onCopy: (target, point) => void copy(target, point) });
-
-  let panel: SettingsPanelHandle | null = null;
-  const openSettings = (): void => {
-    guard(log, '设置面板打开失败', () => {
-      if (!panel) {
-        panel = createSettingsPanel({
-          ui: app.ensure(),
-          site,
-          getSettings: store.get,
-          save: (next) => {
-            store.update(next);
-          },
-        });
-      }
-      panel.open();
+    const copy = createCopyAction({
+      clipboard: createClipboard(),
+      getSettings: store.get,
+      site,
+      showFeedback: app.showFeedback,
     });
-  };
 
-  if (window.top === window.self && !gm.registerMenuCommand(MENU_LABEL, openSettings)) {
-    log.warn('菜单命令不可用，设置面板无法打开');
-  }
-}
+    const uninstallSensor = installCopySensor({
+      onCopy: (target, point) => void copy(target, point),
+    });
 
-guard(createLogger('selection-copy'), '启动失败', () => {
-  start();
+    let panel: SettingsPanelHandle | null = null;
+    kit.menu({
+      label: '功能设置',
+      topFrameOnly: true,
+      run: () => {
+        if (!panel) {
+          panel = createSettingsPanel({
+            ui: app.ensure(),
+            site,
+            getSettings: store.get,
+            save: (next) => {
+              store.update(next);
+            },
+          });
+        }
+        panel.open();
+      },
+    });
+
+    return () => {
+      uninstallSensor();
+      panel?.destroy();
+    };
+  },
 });

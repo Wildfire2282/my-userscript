@@ -40,6 +40,7 @@
       <p id="editor-text">富文本里的文字不该被自动复制</p>
     </div>
     <div id="shadow-host"></div>
+    <div id="shadow-text-host"></div>
     <p><input id="range" type="range" min="0" max="10" value="5" style="width: 240px" /></p>
     <p id="other">第二段文字，用来验证全选与键盘扩选。</p>
     <script>
@@ -50,6 +51,13 @@
       input.style.width = '420px';
       input.style.fontSize = '16px';
       host.attachShadow({ mode: 'open' }).append(input);
+
+      const textHost = document.getElementById('shadow-text-host');
+      const paragraph = document.createElement('p');
+      paragraph.textContent = 'Shadow DOM 里的正文文字也能自动复制';
+      paragraph.style.cssText =
+        'margin:18px 0;white-space:nowrap;font:18px/1.8 system-ui,sans-serif';
+      textHost.attachShadow({ mode: 'open' }).append(paragraph);
     </script>
   </body>
 </html>

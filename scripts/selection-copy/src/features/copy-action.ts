@@ -2,10 +2,10 @@ import type { Clipboard } from '@shared';
 import type { CopyFeedback } from '../feedback';
 import { isEnabledOn, type Settings } from '../settings';
 import {
-  getActiveTextControl,
   isDisabledTarget,
   readSelectionText,
   readTextControlText,
+  selectionForTarget,
   selectedTextControl,
 } from '../selection';
 import { getAnchorRect, getControlAnchorRect, type AnchorBox } from './geometry';
@@ -41,6 +41,9 @@ export function resolveCopySource(
   doc: Document,
 ): CopySource | null {
   const control = selectedTextControl(target);
+  const selection = selectionForTarget(target, doc);
+  // 自有界面与输入框门控必须在控件快捷返回之前判断；否则面板里的输入框会绕过它。
+  if (isDisabledTarget(selection, target, control, settings)) return null;
   if (control) {
     // 文本框里的选区不在 Document 选区里，必须从控件自身读取。
     if (!settings.copyInInputs) return null;
@@ -49,9 +52,7 @@ export function resolveCopySource(
     return { text, rect: getControlAnchorRect(control) };
   }
 
-  const selection = doc.getSelection();
   if (!selection || selection.rangeCount === 0) return null;
-  if (isDisabledTarget(selection, target, getActiveTextControl(), settings)) return null;
 
   const text = readSelectionText(selection, settings.trimWhitespace);
   if (text === '') return null;

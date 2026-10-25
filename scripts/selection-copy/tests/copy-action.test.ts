@@ -163,6 +163,26 @@ describe('createCopyAction', () => {
     );
   });
 
+  it('自有界面里的输入框即使打开输入框开关也跳过', async () => {
+    const host = document.createElement('div');
+    host.setAttribute('data-ds-root', '');
+    document.body.appendChild(host);
+    const shadow = host.attachShadow({ mode: 'open' });
+    const input = document.createElement('input');
+    input.value = '设置面板里的文字';
+    shadow.appendChild(input);
+    input.focus();
+    input.setSelectionRange(0, 4);
+
+    const clipboard = fakeClipboard();
+    const showFeedback = vi.fn();
+    const outcome = await makeAction(clipboard, showFeedback, { copyInInputs: true })(input);
+
+    expect(outcome).toBe('skipped');
+    expect(clipboard.copy).not.toHaveBeenCalled();
+    expect(showFeedback).not.toHaveBeenCalled();
+  });
+
   it('写入失败时显示失败反馈', async () => {
     const paragraph = document.createElement('p');
     paragraph.textContent = '一段文字';

@@ -82,6 +82,26 @@ export function snapshotSelection(selection: Selection | null): SelectionSnapsho
   return { anchorNode, anchorOffset, focusNode, focusOffset, rangeCount };
 }
 
+/**
+ * 事件目标所在的选区。
+ *
+ * Chromium 把 Shadow Root 内的选区折叠到宿主上，文档级 `getSelection()` 拿不到
+ * 真实端点；目标在 open shadow root 内时优先用它自己的作用域选区。
+ */
+export function selectionForTarget(
+  target: EventTarget | null,
+  doc: Document = document,
+): Selection | null {
+  const root = elementOf(target)?.getRootNode();
+  if (root instanceof ShadowRoot) {
+    const scoped = (
+      root as ShadowRoot & { getSelection?: () => Selection | null }
+    ).getSelection?.();
+    if (scoped) return scoped;
+  }
+  return doc.getSelection();
+}
+
 /** 复制前是否要去掉首尾空白；行内换行与缩进保留，只 trim 两端。 */
 export function readSelectionText(selection: Selection, trimWhitespace = true): string {
   const text = selection.toString();

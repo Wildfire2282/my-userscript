@@ -8,6 +8,7 @@ import {
   isTextControl,
   readSelectionText,
   readTextControlText,
+  selectionForTarget,
   selectedTextControl,
   snapshotSelection,
 } from '../src/selection';
@@ -97,6 +98,19 @@ describe('手势来源', () => {
 
     expect(selectedTextControl(paragraph)).toBeNull();
     expect(selectedTextControl(null)).toBe(input);
+  });
+
+  it('Shadow Root 内优先使用作用域选区', () => {
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const shadow = host.attachShadow({ mode: 'open' });
+    const paragraph = document.createElement('p');
+    paragraph.textContent = '组件里的文字';
+    shadow.appendChild(paragraph);
+    const scoped = { rangeCount: 1 } as unknown as Selection;
+    Object.defineProperty(shadow, 'getSelection', { value: () => scoped });
+
+    expect(selectionForTarget(paragraph, document)).toBe(scoped);
   });
 });
 

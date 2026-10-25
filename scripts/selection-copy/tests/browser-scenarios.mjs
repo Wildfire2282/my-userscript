@@ -43,10 +43,22 @@ export function helpers() {
     };
   };
 
+  const shadowTextLinePoints = (startDx, endDx) => {
+    const paragraph = document.querySelector('#shadow-text-host')?.shadowRoot?.querySelector('p');
+    if (!paragraph) throw new Error('Shadow 正文缺失');
+    const rect = paragraph.getBoundingClientRect();
+    const y = Math.round(rect.top + rect.height / 2);
+    return {
+      start: { x: Math.round(rect.left + startDx), y },
+      end: { x: Math.round(rect.left + endDx), y },
+    };
+  };
+
   window.__page = {
     linePoints,
     point,
     shadowLinePoints,
+    shadowTextLinePoints,
     selection: () => window.getSelection()?.toString().trim() ?? '',
     clipboard: () => window.__gm.clipboard.at(-1)?.text ?? '',
     writes: () => window.__gm.clipboard.length,
@@ -216,6 +228,24 @@ export const scenarios = [
       await ctx.wait(80);
       const writes = await ctx.evaluate(() => window.__page.writes());
       return { expected: '0', actual: String(writes) };
+    },
+  },
+  {
+    name: 'Shadow DOM 里的正文拖选 → 自动复制',
+    async run(ctx) {
+      const points = await ctx.evaluate(() => window.__page.shadowTextLinePoints(4, 140));
+      await ctx.input.drag(points.start, points.end);
+      await ctx.wait(80);
+      const state = await ctx.evaluate(() => ({
+        writes: window.__page.writes(),
+        text: window.__page.clipboard(),
+      }));
+      return {
+        expected: '1 次 / 剪贴板含 Shadow 文字',
+        actual: `${state.writes} 次 / ${
+          state.text.includes('Shadow') ? '剪贴板含 Shadow 文字' : `是「${state.text}」`
+        }`,
+      };
     },
   },
   {

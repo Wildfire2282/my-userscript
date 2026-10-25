@@ -5,7 +5,7 @@
 | 项目 | 值 |
 | --- | --- |
 | Greasy Fork | [582576](https://greasyfork.org/zh-CN/scripts/582576) |
-| 当前版本 | 1.4.2（2026-10-24） |
+| 当前版本 | 1.4.4（2026-10-25） |
 | 迁移状态 | 已迁移：由 `src/` 模块构建，界面使用 `@ui` |
 | 匹配站点 | `*://*/*`（`document-end`，每个 frame 独立生效） |
 | 授予权限 | `GM_setClipboard`、`GM_getValue`、`GM_setValue`、`GM_registerMenuCommand` |

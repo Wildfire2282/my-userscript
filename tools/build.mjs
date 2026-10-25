@@ -12,8 +12,8 @@
  * 尚未迁移的脚本没有 src/ 入口，会被跳过而不是报错。
  *
  * 用法：
- *   node tools/build.mjs                 # 构建所有已迁移的脚本
- *   node tools/build.mjs capture-links   # 只构建指定包（可传多个）
+ *   bun tools/build.mjs                 # 构建所有已迁移的脚本
+ *   bun tools/build.mjs capture-links   # 只构建指定包（可传多个）
  */
 
 import { access, readdir, readFile } from 'node:fs/promises';

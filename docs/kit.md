@@ -124,9 +124,9 @@ createUserscript<T>({
 | --- | --- | --- |
 | 纯逻辑 | Vitest（现有 happy-dom 单配置，不新增 `projects`） | URL 解析与黑名单、中文标点提链、夹紧边界、可编辑判定、`siteKey` 跨域回退 |
 | DOM 交互 | `tests/*.test.ts` | 表单两种模式、动态显隐、校验错误、焦点与关闭 |
-| 真实浏览器 | `npm run test:browser` | 菜单 → 面板 → 保存 → 生效；selection-copy 的 iframe 用例；youtube 的 document-start 时序 |
-| 产物 | `npm run build` + 哨兵字符串 | 未用模块不入产物；体积不涨 |
-| 元数据 | `npm run check:meta` | 授权与匹配地址零变化 |
+| 真实浏览器 | `bun run test:browser` | 菜单 → 面板 → 保存 → 生效；selection-copy 的 iframe 用例；youtube 的 document-start 时序 |
+| 产物 | `bun run build` + 哨兵字符串 | 未用模块不入产物；体积不涨 |
+| 元数据 | `bun run check:meta` | 授权与匹配地址零变化 |
 
 ## 7 风险
 
@@ -136,7 +136,7 @@ createUserscript<T>({
 | `topFrameOnly` 设错导致 iframe 内失效 | 默认 false；逐脚本显式传参；浏览器场景补 iframe 用例 |
 | boot 化延迟 document-start 阶段的网络钩子 | `onStart` 同步执行；第 3 步验证首屏网络缓存命中 |
 | `pagehide` 清理影响 bfcache | 仅在 `persisted === false` 时清理；清理幂等 |
-| 套件成为「改一处影响四个脚本」的单点 | 每步小提交 + 全量 `npm run check` + 先迁简单脚本 |
+| 套件成为「改一处影响四个脚本」的单点 | 每步小提交 + 全量 `bun run check` + 先迁简单脚本 |
 | Rolldown 与 Rollup 的 banner / 树摇差异 | 第 0 步核对产物头尾与体积 |
 
 ## 8 技术依据
@@ -153,7 +153,7 @@ Context7 核对结论：
 
 本仓库实测（2026-10-25）：
 
-- `npm run build capture-links` → 103.4 KB raw / 27.1 KB gzip。
+- `bun run build capture-links` → 103.4 KB raw / 27.1 KB gzip。
 - 产物含 `createCheckbox`（脚本确实用了），不含 `createAlert` / `createTooltip` / `createDialog` 的函数体；未使用组件的 CSS 规则也不存在。说明桶导入 + 路径别名下树摇有效，哨兵字符串可以这样检查：
 
 ```bash

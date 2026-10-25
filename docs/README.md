@@ -48,10 +48,10 @@
 
 | 变更 | 需要同步的文档 |
 | --- | --- |
-| 新增、迁移或下线脚本 | 本页状态表、根 `README.md` 脚本表（`npm run sync` 生成）、脚本 `README.md` |
+| 新增、迁移或下线脚本 | 本页状态表、根 `README.md` 脚本表（`bun run sync` 生成）、脚本 `README.md` |
 | 改目录、构建、检查命令 | `architecture.md`、`AGENTS.md` 中对应的命令 |
 | 增删套件模块、改分层或模块准入规则 | `kit.md`、`architecture.md` |
 | 改脚本元数据、作者链接或语言标记 | `metadata.md`、目标脚本的元数据块 |
 | 改迁移步骤或验收方式 | `migration-guide.md` |
 | 改发布流程、权限或回滚方式 | `release-automation.md`、`AGENTS.md` 第 10 节 |
-| 改 UI 组件或 Token | `packages/userscript-ui/AGENTS.md` 与该包的文档；`npm run check` 里已含 UI 的 safety / token 检查 |
+| 改 UI 组件或 Token | `packages/userscript-ui/AGENTS.md` 与该包的文档；`bun run check` 里已含 UI 的 safety / token 检查 |

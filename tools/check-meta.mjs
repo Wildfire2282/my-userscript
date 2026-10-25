@@ -10,10 +10,10 @@
  *   - 已迁移脚本的 @name / @match / @include / @grant 与 legacy/ 一致。
  *
  * 用法：
- *   node tools/check-meta.mjs            # 检查所有脚本
- *   node tools/check-meta.mjs super-drag # 只检查指定包
- *   node tools/check-meta.mjs --allow-meta-change super-drag  # 明确接受元数据变化
- *   ALLOW_META_CHANGE=1 npm run check    # CI 手动放行同一件事
+ *   bun tools/check-meta.mjs            # 检查所有脚本
+ *   bun tools/check-meta.mjs super-drag # 只检查指定包
+ *   bun tools/check-meta.mjs --allow-meta-change super-drag  # 明确接受元数据变化
+ *   ALLOW_META_CHANGE=1 bun run check    # CI 手动放行同一件事
  */
 
 import { access, readdir, readFile } from 'node:fs/promises';
@@ -324,7 +324,7 @@ async function checkPackage(slug) {
 
   if (code === null) {
     // 已迁移脚本的 grant 只能从产物判断：没有产物就什么都没验证，不能算通过。
-    if (migrated) problems.push('没有 dist 产物（先运行 npm run build）');
+    if (migrated) problems.push('没有 dist 产物（先运行 bun run build）');
   } else {
     if (!code.startsWith('// ==UserScript==')) problems.push('产物元数据块不在文件第一行');
     const block = metaBlock(code);

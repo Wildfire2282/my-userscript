@@ -8,23 +8,23 @@
     "scripts/*"
   ],
   "engines": {
-    "node": "^22.13.0 || ^24.0.0 || >=26.0.0"
+    "bun": ">=1.4.4"
   },
   "scripts": {
-    "build": "node tools/build.mjs",
+    "build": "bun tools/build.mjs",
     "sync": "python tools/sync.py",
     "sync:check": "python tools/sync.py --check",
     "lint": "eslint .",
-    "format": "prettier --write .",
-    "format:check": "prettier --check .",
+    "format": "bunx --bun prettier --write .",
+    "format:check": "bunx --bun prettier --check .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:browser": "node tools/browser-check.mjs",
-    "check:ui-safety": "node packages/userscript-ui/scripts/check-safety.mjs",
-    "check:ui-tokens": "node packages/userscript-ui/scripts/check-tokens.mjs",
-    "check:meta": "node tools/check-meta.mjs",
-    "check": "npm run lint && npm run format:check && npm run typecheck && npm run test && npm run build && npm run check:meta && npm run check:ui-safety && npm run check:ui-tokens && npm run test:browser"
+    "test:browser": "bun tools/browser-check.mjs",
+    "check:ui-safety": "bun packages/userscript-ui/scripts/check-safety.mjs",
+    "check:ui-tokens": "bun packages/userscript-ui/scripts/check-tokens.mjs",
+    "check:meta": "bun tools/check-meta.mjs",
+    "check": "bun run lint && bun run format:check && bun run typecheck && bun run test && bun run build && bun run check:meta && bun run check:ui-safety && bun run check:ui-tokens && bun run test:browser"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

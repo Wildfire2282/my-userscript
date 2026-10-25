@@ -4,7 +4,10 @@ dist/
 # 依赖
 node_modules/
 
-# npm 缓存（沙箱下 HOME 不可写，安装时重定向到仓库内）
+# Bun 缓存（`bun install --global-dir` 可改位置；CI 用内置缓存）
+.bun-cache/
+
+# npm 缓存（历史遗留；已切到 Bun，见 docs/migration-guide.md）
 .npm-cache/
 
 # 本地临时目录（浏览器检查的临时配置、调试产物）

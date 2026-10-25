@@ -20,7 +20,8 @@ export default defineConfig({
     environment: 'happy-dom',
     // 每个测试文件各建一个 happy-dom 曾占掉约四分之三的测试时间；vmThreads 让同一
     // worker 复用已建好的环境，文件之间仍各自隔离（默认 threads 池每文件重建环境）。
-    pool: 'vmThreads',
+    // Bun 的 module runner 解析不了 vmThreads worker 里的 chai，Bun 下退回 forks。
+    pool: typeof process !== 'undefined' && 'bun' in process.versions ? 'forks' : 'vmThreads',
     css: true,
     include: [
       'tools/**/*.test.mjs',

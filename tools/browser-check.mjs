@@ -32,11 +32,11 @@
  * 指向最后一次注册），clipboard 记录 GM_setClipboard 写入的文字。
  *
  * 用法：
- *   node tools/browser-check.mjs                      # 跑所有脚本场景与 UI suite
- *   node tools/browser-check.mjs userscript-ui        # 只跑 UI 消费者场景
- *   node tools/browser-check.mjs super-drag           # 只跑指定脚本（可传多个）
- *   node tools/browser-check.mjs --keep-browser       # 保留浏览器与配置目录，便于排查
- *   CHROME_PATH=... node tools/browser-check.mjs      # 指定浏览器可执行文件
+ *   bun tools/browser-check.mjs                      # 跑所有脚本场景与 UI suite
+ *   bun tools/browser-check.mjs userscript-ui        # 只跑 UI 消费者场景
+ *   bun tools/browser-check.mjs super-drag           # 只跑指定脚本（可传多个）
+ *   bun tools/browser-check.mjs --keep-browser       # 保留浏览器与配置目录，便于排查
+ *   CHROME_PATH=... bun tools/browser-check.mjs      # 指定浏览器可执行文件
  */
 
 import { spawn } from 'node:child_process';
@@ -603,7 +603,7 @@ try {
       const distFile = path.join(SCRIPTS_DIR, slug, 'dist', `${slug}.user.js`);
       if (!existsSync(distFile)) {
         throw new Error(
-          `缺少产物 ${path.relative(ROOT, distFile)}，先运行 npm run build ${slug}。`,
+          `缺少产物 ${path.relative(ROOT, distFile)}，先运行 bun run build ${slug}。`,
         );
       }
       // 产物比源码旧时场景测的是旧代码，结果没有意义：直接判失败，别让它看起来“通过”。
@@ -629,7 +629,7 @@ try {
       );
       if (inputTime > distTime) {
         throw new Error(
-          `${path.relative(ROOT, distFile)} 比 src 旧，先运行 npm run build ${slug}。`,
+          `${path.relative(ROOT, distFile)} 比 src 旧，先运行 bun run build ${slug}。`,
         );
       }
       bundle = await readFile(distFile, 'utf8');

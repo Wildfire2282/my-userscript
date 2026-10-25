@@ -6,7 +6,7 @@
 
 ```text
 push main
-  → GitHub Actions：npm ci、npm run check（含构建与浏览器场景）
+  → GitHub Actions：bun install --frozen-lockfile、bun run check（含构建与浏览器场景）
   → tools/release.mjs 汇总发布物到 release 分支
   → GitHub push webhook
   → api.greasyfork.org
@@ -53,20 +53,20 @@ Agent 修改共享运行时代码时，必须在同一批变更中给**每个实
 
 脚本从仓库删除后，下一次发布会清掉 `release` 分支里的旧文件；Greasy Fork 上的脚本不会自动删除，需要到脚本管理页手动停用或删除。
 
-`npm run check` 的最后一步是浏览器场景，CI 会真跑（ubuntu-latest 自带 Chrome）；本地与 CI 都会拦住真实交互的回归，不需要另开手工检查。
+`bun run check` 的最后一步是浏览器场景，CI 会真跑（ubuntu-latest 自带 Chrome）；本地与 CI 都会拦住真实交互的回归，不需要另开手工检查。
 
 ## 3. 日常发布
 
 1. 改 `scripts/<slug>/src/` 或共享运行时代码里的源码；`dist/` 与 `legacy/` 都不直接改。
 2. 提版本：同批修改每个实际产物改变的脚本的 `scripts/<slug>/package.json` 中的 `version`，共享修复提升 patch 版本，构建时注入；不能只提任意一个脚本。在 `CHANGELOG.md` 写一条人话。
-3. 本地跑 `npm run check`（含浏览器场景）。
+3. 本地跑 `bun run check`（含浏览器场景）。
 4. 向维护者说明本次用户可见的变化，确认发布后提交并 push `main`；
    这次推送带元数据变化时，把 `[allow-meta]` 写进最后一个提交的信息。
    共享运行时代码变化会触发发布；工具链、测试或文档等变化不会单独触发，需要上线的产物变化须同批为每个受影响脚本提版本。
 5. Actions 通过后 `release` 分支出现新文件；webhook 触发后 Greasy Fork 通常一分钟内更新。
-6. 发布生效后跑 `npm run sync`，刷新 `scripts.json` 与根 `README.md` 的脚本表。
+6. 发布生效后跑 `bun run sync`，刷新 `scripts.json` 与根 `README.md` 的脚本表。
 
-同步先下载并校验全部脚本，再覆盖快照与清单；任一下载失败或返回不完整脚本时，已有快照不变。`npm run sync:check` 不创建包目录、不写文件。该保证不覆盖磁盘写入阶段的 I/O 失败，不是文件系统事务。
+同步先下载并校验全部脚本，再覆盖快照与清单；任一下载失败或返回不完整脚本时，已有快照不变。`bun run sync:check` 不创建包目录、不写文件。该保证不覆盖磁盘写入阶段的 I/O 失败，不是文件系统事务。
 
 ## 4. 元数据变更
 
@@ -75,7 +75,7 @@ Agent 修改共享运行时代码时，必须在同一批变更中给**每个实
 确认要改时：
 
 1. 维护者确认「多看到什么、少看到什么」；
-2. Agent 在本地跑 `ALLOW_META_CHANGE=1 npm run check`（PowerShell：`$env:ALLOW_META_CHANGE='1'; npm run check`）验证；
+2. Agent 在本地跑 `ALLOW_META_CHANGE=1 bun run check`（PowerShell：`$env:ALLOW_META_CHANGE='1'; bun run check`）验证；
 3. 在最后一个提交的信息里写明变更理由，并带上 `[allow-meta]`；
 4. 正常 push `main`：CI 认出这个标记，放行元数据对照并在同一次运行里发布。
 
@@ -85,7 +85,7 @@ Agent 修改共享运行时代码时，必须在同一批变更中给**每个实
 gh workflow run release.yml --ref main -f allow_meta_change=true
 ```
 
-无论走哪条路，发布生效后都按第 3 节第 6 步 `npm run sync` 更新快照。
+无论走哪条路，发布生效后都按第 3 节第 6 步 `bun run sync` 更新快照。
 
 该开关（`[allow-meta]` 与 `-f allow_meta_change=true`）同时放行 `check:meta` 的 legacy 对照与 `release.mjs` 的元数据比对；未确认时不要使用。
 
@@ -131,5 +131,5 @@ GitHub 的 push 事件只把「已存在文件的修改」算作 changed files�
 | Webhook 401 | Secret 与 Greasy Fork 不一致 | 用 Greasy Fork 页面上的值重填 |
 | Webhook 2xx 但脚本没更新 | 版本没提升、同步 URL 不匹配、分支或文件名写错 | 对比 `release` 分支文件与同步 URL |
 | CI 报「版本仍是 x」 | 改了内容没升版本 | 提升 `package.json` 版本 |
-| CI 报「版本从 x 退到 y」 | 线上或 `release` 分支版本更高 | 先 `npm run sync`，再把版本提到更高 |
+| CI 报「版本从 x 退到 y」 | 线上或 `release` 分支版本更高 | 先 `bun run sync`，再把版本提到更高 |
 | 脚本显示「已是最新」 | 发布物版本不高于线上 | 正常结果；要发新版就升版本 |

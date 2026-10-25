@@ -15,7 +15,7 @@
  * 发布目录里已经不存在对应脚本包的文件会被清理，避免下线脚本继续被 webhook 命中。
  *
  * 用法：
- *   node tools/release.mjs <发布目录>
+ *   bun tools/release.mjs <发布目录>
  */
 
 import { access, mkdir, readdir, readFile, stat, unlink, writeFile } from 'node:fs/promises';
@@ -27,7 +27,7 @@ const SCRIPTS_DIR = path.join(ROOT, 'scripts');
 
 const outArg = process.argv[2];
 if (!outArg) {
-  console.error('用法：node tools/release.mjs <发布目录>');
+  console.error('用法：bun tools/release.mjs <发布目录>');
   process.exit(1);
 }
 const OUT_DIR = path.resolve(ROOT, outArg);
@@ -234,7 +234,7 @@ for (const pkg of packages) {
   if (!artifact) {
     if (await newestSourceTime(path.join(pkg.dir, 'src'))) {
       problems.push(
-        `${pkg.slug}：有 src 源码却没有构建产物，先运行 npm run build ${pkg.slug} 再发布`,
+        `${pkg.slug}：有 src 源码却没有构建产物，先运行 bun run build ${pkg.slug} 再发布`,
       );
     } else {
       skipped.push(`${pkg.slug}（没有构建产物，也没有 legacy 原版）`);
@@ -245,12 +245,12 @@ for (const pkg of packages) {
   // 已迁移脚本（有 src）绝不能用 legacy 原版发布：那是线上快照，不是本次源码。
   if (artifact.kind === 'legacy 原版' && (await newestSourceTime(path.join(pkg.dir, 'src')))) {
     problems.push(
-      `${pkg.slug}：有 src 源码却没有构建产物，先运行 npm run build ${pkg.slug} 再发布`,
+      `${pkg.slug}：有 src 源码却没有构建产物，先运行 bun run build ${pkg.slug} 再发布`,
     );
     continue;
   }
   if (artifact.stale) {
-    problems.push(`${pkg.slug}：构建产物比源码旧，先运行 npm run build ${pkg.slug} 再发布`);
+    problems.push(`${pkg.slug}：构建产物比源码旧，先运行 bun run build ${pkg.slug} 再发布`);
     continue;
   }
 

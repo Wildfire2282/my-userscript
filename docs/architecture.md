@@ -9,7 +9,9 @@
 硬约束：
 
 - 运行时零依赖，不加载 CDN、远程字体或远程脚本；
-- 工程环境使用 Node `^22.13.0 || ^24.0.0 || >=26.0.0`，与 ESLint / Vitest 的支持范围及内置 WebSocket 对齐；CI 使用 Node 22。
+- 工程环境使用 Bun `>=1.4.4`（包管理、脚本调度、工具运行都走 Bun；
+  `vitest` 在 Bun 下用 `forks` 池，因 `vmThreads` 池的 worker 在 Bun module runner 下解析失败）；
+  CI 使用 Bun 1.4.4。
 - 自有 UI 挂载在 `@ui` 创建的 Shadow Root 内，不向宿主注入全局 CSS；
 - 构建与自动化以 Chromium 111+ 为基线；Firefox 只做手工冒烟，不纳入 E2E；
 - 不采集、不上报用户数据，日志不含页面内容或个人信息；
@@ -25,7 +27,7 @@
 | --- | --- |
 | `packages/userscript-ui/` | UI 设计体系，仓库内普通包（原 `userscript-ui` 子模块已并入）；源码由 `@ui` 别名直引，不再单独发布或单独验收 |
 | `packages/shared/` | 套件运行时（无界面）：`host/`（GM 适配、设置合并与读写、设置仓库、剪贴板）、`settings/`（设置定义）、`runtime/`（启动、菜单、frame、日志）、`dom/`（目标判定、遍历、视口夹紧）、`url/`（URL 解析）；门面只导出多脚本共用的符号，规则见 `packages/shared/AGENTS.md` |
-| `scripts/<slug>/` | 一个脚本一个 npm workspace 包 |
+| `scripts/<slug>/` | 一个脚本一个 Bun workspace 包 |
 | `scripts/<slug>/userscript.meta.ts` | 静态元数据（名称、匹配、权限），不含 `@version` |
 | `scripts/<slug>/src/` | 模块化源码，入口 `src/main.ts` |
 | `scripts/<slug>/tests/*.test.ts` | Vitest 单测：纯逻辑与 DOM 片段 |
@@ -37,7 +39,7 @@
 | `tools/browser-check.mjs` | 无依赖 CDP 驱动：每个场景新开页面、注入 GM 打桩与产物 |
 | `tools/release.mjs` | 汇总发布物、校验版本与元数据变化 |
 | `tools/sync.py` | 从 Greasy Fork 把线上版本同步回 `legacy/`、元数据、`scripts.json` 与 README 表格 |
-| `scripts.json` | 机器可读清单，由 `npm run sync` 刷新 |
+| `scripts.json` | 机器可读清单，由 `bun run sync` 刷新 |
 | `.github/workflows/release.yml` | 脚本包与共享运行时代码变化后检查、构建并推送 `release` 分支；每个产物发生变化的脚本必须同步提版 |
 
 ## 3. 依赖关系
@@ -85,8 +87,8 @@ scripts/<slug>/
 ## 5. 构建
 
 ```powershell
-npm run build               # 全部已迁移脚本
-npm run build super-drag    # 单个
+bun run build               # 全部已迁移脚本
+bun run build super-drag    # 单个
 ```
 
 `tools/build.mjs` 的流程：
@@ -103,16 +105,16 @@ npm run build super-drag    # 单个
 
 测试分两层，同一件事只在一层断言：
 
-- **纯逻辑**（`npm test`）：能脱离页面判断的函数、设置归一化、地址拼接、DOM 小片段；
-- **真实浏览器**（`npm run test:browser`）：用户能看见的交互，一条行为一个场景。
+- **纯逻辑**（`bun run test`）：能脱离页面判断的函数、设置归一化、地址拼接、DOM 小片段；
+- **真实浏览器**（`bun run test:browser`）：用户能看见的交互，一条行为一个场景。
 
 ```powershell
-npm test                # 单元测试（Vitest，毫秒级）
-npm run test:browser    # 真实 Chrome/Edge 场景（需要先构建）
-npm run check           # 交付前全量：静态检查 + 单测 + 构建 + 元数据 + 浏览器场景
+bun run test               # 单元测试（Vitest，毫秒级）
+bun run test:browser    # 真实 Chrome/Edge 场景（需要先构建）
+bun run check           # 交付前全量：静态检查 + 单测 + 构建 + 元数据 + 浏览器场景
 ```
 
-`check` 的最后一步就是浏览器场景，所以本地一条命令与 CI 的 `npm run check` 都会覆盖真实交互，不存在「记得在本地点一遍」的手工环节。
+`check` 的最后一步就是浏览器场景，所以本地一条命令与 CI 的 `bun run check` 都会覆盖真实交互，不存在「记得在本地点一遍」的手工环节。
 
 `check.yml` 对 PR 全量执行；main 上工具、根配置、共享包、脚本 `tests/` 与任一 workflow 的修改也会触发检查，单改场景或发布流程不会漏检。工程回归在 `tools/pipeline.test.mjs` 中使用临时仓库与模拟下载，不访问 Greasy Fork、不启动发布。
 
@@ -134,7 +136,7 @@ npm run check           # 交付前全量：静态检查 + 单测 + 构建 + 元
 - `@grant` 扫描 `dist/` 里的 `GM_*`、`GM.*` 和对应静态字符串属性；两种 API 必须分别授权，动态拼接属性与 `unsafeWindow` 不在检测范围。已迁移脚本缺少产物直接失败。
 - `check:ui-safety` 只扫 `packages/userscript-ui/src`；脚本源码里刻意使用 `fetch`（转写网络钩子）不参与该检查，`scripts/*/src` 与 `packages/shared` 的危险能力靠 lint 规则与人工核对。
 
-`test:browser` 用系统 Chrome/Edge 与 Node 内置 WebSocket 驱动 CDP，不下载 Playwright 浏览器：Windows、macOS、Linux（CI 的 ubuntu-latest 自带 Chrome）都能自动找到，`CHROME_PATH` 可覆盖。场景写在 `scripts/<slug>/tests/browser-scenarios.mjs`：
+`test:browser` 用系统 Chrome/Edge 与运行时内置 WebSocket 驱动 CDP，不下载 Playwright 浏览器：Windows、macOS、Linux（CI 的 ubuntu-latest 自带 Chrome）都能自动找到，`CHROME_PATH` 可覆盖。场景写在 `scripts/<slug>/tests/browser-scenarios.mjs`：
 
 - `fixture` 指向 `tests/fixtures/` 下的页面；需要真实布局、坐标或选区时必须用真页面；
 - `helpers` 是可选的页面侧助手，工具本身不认识任何脚本专属的 DOM；
@@ -144,7 +146,7 @@ npm run check           # 交付前全量：静态检查 + 单测 + 构建 + 元
 
 全量浏览器检查要求每个已有源码入口的脚本提供场景，不能删除场景文件后静默跳过。脚本产物须不早于自身源码、版本、元数据以及 `packages/shared/src/`、`packages/userscript-ui/src/`；共享代码修改后必须重新构建，不能用旧产物得到假通过。
 
-UI 组件浏览器场景统一放在 `packages/userscript-ui/tests/browser-scenarios.mjs`，同一驱动执行；测试入口只在内存中构建，不分发展示页或独立 UI 库产物。可用 `npm run test:browser -- userscript-ui` 单独验证。
+UI 组件浏览器场景统一放在 `packages/userscript-ui/tests/browser-scenarios.mjs`，同一驱动执行；测试入口只在内存中构建，不分发展示页或独立 UI 库产物。可用 `bun run test:browser -- userscript-ui` 单独验证。
 
 Windows 提权终端启动测试浏览器时禁用降权重启，避免 Chrome 脱离父进程导致调试端口等待超时；只影响自动检查，不改变用户浏览器配置。
 

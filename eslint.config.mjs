@@ -88,7 +88,7 @@ export default [
     },
   },
   {
-    // 构建与检查脚本是普通 Node ESM，不在 TS program 里。
+    // 构建与检查脚本是普通 ESM（Bun 兼容 Node API），不在 TS program 里。
     files: ['**/*.mjs', 'eslint.config.mjs'],
     ...tseslint.configs.disableTypeChecked,
     languageOptions: {

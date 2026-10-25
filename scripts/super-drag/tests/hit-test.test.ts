@@ -23,6 +23,7 @@ describe('isIgnorableHref', () => {
   it('前导空白也挡不住危险协议', () => {
     expect(isIgnorableHref(' javascript:void(0)')).toBe(true);
     expect(isIgnorableHref('\tjava\tscript:alert(1)')).toBe(true);
+    expect(isIgnorableHref('\u000ejavascript:alert(1)')).toBe(true);
     expect(isIgnorableHref('data:text/html,<script>alert(1)</script>')).toBe(true);
     expect(isIgnorableHref('vbscript:msgbox(1)')).toBe(true);
   });
@@ -101,6 +102,23 @@ describe('hitTestFast', () => {
     expect(hitTestFast(link)).toEqual({ link: 'https://example.com/svg', image: '' });
   });
 
+  it('Shadow DOM 图片外层链接仍优先于图片', () => {
+    const link = document.createElement('a');
+    link.setAttribute('href', '/story');
+    const host = document.createElement('div');
+    link.appendChild(host);
+    document.body.appendChild(link);
+    const shadow = host.attachShadow({ mode: 'open' });
+    const img = document.createElement('img');
+    img.setAttribute('src', 'https://example.com/i.png');
+    shadow.appendChild(img);
+
+    expect(hitTestFast(img)).toEqual({
+      link: new URL('/story', document.baseURI).href,
+      image: 'https://example.com/i.png',
+    });
+  });
+
   it('src 为空的图片不打开当前页面地址', () => {
     const img = document.createElement('img');
     img.setAttribute('src', '');
@@ -117,6 +135,13 @@ describe('hitTestFast', () => {
     document.body.appendChild(img);
     expect(hitTestFast(img)).toBeNull();
   });
+
+  it('只有控制字符的图片地址不打开', () => {
+    const img = document.createElement('img');
+    img.setAttribute('src', '\u0001');
+    document.body.appendChild(img);
+    expect(hitTestFast(img)).toBeNull();
+  });
 });
 
 describe('pageOwnsDrag', () => {
@@ -129,6 +154,34 @@ describe('pageOwnsDrag', () => {
 
     expect(pageOwnsDrag(link, false)).toBe(false);
     expect(pageOwnsDrag(img, false)).toBe(false);
+  });
+
+  it('可拖拽卡片里包着的链接与图片仍按内容接管', () => {
+    const card = document.createElement('div');
+    card.setAttribute('draggable', 'true');
+    const link = document.createElement('a');
+    link.setAttribute('href', '/target');
+    const linkText = document.createElement('span');
+    link.appendChild(linkText);
+    const image = document.createElement('img');
+    image.setAttribute('src', 'https://example.com/i.png');
+    card.append(link, image);
+    document.body.appendChild(card);
+
+    expect(pageOwnsDrag(linkText, false)).toBe(false);
+    expect(pageOwnsDrag(image, false)).toBe(false);
+  });
+
+  it('链接里更近的 draggable 容器优先交还页面', () => {
+    const link = document.createElement('a');
+    link.setAttribute('href', '/outer');
+    const card = document.createElement('div');
+    card.setAttribute('draggable', 'true');
+    const text = document.createElement('span');
+    card.appendChild(text);
+    link.appendChild(card);
+    document.body.appendChild(link);
+    expect(pageOwnsDrag(text, false)).toBe(true);
   });
 
   it('没有地址的链接、图片与普通可拖拽容器都交还页面', () => {

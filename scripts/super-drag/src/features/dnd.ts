@@ -206,7 +206,11 @@ export function installDragSensor(deps: DragSensorDeps): DragSensor {
 
   const handleClickCapture = (event: MouseEvent) => {
     if (swallowClickUntil !== 0 && performance.now() <= swallowClickUntil) {
-      const fromDragSource = dragSource !== null && event.composedPath().includes(dragSource);
+      const target = event.composedPath()[0];
+      const clicked =
+        target instanceof Element ? target : target instanceof Node ? target.parentElement : null;
+      // 只吞真正落在拖拽起点上的那一次；起点后代里的另一个按钮是用户的新操作。
+      const fromDragSource = dragSource !== null && clicked === dragSource;
       if (fromDragSource) {
         swallowClickUntil = 0;
         dragSource = null;

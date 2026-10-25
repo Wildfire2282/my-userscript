@@ -24,8 +24,18 @@ export function parentAcrossShadow(node: Element): Element | null {
 
 export function isIgnorableHref(href: string | null): boolean {
   // URL 解析会去掉空白与控制字符，协议判断前先按同样规则归一化。
-  const value = href?.replace(/\s+/g, '').toLowerCase() ?? '';
+  const value = normalizeHref(href ?? '');
   return value === '' || value === '#' || /^(?:javascript|vbscript|data):/.test(value);
+}
+
+/** 去掉空白与 C0/DEL 控制字符；URL 解析器会忽略它们。 */
+function normalizeHref(value: string): string {
+  let text = '';
+  for (const char of value) {
+    const code = char.charCodeAt(0);
+    if (code > 0x20 && code !== 0x7f) text += char;
+  }
+  return text.toLowerCase();
 }
 
 /** 链接的原始地址；SVG 的 `<a>` 往往只有 xlink:href。 */
@@ -54,8 +64,13 @@ const UNSAFE_IMAGE_SCHEME = /^(?:javascript|vbscript):/i;
 /** 图片地址；空 `src` 属性会被 `img.src` 解析成当前页面地址，不能当图片打开。 */
 function imageUrl(img: HTMLImageElement): string {
   const raw = img.getAttribute('src');
+  // 只有空白的 src（含控制字符）没有图片；srcset 另有候选时仍交给 currentSrc。
+  if (raw !== null && normalizeHref(raw) === '' && !img.getAttribute('srcset')) return '';
+  if (img.currentSrc !== '') {
+    return UNSAFE_IMAGE_SCHEME.test(img.currentSrc.trim()) ? '' : img.currentSrc;
+  }
   // `src` 为空时 `img.src` 会解析成当前页面地址；`javascript:` 伪装成图片也不要打开。
-  const candidate = img.currentSrc !== '' ? img.currentSrc : raw?.trim() ? img.src : '';
+  const candidate = raw !== null && normalizeHref(raw) !== '' ? img.src : '';
   return UNSAFE_IMAGE_SCHEME.test(candidate.trim()) ? '' : candidate;
 }
 
@@ -82,9 +97,13 @@ function hasNativeDragContent(node: Element): boolean {
  */
 export function pageOwnsDrag(target: Element | null, selectionHit: boolean): boolean {
   if (selectionHit) return false;
-  const host = target?.closest('[draggable="true"]');
-  if (!host) return false;
-  return !hasNativeDragContent(host);
+  // 一次向上遍历，谁先出现谁说了算：更近的页面 draggable 宿主优先，
+  // 但没有任何地址的 draggable 容器不能挡住它里面的链接 / 图片。
+  for (let node = target; node; node = parentAcrossShadow(node)) {
+    if (node.getAttribute('draggable') === 'true' && !hasNativeDragContent(node)) return true;
+    if (hasNativeDragContent(node)) return false;
+  }
+  return false;
 }
 
 /** 逐层穿透 open Shadow Root 取真实元素。 */
@@ -106,6 +125,14 @@ export function deepElementFromPoint(x: number, y: number): Element | null {
   return element;
 }
 
+/** 从节点向上找最近的链接，跨过 open shadow 边界。 */
+function closestLinkAcrossShadow(target: Element): Element | null {
+  for (let node: Element | null = target; node; node = parentAcrossShadow(node)) {
+    if (node.tagName.toUpperCase() === 'A') return node;
+  }
+  return null;
+}
+
 /** 快路径：事件目标本身或其祖先就是链接 / 图片。 */
 export function hitTestFast(target: Element | null): HitResult | null {
   if (!target || target.nodeType !== Node.ELEMENT_NODE || typeof target.closest !== 'function') {
@@ -114,7 +141,7 @@ export function hitTestFast(target: Element | null): HitResult | null {
   const tag = target.tagName.toUpperCase();
 
   let link = '';
-  const linkEl = tag === 'A' ? target : target.closest('a');
+  const linkEl = tag === 'A' ? target : (target.closest('a') ?? closestLinkAcrossShadow(target));
   if (linkEl && !isIgnorableHref(rawLinkHref(linkEl))) link = resolveLinkHref(linkEl);
 
   let image = '';

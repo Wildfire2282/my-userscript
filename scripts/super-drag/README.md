@@ -5,7 +5,7 @@
 | 项目 | 值 |
 | --- | --- |
 | Greasy Fork | [580630](https://greasyfork.org/zh-CN/scripts/580630) |
-| 当前版本 | 2.9.6（2026-10-26） |
+| 当前版本 | 2.9.7（2026-10-26） |
 | 迁移状态 | 已迁移：`src/` 模块，界面使用 `@ui` |
 | 匹配站点 | `https://*/*`、`http://*/*`（`@noframes`，`document-end`） |
 | 授予权限 | `GM_getValue`、`GM_setValue`、`GM_registerMenuCommand`、`GM_openInTab` |
@@ -40,7 +40,7 @@ src/
 ├─ features/
 │  ├─ dnd.ts               # 拖拽事件与状态机
 │  ├─ drop-action.ts       # 纯判断：接管谁、打开什么、前台还是后台
-│  ├─ hit-test.ts          # 命中链接 / 图片（穿透 Shadow DOM）
+│  ├─ hit-test.ts          # 命中链接 / 图片、页面拖拽归谁（穿透 Shadow DOM）
 │  ├─ selection.ts         # 选区读取与命中（含 Shadow DOM 作用域选区）
 │  ├─ editable.ts          # 输入框与可编辑区域判断
 │  ├─ openers.ts           # 开标签页、图片查看器页面

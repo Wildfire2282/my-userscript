@@ -2,7 +2,8 @@
  * 拖拽落点识别：从按下的位置往上找最近的链接 / 图片。
  *
  * 只在 dragstart 时调用一次。快路径用 `closest()` 覆盖普通页面；穿透 Shadow DOM
- * 时才走 `elementFromPoint` 逐层查找，避免给热路径加开销。
+ * 时才走 `elementFromPoint` 逐层查找，避免给热路径加开销。页面自己的拖拽归谁，
+ * 也由这里一次回答：`pageOwnsDrag` 的判定语义见该函数。
  */
 
 export interface HitResult {
@@ -59,13 +60,26 @@ function imageUrl(img: HTMLImageElement): string {
  * 站点常给本来就默认可拖拽的链接、图片补上该属性；但 `<a>` 没有可用地址、`<img>`
  * 没有地址时，它只是页面自己的拖拽控件，交还页面。
  */
-export function hasNativeDragContent(node: Element): boolean {
+function hasNativeDragContent(node: Element): boolean {
   const tag = node.tagName.toUpperCase();
   if (tag === 'A') {
     return !isIgnorableHref(rawLinkHref(node)) && resolveLinkHref(node) !== '';
   }
   if (tag === 'IMG') return imageUrl(node as HTMLImageElement) !== '';
   return false;
+}
+
+/**
+ * 这次拖拽是否归页面：选区、祖先、地址三条规则在这里一次回答。
+ *
+ * 有选区且按在选区里时是用户明确要拖的文字，不归页面；最近的 `draggable="true"`
+ * 祖先没有可用链接 / 图片地址时，它只是页面自己的控件（卡片排序、上传区），交还页面。
+ */
+export function pageOwnsDrag(target: Element | null, selectionHit: boolean): boolean {
+  if (selectionHit) return false;
+  const host = target?.closest('[draggable="true"]');
+  if (!host) return false;
+  return !hasNativeDragContent(host);
 }
 
 /** 逐层穿透 open Shadow Root 取真实元素。 */

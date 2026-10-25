@@ -1,9 +1,9 @@
 // @vitest-environment happy-dom
 import { beforeEach, describe, expect, it } from 'vitest';
 import {
-  hasNativeDragContent,
   hitTestFast,
   isIgnorableHref,
+  pageOwnsDrag,
   resolveLinkHref,
 } from '../src/features/hit-test';
 
@@ -105,38 +105,53 @@ describe('hitTestFast', () => {
   });
 });
 
-describe('hasNativeDragContent', () => {
-  it('带可用地址的链接与图片算脚本内容', () => {
+describe('pageOwnsDrag', () => {
+  it('带可用地址的链接与图片不交还页面', () => {
     const link = document.createElement('a');
     link.setAttribute('href', '/target');
     const img = document.createElement('img');
     img.setAttribute('src', 'https://example.com/i.png');
     document.body.append(link, img);
 
-    expect(hasNativeDragContent(link)).toBe(true);
-    expect(hasNativeDragContent(img)).toBe(true);
+    expect(pageOwnsDrag(link, false)).toBe(false);
+    expect(pageOwnsDrag(img, false)).toBe(false);
   });
 
-  it('没有地址、只有 # 或 javascript: 的链接仍归页面', () => {
+  it('没有地址的链接、图片与普通可拖拽容器都交还页面', () => {
     const empty = document.createElement('a');
-    const hash = document.createElement('a');
-    hash.setAttribute('href', '#');
-    const script = document.createElement('a');
-    script.setAttribute('href', 'javascript:void(0)');
-    document.body.append(empty, hash, script);
-
-    expect(hasNativeDragContent(empty)).toBe(false);
-    expect(hasNativeDragContent(hash)).toBe(false);
-    expect(hasNativeDragContent(script)).toBe(false);
-  });
-
-  it('没有地址的图片与普通可拖拽容器都交还页面', () => {
+    empty.setAttribute('draggable', 'true');
     const img = document.createElement('img');
     img.setAttribute('src', '');
+    img.setAttribute('draggable', 'true');
     const card = document.createElement('div');
-    document.body.append(img, card);
+    card.setAttribute('draggable', 'true');
+    document.body.append(empty, img, card);
 
-    expect(hasNativeDragContent(img)).toBe(false);
-    expect(hasNativeDragContent(card)).toBe(false);
+    expect(pageOwnsDrag(empty, false)).toBe(true);
+    expect(pageOwnsDrag(img, false)).toBe(true);
+    expect(pageOwnsDrag(card, false)).toBe(true);
+  });
+
+  it('只有 # 或 javascript: 的链接算页面控件', () => {
+    const hash = document.createElement('a');
+    hash.setAttribute('href', '#');
+    hash.setAttribute('draggable', 'true');
+    const script = document.createElement('a');
+    script.setAttribute('href', 'javascript:void(0)');
+    script.setAttribute('draggable', 'true');
+    document.body.append(hash, script);
+
+    expect(pageOwnsDrag(hash, false)).toBe(true);
+    expect(pageOwnsDrag(script, false)).toBe(true);
+  });
+
+  it('按在选区里时不交还页面，没有祖先时也不交还', () => {
+    const card = document.createElement('div');
+    card.setAttribute('draggable', 'true');
+    document.body.appendChild(card);
+
+    expect(pageOwnsDrag(card, true)).toBe(false);
+    expect(pageOwnsDrag(document.createElement('p'), false)).toBe(false);
+    expect(pageOwnsDrag(null, false)).toBe(false);
   });
 });

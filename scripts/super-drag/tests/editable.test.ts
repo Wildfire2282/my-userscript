@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { beforeEach, describe, expect, it } from 'vitest';
-import { draggableHostOf, isInputElement } from '../src/features/editable';
+import { isInputElement } from '../src/features/editable';
 
 beforeEach(() => {
   document.body.replaceChildren();
@@ -61,41 +61,5 @@ describe('isInputElement', () => {
     editable.appendChild(readonly);
     document.body.appendChild(editable);
     expect(dispatchedOn(readonly)).toBe(false);
-  });
-});
-
-describe('draggableHostOf', () => {
-  it('页面自己声明 draggable="true" 的元素与其子节点都算', () => {
-    const card = document.createElement('div');
-    card.setAttribute('draggable', 'true');
-    const label = document.createElement('span');
-    card.appendChild(label);
-    document.body.appendChild(card);
-
-    expect(draggableHostOf(card)).toBe(card);
-    expect(draggableHostOf(label)).toBe(card);
-  });
-
-  it('普通元素与 draggable="false" 不算', () => {
-    const plain = document.createElement('div');
-    const fixed = document.createElement('div');
-    fixed.setAttribute('draggable', 'false');
-    document.body.append(plain, fixed);
-
-    expect(draggableHostOf(plain)).toBeNull();
-    expect(draggableHostOf(fixed)).toBeNull();
-    expect(draggableHostOf(null)).toBeNull();
-  });
-
-  it('链接或图片自己标了 draggable="true" 也算页面可拖拽宿主', () => {
-    const link = document.createElement('a');
-    link.setAttribute('draggable', 'true');
-    const img = document.createElement('img');
-    img.setAttribute('draggable', 'true');
-    document.body.append(link, img);
-
-    // 是否把这次拖拽交还页面，由调用方结合链接 / 图片地址判断。
-    expect(draggableHostOf(link)).toBe(link);
-    expect(draggableHostOf(img)).toBe(img);
   });
 });

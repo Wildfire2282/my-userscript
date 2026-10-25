@@ -9,6 +9,7 @@
 | [`README.md`](../README.md) | 维护者 | 脚本清单、安装、提需求、反馈方式 |
 | [`AGENTS.md`](../AGENTS.md) | Agent | 执行规范、权限边界、验证与汇报要求 |
 | [`architecture.md`](architecture.md) | Agent | 仓库结构、依赖、构建、验证、关键决策 |
+| [`kit.md`](kit.md) | Agent | 开发套件的分层、模块契约、工程护栏、迁移步骤与技术依据 |
 | [`metadata.md`](metadata.md) | Agent | 脚本元数据字段、语言、顺序与发布规则 |
 | [`migration-guide.md`](migration-guide.md) | Agent | 把 `legacy/` 原版迁入 `src/` 的步骤与验收清单 |
 | [`release-automation.md`](release-automation.md) | Agent | 自动发布链路、元数据变更、回滚与排障 |
@@ -20,6 +21,7 @@
 
 - **维护者**：只读根目录 `README.md`，以及各脚本的 `CHANGELOG.md`。
 - **Agent 接手任务**：`AGENTS.md` → `architecture.md` → 按任务读元数据、迁移或发布文档 → 目标脚本的 `README.md`。
+- **改套件或新增通用模块**：`AGENTS.md` → `kit.md`（分层、模块准入、迁移步骤）→ `packages/userscript-ui/AGENTS.md`。
 - **改 UI**：先读 `packages/userscript-ui/AGENTS.md`，再按需读该包的设计、组件与集成文档。
 
 ## 当前状态
@@ -48,6 +50,7 @@
 | --- | --- |
 | 新增、迁移或下线脚本 | 本页状态表、根 `README.md` 脚本表（`npm run sync` 生成）、脚本 `README.md` |
 | 改目录、构建、检查命令 | `architecture.md`、`AGENTS.md` 中对应的命令 |
+| 增删套件模块、改分层或模块准入规则 | `kit.md`、`architecture.md` |
 | 改脚本元数据、作者链接或语言标记 | `metadata.md`、目标脚本的元数据块 |
 | 改迁移步骤或验收方式 | `migration-guide.md` |
 | 改发布流程、权限或回滚方式 | `release-automation.md`、`AGENTS.md` 第 10 节 |

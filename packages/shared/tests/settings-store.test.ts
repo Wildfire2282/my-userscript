@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { GmApi } from '../src/gm';
-import { createSettingsStore } from '../src/settings-store';
+import type { GmApi } from '../src/host/gm';
+import { createSettingsStore } from '../src/host/settings-store';
 
 interface Settings {
   enabled: boolean;

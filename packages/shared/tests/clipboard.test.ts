@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createClipboard } from '../src/clipboard';
+import { createClipboard } from '../src/host/clipboard';
 
 describe('createClipboard', () => {
   it('优先走 GM_setClipboard，拿到的是纯文本类型', async () => {

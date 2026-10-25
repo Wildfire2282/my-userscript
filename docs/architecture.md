@@ -24,7 +24,7 @@
 | 路径 | 职责 |
 | --- | --- |
 | `packages/userscript-ui/` | UI 设计体系，仓库内普通包（原 `userscript-ui` 子模块已并入）；源码由 `@ui` 别名直引，不再单独发布或单独验收 |
-| `packages/shared/` | 跨脚本共用代码：GM 适配（`gm.ts`）、设置合并与读写（`storage.ts`）、设置仓库（`settings-store.ts`）与剪贴板写入（`clipboard.ts`） |
+| `packages/shared/` | 套件运行时（无界面）：`host/`（GM 适配、设置合并与读写、设置仓库、剪贴板）、`settings/`（设置定义）、`runtime/`（启动、菜单、frame、日志）、`dom/`（目标判定、遍历、视口夹紧）、`url/`（URL 解析）；门面只导出多脚本共用的符号，规则见 `packages/shared/AGENTS.md` |
 | `scripts/<slug>/` | 一个脚本一个 npm workspace 包 |
 | `scripts/<slug>/userscript.meta.ts` | 静态元数据（名称、匹配、权限），不含 `@version` |
 | `scripts/<slug>/src/` | 模块化源码，入口 `src/main.ts` |
@@ -58,7 +58,9 @@ scripts/<slug>
 | `vitest.config.ts` 的 `resolve.alias` | 单测 |
 
 - 包之间不互相 import；共享代码只从上表两个来源进入。
-- `packages/shared` 只收纳在多个 legacy 脚本中重复出现、且已在新结构中使用的逻辑，目前是 `gm`、`storage`、`settings-store` 与 `clipboard`。UI、站点规则、日志、i18n 一律不进。
+- `packages/shared` 只收纳已被两个以上脚本验证的重复逻辑（准入规则见 `kit.md` 第 4 节）：
+  `host`（`gm`、`storage`、`settings-store`、`clipboard`）已入；`settings` / `runtime` /
+  `dom` / `url` 按迁移步骤进入；UI、站点规则一律不进（日志与中文文案随第 1 步进入）。
 
 ## 4. 单脚本形态
 

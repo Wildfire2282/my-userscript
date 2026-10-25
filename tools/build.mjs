@@ -162,7 +162,8 @@ async function buildPackage(pkg) {
         name: iifeName(pkg.slug),
         fileName: () => `${pkg.slug}.user.js`,
       },
-      rollupOptions: {
+      // Vite 8 起 `rolldownOptions` 是正式名，`rollupOptions` 只是废弃别名。
+      rolldownOptions: {
         output: { banner: banner.endsWith('\n') ? banner : `${banner}\n` },
       },
     },

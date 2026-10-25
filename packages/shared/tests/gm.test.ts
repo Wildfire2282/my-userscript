@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createGmApi } from '../src/gm';
+import { createGmApi } from '../src/host/gm';
 
 describe('createGmApi', () => {
   it('没有 GM 全局时全部降级，不抛错', () => {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { mergeDefaults } from '../src/storage';
+import { mergeDefaults } from '../src/host/storage';
 
 const defaults = {
   enabled: true,

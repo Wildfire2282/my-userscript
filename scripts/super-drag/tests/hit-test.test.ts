@@ -142,6 +142,22 @@ describe('hitTestFast', () => {
     document.body.appendChild(img);
     expect(hitTestFast(img)).toBeNull();
   });
+
+  it('picture 的 source 提供资源时仍识别图片', () => {
+    const picture = document.createElement('picture');
+    const source = document.createElement('source');
+    source.setAttribute('srcset', 'https://example.com/picture.png');
+    const img = document.createElement('img');
+    img.setAttribute('src', '');
+    Object.defineProperty(img, 'currentSrc', {
+      value: 'https://example.com/picture.png',
+      configurable: true,
+    });
+    picture.append(source, img);
+    document.body.appendChild(picture);
+
+    expect(hitTestFast(img)).toEqual({ link: '', image: 'https://example.com/picture.png' });
+  });
 });
 
 describe('pageOwnsDrag', () => {

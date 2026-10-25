@@ -64,8 +64,12 @@ const UNSAFE_IMAGE_SCHEME = /^(?:javascript|vbscript):/i;
 /** 图片地址；空 `src` 属性会被 `img.src` 解析成当前页面地址，不能当图片打开。 */
 function imageUrl(img: HTMLImageElement): string {
   const raw = img.getAttribute('src');
+  const pictureSource =
+    img.parentElement?.localName === 'picture' &&
+    img.parentElement.querySelector('source[srcset]') !== null;
   // 只有空白的 src（含控制字符）没有图片；srcset 另有候选时仍交给 currentSrc。
-  if (raw !== null && normalizeHref(raw) === '' && !img.getAttribute('srcset')) return '';
+  if (raw !== null && normalizeHref(raw) === '' && !img.getAttribute('srcset') && !pictureSource)
+    return '';
   if (img.currentSrc !== '') {
     return UNSAFE_IMAGE_SCHEME.test(img.currentSrc.trim()) ? '' : img.currentSrc;
   }

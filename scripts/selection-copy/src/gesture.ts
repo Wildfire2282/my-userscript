@@ -60,20 +60,22 @@ export function isSameSelection(
 /**
  * 松开鼠标后是否去复制。
  *
- * 普通单击（没有拖动、选区也没变）只是移动光标或取消选区，不复制；拖动、双击 /
- * 三击、以及选区确实变了的操作都算一次新选择。
+ * 双击 / 三击与选区变化都算新选择；选区没变时只有文本控件里的拖动才算，
+ * 避免拖滑块、拖卡片等操作把上一次的选区又写一遍剪贴板。
  */
 export function shouldCopyOnMouseUp(
   gesture: Gesture,
   end: MouseUpEnd,
   current: SelectionSnapshot | null,
+  textSelected = false,
   threshold: number = BEHAVIOR.dragThresholdPx,
 ): boolean {
+  if (end.detail > 1) return true;
+  if (!isSameSelection(gesture.selection, current)) return true;
   const moved =
     Math.abs(end.clientX - gesture.startX) > threshold ||
     Math.abs(end.clientY - gesture.startY) > threshold;
-  if (!moved && end.detail === 1 && isSameSelection(gesture.selection, current)) return false;
-  return true;
+  return textSelected && moved;
 }
 
 /**

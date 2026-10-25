@@ -16,7 +16,13 @@ const EMPTY: SelectionSnapshot = {
 };
 
 function gesture(overrides: Partial<Gesture> = {}): Gesture {
-  return { startX: 100, startY: 100, target: null, selection: EMPTY, ...overrides };
+  return {
+    startX: 100,
+    startY: 100,
+    target: null,
+    selection: EMPTY,
+    ...overrides,
+  };
 }
 
 describe('isSameSelection', () => {
@@ -28,9 +34,15 @@ describe('isSameSelection', () => {
 });
 
 describe('shouldCopyOnMouseUp', () => {
-  it('拖动超过阈值就复制', () => {
+  it('文本控件里拖动超过阈值就复制（控件选区不在 Document 选区里）', () => {
+    expect(
+      shouldCopyOnMouseUp(gesture(), { clientX: 120, clientY: 100, detail: 1 }, EMPTY, true),
+    ).toBe(true);
+  });
+
+  it('非文本元素上拖动、选区没变时不再复制旧选区', () => {
     expect(shouldCopyOnMouseUp(gesture(), { clientX: 120, clientY: 100, detail: 1 }, EMPTY)).toBe(
-      true,
+      false,
     );
   });
 
@@ -61,11 +73,17 @@ describe('shouldCopyOnMouseUp', () => {
 
   it('阈值可以注入，边界值不触发', () => {
     expect(
-      shouldCopyOnMouseUp(gesture(), { clientX: 103, clientY: 100, detail: 1 }, EMPTY, 3),
+      shouldCopyOnMouseUp(gesture(), { clientX: 103, clientY: 100, detail: 1 }, EMPTY, true, 3),
     ).toBe(false);
     expect(
-      shouldCopyOnMouseUp(gesture(), { clientX: 104, clientY: 100, detail: 1 }, EMPTY, 3),
+      shouldCopyOnMouseUp(gesture(), { clientX: 104, clientY: 100, detail: 1 }, EMPTY, true, 3),
     ).toBe(true);
+  });
+
+  it('普通单击文本控件或普通元素都不复制', () => {
+    expect(
+      shouldCopyOnMouseUp(gesture(), { clientX: 100, clientY: 100, detail: 1 }, EMPTY, true),
+    ).toBe(false);
   });
 });
 

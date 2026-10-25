@@ -1,5 +1,5 @@
 import { shouldCopyOnKeyUp, shouldCopyOnMouseUp, type Gesture } from '../gesture';
-import { snapshotSelection } from '../selection';
+import { selectedTextControl, snapshotSelection } from '../selection';
 
 /**
  * 选中动作的传感器：只收事件、记录手势快照、交给纯函数判断。
@@ -23,12 +23,13 @@ export function installCopySensor(options: CopySensorOptions): () => void {
   const onMouseDown = (event: MouseEvent): void => {
     // 只跟踪主键的、用户真实产生的按下；右键 / 中键和页面合成的 mousedown 一律忽略。
     if (!event.isTrusted || event.button !== 0) return;
+    const target = event.composedPath()[0] ?? event.target;
     gesture = {
       startX: event.clientX,
       startY: event.clientY,
       // Shadow DOM 内的事件到 document 时 target 已被重定向成宿主；
       // 记录真实节点，输入框门控与控件选区读取才拿得到内部 input。
-      target: event.composedPath()[0] ?? event.target,
+      target,
       selection: snapshotSelection(doc.getSelection()),
     };
   };
@@ -39,7 +40,11 @@ export function installCopySensor(options: CopySensorOptions): () => void {
     if (gesture === null) return;
     const current = gesture;
     gesture = null;
-    if (!shouldCopyOnMouseUp(current, event, snapshotSelection(doc.getSelection()))) return;
+    const control = selectedTextControl(current.target);
+    if (
+      !shouldCopyOnMouseUp(current, event, snapshotSelection(doc.getSelection()), control !== null)
+    )
+      return;
     options.onCopy(current.target, { x: event.clientX, y: event.clientY });
   };
 

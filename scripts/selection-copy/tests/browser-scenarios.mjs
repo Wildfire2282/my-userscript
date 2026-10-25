@@ -219,6 +219,25 @@ export const scenarios = [
     },
   },
   {
+    name: '已有文字选区时拖滑块 → 不把旧选区再复制一次',
+    async run(ctx) {
+      const points = await ctx.evaluate(() => {
+        window.__gm.store['selection-copy:config.settings'] = { copyInInputs: true };
+        const paragraph = document.querySelector('#text');
+        const range = document.createRange();
+        range.selectNodeContents(paragraph);
+        const selection = window.getSelection();
+        selection.removeAllRanges();
+        selection.addRange(range);
+        return window.__page.linePoints('#range', 10, 150);
+      });
+      await ctx.input.drag(points.start, points.end);
+      await ctx.wait(80);
+      const writes = await ctx.evaluate(() => window.__page.writes());
+      return { expected: '0', actual: String(writes) };
+    },
+  },
+  {
     name: '双击选中一个词 → 复制',
     async run(ctx) {
       const point = await ctx.evaluate(() => window.__page.point('#text', 120));

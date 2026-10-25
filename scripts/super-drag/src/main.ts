@@ -1,4 +1,4 @@
-import { createGmApi } from '@shared';
+import { createGmApi, createLogger, guard } from '@shared';
 import { installDragSensor } from './features/dnd';
 import { createOpeners } from './features/openers';
 import { createSettingsStore } from './settings';
@@ -14,6 +14,7 @@ import { createSettingsPanel, type SettingsPanelHandle } from './ui/settings-pan
 const MENU_LABEL = '功能设置';
 
 function start(): void {
+  const log = createLogger('super-drag');
   const gm = createGmApi();
   const store = createSettingsStore(gm);
   const openers = createOpeners();
@@ -26,7 +27,7 @@ function start(): void {
 
   let panel: SettingsPanelHandle | null = null;
   const openSettings = () => {
-    try {
+    guard(log, '设置面板打开失败', () => {
       if (!panel) {
         panel = createSettingsPanel({
           getSettings: store.get,
@@ -34,20 +35,15 @@ function start(): void {
         });
       }
       panel.open();
-    } catch (error) {
-      // 面板建不起来只影响设置入口，不能把菜单回调的异常抛给脚本管理器。
-      console.error('[super-drag] 设置面板打开失败', error);
-    }
+    });
   };
 
   if (!gm.registerMenuCommand(MENU_LABEL, openSettings)) {
     // 没有菜单项时设置无从打开，但不影响拖拽本身。
-    console.warn('[super-drag] 菜单命令不可用，设置面板无法打开');
+    log.warn('菜单命令不可用，设置面板无法打开');
   }
 }
 
-try {
+guard(createLogger('super-drag'), '启动失败', () => {
   start();
-} catch (error) {
-  console.error('[super-drag] 启动失败', error);
-}
+});

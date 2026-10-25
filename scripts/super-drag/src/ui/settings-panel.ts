@@ -9,6 +9,7 @@ import {
   mountUI,
   type UI,
 } from '@ui';
+import { ZH_LABELS } from '@ui';
 import {
   PREVIEW_KEYWORD,
   buildSearchUrl,
@@ -37,19 +38,8 @@ export interface SettingsPanelHandle {
   destroy(): void;
 }
 
-const LABELS = {
-  close: '关闭',
-  settings: '设置',
-  notifications: '通知',
-  dismissNotification: '关闭通知',
-  closeSettings: '关闭设置',
-  scrollHint: '向下滚动查看更多内容',
-  cancel: '取消',
-  confirm: '确定',
-};
-
 export function createSettingsPanel(options: SettingsPanelOptions): SettingsPanelHandle {
-  const ui: UI = mountUI({ theme: 'system', labels: LABELS });
+  const ui: UI = mountUI({ theme: 'system', labels: ZH_LABELS });
   const initial = options.getSettings();
 
   const panel = createPanel(ui, {

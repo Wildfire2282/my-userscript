@@ -36,6 +36,23 @@ export const DEFAULT_LABELS: UILabels = {
   confirm: 'Confirm',
 };
 
+/**
+ * 中文文案预设：四个脚本的 `LABELS` 逐字相同且都缺 `operation`，
+ * 无标题操作面板的 aria 名会回落到英文 `Operations`。
+ * 脚本侧 `mountUI({ theme: 'system', labels: ZH_LABELS })` 即可，不再各写一份。
+ */
+export const ZH_LABELS: UILabels = {
+  close: '关闭',
+  settings: '设置',
+  operation: '操作',
+  notifications: '通知',
+  dismissNotification: '关闭通知',
+  closeSettings: '关闭设置',
+  scrollHint: '向下滚动查看更多内容',
+  cancel: '取消',
+  confirm: '确定',
+};
+
 export function resolveLabels(overrides: Partial<UILabels> | undefined): UILabels {
   return { ...DEFAULT_LABELS, ...overrides };
 }

@@ -1,4 +1,4 @@
-import { mountUI, type UI } from '@ui';
+import { ZH_LABELS, mountUI, type UI } from '@ui';
 import type { CopyFeedback } from '../feedback';
 import { createIndicator, type IndicatorHandle } from './indicator';
 
@@ -7,17 +7,6 @@ import { createIndicator, type IndicatorHandle } from './indicator';
  *
  * 第一次真的需要显示反馈或打开设置时才挂载；普通页面不产生任何节点与样式。
  */
-
-const LABELS = {
-  close: '关闭',
-  settings: '设置',
-  notifications: '通知',
-  dismissNotification: '关闭通知',
-  closeSettings: '关闭设置',
-  scrollHint: '向下滚动查看更多内容',
-  cancel: '取消',
-  confirm: '确定',
-};
 
 export interface UiHost {
   /** 取（必要时创建）共享的 UI；设置面板与反馈都挂在这里。 */
@@ -30,7 +19,7 @@ export function createUiHost(): UiHost {
   let indicator: IndicatorHandle | null = null;
 
   const ensure = (): UI => {
-    if (!ui) ui = mountUI({ theme: 'system', labels: LABELS });
+    if (!ui) ui = mountUI({ theme: 'system', labels: ZH_LABELS });
     return ui;
   };
 

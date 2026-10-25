@@ -1,5 +1,6 @@
 export { mountUI } from './core/mount';
 export type { UI, UILayers, UIOptions } from './core/mount';
+export { DEFAULT_LABELS, ZH_LABELS } from './core/labels';
 export type { UILabels } from './core/labels';
 export type { ResolvedTheme, Theme } from './core/theme';
 

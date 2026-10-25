@@ -4,6 +4,7 @@ import {
   createSection,
   createToast,
   mountUI,
+  ZH_LABELS,
   type PanelHandle,
   type ToastController,
   type UI,
@@ -22,18 +23,6 @@ import { createTranscriptButton, type TranscriptButtonHandle } from './button';
 
 /** `skipped`：上一次复制还没结束，这次什么都没做。 */
 export type CopyOutcome = 'success' | 'empty' | 'error' | 'skipped';
-
-// 面板与提示都只出现在中文界面里；不传就是 @ui 的英文默认文案。
-const LABELS = {
-  close: '关闭',
-  settings: '设置',
-  notifications: '通知',
-  dismissNotification: '关闭通知',
-  closeSettings: '关闭设置',
-  scrollHint: '向下滚动查看更多内容',
-  cancel: '取消',
-  confirm: '确定',
-};
 
 export interface TranscriptButtonAppOptions {
   getSavedPosition: () => ButtonPosition | null;
@@ -73,7 +62,7 @@ export function createTranscriptButtonApp(
   const SETTLE_DELAYS_MS = [300, 1000, 2000, 4000];
 
   const ensureUI = (): UI => {
-    if (!ui) ui = mountUI({ theme: 'system', labels: LABELS });
+    ui ??= mountUI({ theme: 'system', labels: ZH_LABELS });
     return ui;
   };
 

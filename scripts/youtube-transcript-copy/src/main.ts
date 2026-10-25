@@ -1,4 +1,4 @@
-import { createClipboard, createGmApi } from '@shared';
+import { createClipboard, createGmApi, createLogger, guard } from '@shared';
 import { defaultButtonPosition, readPlayerRect } from './features/position';
 import { watchNavigation } from './features/spa';
 import { readVideoState, shouldShowButton, watchVisibility } from './features/visibility';
@@ -29,6 +29,7 @@ interface YtWindow extends Window {
 function start(): void {
   if (window.top !== window.self) return;
 
+  const log = createLogger('youtube-transcript-copy');
   const gm = createGmApi();
   const store = createStore(gm);
   const clipboard = createClipboard();
@@ -85,24 +86,20 @@ function start(): void {
 
   const register = (label: string, run: () => void): void => {
     if (!gm.registerMenuCommand(label, run)) {
-      console.warn(`[youtube-transcript-copy] 菜单命令不可用：${label}`);
+      log.warn(`菜单命令不可用：${label}`);
     }
   };
 
   // UI 挂载可能抛错：在菜单回调里兜住，否则异常直接冒到脚本管理器且没有提示。
   register(MENU_ACTIONS, () => {
-    try {
+    guard(log, '打开操作面板失败', () => {
       app.openActions();
-    } catch (error) {
-      console.error('[youtube-transcript-copy] 打开操作面板失败', error);
-    }
+    });
   });
   register(MENU_SETTINGS, () => {
-    try {
+    guard(log, '打开设置面板失败', () => {
       app.openSettings();
-    } catch (error) {
-      console.error('[youtube-transcript-copy] 打开设置面板失败', error);
-    }
+    });
   });
 
   const boot = (): void => {
@@ -146,8 +143,6 @@ function start(): void {
   }
 }
 
-try {
+guard(createLogger('youtube-transcript-copy'), '启动失败', () => {
   start();
-} catch (error) {
-  console.error('[youtube-transcript-copy] 启动失败', error);
-}
+});

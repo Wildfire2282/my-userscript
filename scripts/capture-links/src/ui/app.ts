@@ -2,6 +2,7 @@ import {
   createLauncher,
   createToast,
   mountUI,
+  ZH_LABELS,
   type LauncherHandle,
   type PanelHandle,
   type ToastController,
@@ -21,17 +22,6 @@ import { createSettingsPanel, type SettingsPanelHandle } from './settings-panel'
  */
 
 export type NotifyVariant = 'success' | 'warning' | 'error';
-
-const LABELS = {
-  close: '关闭',
-  settings: '设置',
-  notifications: '通知',
-  dismissNotification: '关闭通知',
-  closeSettings: '关闭设置',
-  scrollHint: '向下滚动查看更多内容',
-  cancel: '取消',
-  confirm: '确定',
-};
 
 export interface AppOptions {
   getSettings: () => Settings;
@@ -89,7 +79,7 @@ export function createApp(options: AppOptions): AppHandle {
 
   const ensure = (): Session => {
     if (session) return session;
-    const ui = mountUI({ theme: 'system', labels: LABELS });
+    const ui = mountUI({ theme: 'system', labels: ZH_LABELS });
     const toast = createToast(ui);
     const linkPanel = createLinkPanel({
       ui,

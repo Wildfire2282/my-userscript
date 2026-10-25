@@ -1,4 +1,4 @@
-import { createClipboard, createGmApi } from '@shared';
+import { createClipboard, createGmApi, createLogger, guard } from '@shared';
 import { createSettingsStore } from './settings';
 import { createApp } from './ui/app';
 
@@ -13,6 +13,7 @@ const MENU_LINKS = '操作面板';
 const MENU_SETTINGS = '功能设置';
 
 function start(): void {
+  const log = createLogger('capture-links');
   const gm = createGmApi();
   const store = createSettingsStore(gm);
   const clipboard = createClipboard();
@@ -27,31 +28,25 @@ function start(): void {
 
   const register = (label: string, run: () => void): void => {
     if (!gm.registerMenuCommand(label, run)) {
-      console.warn(`[capture-links] 菜单命令不可用：${label}`);
+      log.warn(`菜单命令不可用：${label}`);
     }
   };
   // 面板打开与扫描可能抛错：菜单回调里兜住，否则异常冒到脚本管理器且没有提示。
   const openLinks = (): void => {
-    try {
+    guard(log, '打开链接面板失败', () => {
       app.openLinks();
-    } catch (error) {
-      console.error('[capture-links] 打开链接面板失败', error);
-    }
+    });
   };
   const openSettings = (): void => {
-    try {
+    guard(log, '打开设置面板失败', () => {
       app.openSettings();
-    } catch (error) {
-      console.error('[capture-links] 打开设置面板失败', error);
-    }
+    });
   };
   register(MENU_LINKS, openLinks);
   register(MENU_SETTINGS, openSettings);
 }
 
-try {
+// 初始化失败只影响本脚本，不能让异常冒到宿主页面。
+guard(createLogger('capture-links'), '启动失败', () => {
   start();
-} catch (error) {
-  // 初始化失败只影响本脚本，不能让异常冒到宿主页面。
-  console.error('[capture-links] 启动失败', error);
-}
+});

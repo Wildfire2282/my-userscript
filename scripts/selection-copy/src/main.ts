@@ -1,4 +1,4 @@
-import { createClipboard, createGmApi } from '@shared';
+import { createClipboard, createGmApi, createLogger, guard } from '@shared';
 import { createCopyAction } from './features/copy-action';
 import { installCopySensor } from './features/sensor';
 import { createSettingsStore, topSiteKey } from './settings';
@@ -23,6 +23,7 @@ const INSTALL_LOCK_ATTRIBUTE = 'data-selection-auto-copy-installed';
 const MENU_LABEL = '功能设置';
 
 function start(): void {
+  const log = createLogger('selection-copy');
   const root = document.documentElement;
   if (!root || root.hasAttribute(INSTALL_LOCK_ATTRIBUTE)) return;
   root.setAttribute(INSTALL_LOCK_ATTRIBUTE, '');
@@ -43,7 +44,7 @@ function start(): void {
 
   let panel: SettingsPanelHandle | null = null;
   const openSettings = (): void => {
-    try {
+    guard(log, '设置面板打开失败', () => {
       if (!panel) {
         panel = createSettingsPanel({
           ui: app.ensure(),
@@ -55,19 +56,14 @@ function start(): void {
         });
       }
       panel.open();
-    } catch (error) {
-      // 面板建不起来只影响设置入口，不能把菜单回调的异常抛给脚本管理器。
-      console.error('[selection-copy] 设置面板打开失败', error);
-    }
+    });
   };
 
   if (window.top === window.self && !gm.registerMenuCommand(MENU_LABEL, openSettings)) {
-    console.warn('[selection-copy] 菜单命令不可用，设置面板无法打开');
+    log.warn('菜单命令不可用，设置面板无法打开');
   }
 }
 
-try {
+guard(createLogger('selection-copy'), '启动失败', () => {
   start();
-} catch (error) {
-  console.error('[selection-copy] 启动失败', error);
-}
+});

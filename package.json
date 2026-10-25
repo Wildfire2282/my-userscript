@@ -12,8 +12,8 @@
   },
   "scripts": {
     "build": "bun tools/build.mjs",
-    "sync": "python tools/sync.py",
-    "sync:check": "python tools/sync.py --check",
+    "sync": "bun tools/sync.mjs",
+    "sync:check": "bun tools/sync.mjs --check",
     "lint": "bunx oxlint --deny-warnings",
     "format": "bun fmt",
     "format:check": "bun fmt --check",

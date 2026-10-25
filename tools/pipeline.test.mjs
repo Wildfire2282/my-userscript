@@ -14,6 +14,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
+import { FetchError, parseScriptLinks, renderTable, sync } from './sync.mjs';
 
 const tools = path.dirname(fileURLToPath(import.meta.url));
 const roots = [];
@@ -24,7 +25,7 @@ function fixture() {
   roots.push(root);
   mkdirSync(path.join(root, 'tools'));
   mkdirSync(path.join(root, 'scripts'));
-  for (const name of ['build.mjs', 'release.mjs', 'browser-check.mjs', 'sync.py']) {
+  for (const name of ['build.mjs', 'release.mjs', 'browser-check.mjs']) {
     cpSync(path.join(tools, name), path.join(root, 'tools', name));
   }
   return root;
@@ -115,64 +116,104 @@ describe('pipeline failure boundaries', () => {
   });
 });
 
-const syncCases = String.raw`
-import importlib.util
-import sys
-from pathlib import Path
-spec = importlib.util.spec_from_file_location('sync_tool', sys.argv[1])
-tool = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(tool)
-root = Path(sys.argv[2])
-tool.SCRIPTS_DIR = root / 'scripts'
-tool.MANIFEST_PATH = root / 'scripts.json'
-tool.README_PATH = root / 'README.md'
-tool.SLUGS = {1: 'first', 2: 'second'}
-tool.discover_scripts = lambda: {1: ('First', 'first'), 2: ('Second', 'second')}
-tool.resolve_install_url = lambda script_id: str(script_id)
-tool.time.sleep = lambda _: None
-body = b'// ==UserScript==\n// @name Example\n// @version 2.0.0\n// ==/UserScript==\n'
-if sys.argv[3] == 'check':
-    tool.fetch = lambda _: body
-    assert tool.sync(check_only=True, force=False) == 1
-    assert not tool.SCRIPTS_DIR.exists(), '--check created scripts directory'
-else:
-    legacy = tool.legacy_path('first', 1)
-    legacy.parent.mkdir(parents=True)
-    legacy.write_text('old snapshot', encoding='utf-8')
-    tool.MANIFEST_PATH.write_text('{"scripts": []}', encoding='utf-8')
-    tool.README_PATH.write_text('unchanged readme', encoding='utf-8')
-    def fetch(url):
-        if url == '2':
-            if sys.argv[3] == 'invalid':
-                return b'<html>temporarily unavailable</html>'
-            raise tool.FetchError('second download failed')
-        return body
-    tool.fetch = fetch
-    try:
-        result = tool.sync(check_only=False, force=False)
-    except tool.FetchError:
-        assert sys.argv[3] == 'network'
-    else:
-        assert sys.argv[3] == 'invalid' and result == 2
-    assert legacy.read_text(encoding='utf-8') == 'old snapshot', 'partial snapshot overwrite'
-    assert tool.MANIFEST_PATH.read_text(encoding='utf-8') == '{"scripts": []}'
-    assert tool.README_PATH.read_text(encoding='utf-8') == 'unchanged readme'
-`;
+const syncBody = '// ==UserScript==\n// @name Example\n// @version 2.0.0\n// ==/UserScript==\n';
 
-describe('sync write boundaries', () => {
-  it.each(['check', 'network', 'invalid'])('preserves local files for %s', (scenario) => {
-    const root = fixture();
-    // Python 本就是 sync 的运行前提；子进程只用模拟网络，不访问 Greasy Fork。
-    const result = spawnSync(
-      'python',
-      ['-c', syncCases, path.join(root, 'tools/sync.py'), path.join(root, 'data'), scenario],
-      {
-        encoding: 'utf8',
-        timeout: 10_000,
-        env: { ...process.env, PYTHONDONTWRITEBYTECODE: '1' },
-      },
-    );
-    expect(result.error).toBeUndefined();
-    expect(result.status, output(result)).toBe(0);
+function syncOptions(root, scenario) {
+  return {
+    root,
+    slugs: { 1: 'first', 2: 'second' },
+    discover: async () =>
+      new Map([
+        [1, { name: 'First', slug: 'first' }],
+        [2, { name: 'Second', slug: 'second' }],
+      ]),
+    resolveInstallUrl: async (scriptId) => String(scriptId),
+    sleepFn: async () => {},
+    fetchFn: async (url) => {
+      if (url !== '2' || scenario === 'check') return new Response(syncBody, { status: 200 });
+      if (scenario === 'invalid') {
+        return new Response('<html>temporarily unavailable</html>', { status: 200 });
+      }
+      throw new Error('second download failed');
+    },
+  };
+}
+
+describe('sync', () => {
+  it('parses script links without matching unrelated anchors', () => {
+    const html = [
+      '<a class="script-link" href="/zh-CN/scripts/1-first">First &amp; One</a>',
+      '<a class="script-link" href="/zh-CN/scripts/2-second">Second</a>',
+      '<a class="other" href="/zh-CN/scripts/3-third">Third</a>',
+    ].join('\n');
+    expect([...parseScriptLinks(html)]).toEqual([
+      [1, { name: 'First & One', slug: 'first' }],
+      [2, { name: 'Second', slug: 'second' }],
+    ]);
   });
+
+  it('escapes table cells', () => {
+    expect(
+      renderTable([{ name: 'A|B', description: 'x\ny', downloadUrl: 'https://example.com/a' }]),
+    ).toContain('| A\\|B | x y | [点此安装](https://example.com/a) |');
+  });
+
+  it('check mode reports updates without creating files', async () => {
+    const root = fixture();
+    const data = path.join(root, 'data');
+    expect(await sync({ ...syncOptions(data, 'check'), checkOnly: true })).toBe(1);
+    expect(existsSync(data)).toBe(false);
+  });
+
+  it('writes snapshots, manifest and README table', async () => {
+    const root = fixture();
+    const manifest = put(root, 'scripts.json', '{"scripts": []}');
+    const readme = put(
+      root,
+      'README.md',
+      '# 标题\n\n<!-- scripts:start -->\n旧表格\n<!-- scripts:end -->\n',
+    );
+
+    expect(await sync(syncOptions(root, 'check'))).toBe(0);
+
+    expect(readFileSync(path.join(root, 'scripts/first/legacy/1-first.user.js'), 'utf8')).toBe(
+      syncBody,
+    );
+    const data = JSON.parse(readFileSync(manifest, 'utf8'));
+    expect(data.scriptCount).toBe(2);
+    expect(data.scripts.map((script) => [script.id, script.slug, script.version])).toEqual([
+      [1, 'first', '2.0.0'],
+      [2, 'second', '2.0.0'],
+    ]);
+    expect(readFileSync(readme, 'utf8')).toBe(
+      '# 标题\n\n<!-- scripts:start -->\n' +
+        '| 脚本 | 作用 | 安装 |\n' +
+        '| --- | --- | --- |\n' +
+        '| Example |  | [点此安装](1) |\n' +
+        '| Example |  | [点此安装](2) |\n' +
+        '<!-- scripts:end -->\n',
+    );
+  });
+
+  it.each(['network', 'invalid'])(
+    'preserves local files when the %s download fails',
+    async (scenario) => {
+      const root = fixture();
+      const legacy = put(root, 'scripts/first/legacy/1-first.user.js', 'old snapshot');
+      const manifest = put(root, 'scripts.json', '{"scripts": []}');
+      const readme = put(root, 'README.md', 'unchanged readme');
+
+      let result = null;
+      try {
+        result = await sync(syncOptions(root, scenario));
+      } catch (error) {
+        expect(error).toBeInstanceOf(FetchError);
+      }
+      if (scenario === 'invalid') expect(result).toBe(2);
+
+      expect(readFileSync(legacy, 'utf8')).toBe('old snapshot');
+      expect(readFileSync(manifest, 'utf8')).toBe('{"scripts": []}');
+      expect(readFileSync(readme, 'utf8')).toBe('unchanged readme');
+    },
+  );
 });

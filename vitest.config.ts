@@ -18,6 +18,9 @@ export default defineConfig({
   test: {
     // UI 组件依赖真实 DOM 与 CSS 导入；脚本单测在 happy-dom 下同样能跑。
     environment: 'happy-dom',
+    // 每个测试文件各建一个 happy-dom 曾占掉约四分之三的测试时间；vmThreads 让同一
+    // worker 复用已建好的环境，文件之间仍各自隔离（默认 threads 池每文件重建环境）。
+    pool: 'vmThreads',
     css: true,
     include: [
       'tools/**/*.test.mjs',

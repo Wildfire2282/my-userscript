@@ -270,4 +270,15 @@ describe('sync', () => {
     expect(JSON.parse(readFileSync(packageFile, 'utf8')).version).toBe('2.0.0');
     expect(readFileSync(metaFile, 'utf8')).toBe(syncBody);
   });
+
+  it('线上版本不是 x.y.z 时中止，不写入快照', async () => {
+    const root = fixture();
+    const badBody = '// ==UserScript==\n// @name Bad\n// @version 1.0\n// ==/UserScript==\n';
+    const options = {
+      ...syncOptions(root, 'check'),
+      fetchFn: async () => new Response(badBody, { status: 200 }),
+    };
+    expect(await sync(options)).toBe(2);
+    expect(existsSync(path.join(root, 'scripts/first/legacy/1-first.user.js'))).toBe(false);
+  });
 });

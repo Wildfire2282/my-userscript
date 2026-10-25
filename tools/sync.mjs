@@ -498,6 +498,13 @@ export async function sync(options = {}) {
       );
       return 2;
     }
+    if (!/^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(version ?? '')) {
+      // 版本会写进 package.json 并被构建注入；格式不对时整轮中止，别把坏骨架落盘。
+      console.error(
+        `错误：scripts/${slug}/ 的线上 @version「${version ?? ''}」不是 x.y.z 形式，已中止。`,
+      );
+      return 2;
+    }
     const oldRaw = await readIfExists(file);
     const oldText = oldRaw === null ? null : oldRaw.toString('utf8');
     const oldVersion = oldText === null ? null : first(parseMetadata(oldText), 'version');

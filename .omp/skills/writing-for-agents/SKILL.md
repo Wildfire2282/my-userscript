@@ -3,13 +3,6 @@ name: writing-for-agents
 description: Writing documents for agents. Use when creating or editing skills, or modifying AGENTS.md or CLAUDE.md.
 ---
 
-## 项目适配（优先于本文件）
-
-- 本文件与仓库 `AGENTS.md` 冲突时，以 `AGENTS.md` 为准；文档规则见 `AGENTS.md` 第 8 节与 `docs/README.md`。
-- 本仓库文档一律中文、陈述句、命令块标注语言、日期 `YYYY-MM-DD`；给人看的文档不出现构建、依赖、重构等词。
-- `AGENTS.md` 在本仓库是完整执行契约，不是只放导航指针；应用本文件的原则（单一事实来源、渐进披露、删无效句子），不照搬篇幅偏好。
-- 项目级技能放在 `.omp/skills/<name>/SKILL.md`（只扫描一层）；技能引用的文件放在同一目录下，用相对路径引用。
-
 Reference for writing any document an agent consumes: a skill, an `AGENTS.md` / `CLAUDE.md`, a doc reached by a pointer. The packaging differs; the writing does not: the same levers make each one predictable, since the agent takes the same _process_ every run rather than producing the same output.
 
 When the document you're writing is a skill, read [`SKILL-MECHANICS.md`](SKILL-MECHANICS.md) for frontmatter, invocation choice, and router skills.

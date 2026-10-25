@@ -5,22 +5,15 @@ description: Diagnosis loop for hard bugs and performance regressions. Use when 
 
 # Diagnosing Bugs
 
-## 项目适配（优先于本文件）
-
-- 本文件与仓库 `AGENTS.md` 冲突时，以 `AGENTS.md` 为准。
-- 维护者不读代码、diff、日志，也不运行命令：技术假设自己排序验证；只有需要产品取舍时才问，一次最多三个并给默认。汇报用“你会看到什么”，不贴堆栈。
-- 领域与已定决策看 `docs/architecture.md`（含“关键决策”表）和 `docs/kit.md`；不要新建 `GLOSSARY.md` 或 `docs/adr/`。
-- 本仓库已有的反馈回路优先用：Vitest 单测、`bun run test:browser`（真实 Chrome/Edge 场景，夹具在 `scripts/<slug>/tests/`）、`bun run verify`。没有被实际执行的检查写“未验证”。
-
 A discipline for hard bugs. Skip phases only when explicitly justified.
 
-When exploring the codebase, read `docs/architecture.md` and the target script's `README.md` to get a clear mental model of the relevant modules, and check the “关键决策” table in the area you're touching.
+When exploring the codebase, read `GLOSSARY.md` (if it exists) to get a clear mental model of the relevant modules, and check ADRs in the area you're touching.
 
 ## Redact
 
 This skill has you show commands, outputs and captured artifacts. **Redact every secret first**: write `<REDACTED>` in its place. Build loops against env vars, so the credential stays in the environment rather than in what you show. Captured artifacts carry auth headers: quote only the lines that carry the signal.
 
-If the redacted output is not enough to diagnose the bug, say so; the maintainer cannot supply logs or run commands, so propose what you can capture yourself (browser relay, throwaway harness) before asking for a one-time manual confirmation.
+If the redacted output is not enough to diagnose the bug, say so and ask the user.
 
 ## Phase 1: Build a feedback loop
 
@@ -39,7 +32,7 @@ Spend disproportionate effort here. **Be aggressive. Be creative. Refuse to give
 7. **Property / fuzz loop.** If the bug is "sometimes wrong output", run 1000 random inputs and look for the failure mode.
 8. **Bisection harness.** If the bug appeared between two known states (commit, dataset, version), automate "boot at state X, check, repeat" so you can `git bisect run` it.
 9. **Differential loop.** Run the same input through old-version vs new-version (or two configs) and diff outputs.
-10. **HITL script.** Last resort, and never the default in this repo: the maintainer does not run commands. Prefer the browser relay or a throwaway harness; if a human really must click, walk them through it in plain language, one step at a time.
+10. **HITL bash script.** Last resort. If a human must click, drive _them_ with `scripts/hitl-loop.template.sh` so the loop is still structured. Captured output feeds back to you.
 
 Build the right feedback loop, and the bug is 90% fixed.
 
@@ -59,7 +52,7 @@ The goal is not a clean repro but a **higher reproduction rate**. Loop the trigg
 
 ### When you genuinely cannot build a loop
 
-Stop and say so explicitly. List what you tried. Ask the user only for what they can actually provide: (a) the page or action that shows the symptom, or (b) a one-time confirmation in their own browser. Do **not** proceed to hypothesise without a loop.
+Stop and say so explicitly. List what you tried. Ask the user for: (a) access to whatever environment reproduces it, (b) a redacted captured artifact (HAR file, log dump, core dump, screen recording with timestamps), or (c) permission to add temporary production instrumentation. Do **not** proceed to hypothesise without a loop.
 
 ### Completion criterion: a tight loop that goes red
 
@@ -102,7 +95,7 @@ Each hypothesis must be **falsifiable**: state the prediction it makes.
 
 If you cannot state the prediction, the hypothesis is a vibe: discard or sharpen it.
 
-Record the ranked list in your own notes before testing. The maintainer cannot re-rank technical hypotheses; only surface the ranking if one hypothesis implies a user-visible tradeoff that needs their call.
+**Show the ranked list to the user before testing.** They often have domain knowledge that re-ranks instantly ("we just deployed a change to #3"), or know hypotheses they've already ruled out. Cheap checkpoint, big time saver. Don't block on it; proceed with your ranking if the user is AFK.
 
 ## Phase 4: Instrument
 

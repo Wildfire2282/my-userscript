@@ -46,7 +46,7 @@
 | `diagnosing-bugs` | 自动（说「诊断 / 调试」时） | 先建能变红的复现回路，再定位原因 |
 | `writing-for-agents` | 自动（写 `AGENTS.md`、`docs/` 或技能时） | 面向 Agent 的文档写法 |
 
-各技能 `SKILL.md` 顶部的「项目适配」段优先于技能原文；与 `AGENTS.md` 冲突时以 `AGENTS.md` 为准。
+技能内容与上游 [`mattpocock/skills`](https://github.com/mattpocock/skills) 仓库一致，不做本地修改；与 `AGENTS.md` 冲突时以 `AGENTS.md` 为准。
 
 ## 写作规则
 

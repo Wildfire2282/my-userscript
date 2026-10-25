@@ -20,6 +20,7 @@ import { access, readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { gmUsages } from './gm-usages.mjs';
+import { scriptIdProblems } from './meta-id.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SCRIPTS_DIR = path.join(ROOT, 'scripts');
@@ -280,6 +281,7 @@ async function checkPackage(slug) {
   const migrated = await hasEntry(dir);
   const source = await findSourceMeta(dir);
   const legacy = await findLegacyMeta(dir);
+  const legacyId = legacy ? (/^(\d+)-/.exec(path.basename(legacy.file))?.[1] ?? null) : null;
 
   if (!source) {
     problems.push('找不到 userscript.meta.ts / userscript.meta.js');
@@ -296,6 +298,7 @@ async function checkPackage(slug) {
           expectedVersion: version,
         }),
       );
+      problems.push(...scriptIdProblems(fields, legacyId, source.name));
 
       if (!migrated) {
         if (!legacy?.fields) {
@@ -344,6 +347,7 @@ async function checkPackage(slug) {
           expectedVersion: version,
         }),
       );
+      problems.push(...scriptIdProblems(fields, legacyId, 'dist 产物'));
 
       // 只扫描元数据块之后的代码，避免把 banner 里的 @grant 当成调用点。
       const body = code.slice(code.indexOf('// ==/UserScript=='));
@@ -401,6 +405,10 @@ const slugs = (
 const unknown = only.filter((slug) => !slugs.includes(slug));
 if (unknown.length > 0) {
   console.error(`没有找到这些脚本包：${unknown.join('、')}`);
+  process.exit(1);
+}
+if (slugs.length === 0) {
+  console.error('scripts/ 下没有脚本包。');
   process.exit(1);
 }
 

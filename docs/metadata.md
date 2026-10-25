@@ -119,7 +119,7 @@
 4. 字段顺序符合第 5 节；
 5. 已迁移脚本的源码没有 `@version`，产物版本等于 `package.json`；
 6. 未迁移脚本的 `userscript.meta.js` 与 `legacy/` 元数据块逐字段一致；
-7. `@downloadURL` / `@updateURL` 指向 Greasy Fork。
+7. `@downloadURL` / `@updateURL` 指向 Greasy Fork，且脚本 ID 与 `legacy/<ID>-<slug>.user.js` 一致。
 
 产物中的 `GM_*`、`GM.*` 与静态字符串属性访问会按各自名称核对授权；`GM_setClipboard` 不代替 `GM.setClipboard`，反之亦然。两者在管理器中需要分别声明，本仓保留已发布的 `GM_setClipboard`，不为兼容分支增加权限。动态拼接的属性名不在静态检查范围内。
 

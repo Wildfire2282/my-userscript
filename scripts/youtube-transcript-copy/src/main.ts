@@ -114,7 +114,8 @@ createUserscript(createGmApi(), {
       const videoId = currentVideoId();
       if (videoId !== lastVideoId) {
         lastVideoId = videoId;
-        network.clear();
+        // 新视频的响应可能已经先到：只清旧视频的捕获。
+        network.clear(videoId);
         // 新视频有自己的首条字幕轨，重读一次；否则旧轨的失败记忆会拖慢每次复制。
         captureInitialTrack();
       }

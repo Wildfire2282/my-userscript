@@ -127,6 +127,21 @@ describe('installNetworkCapture consumption', () => {
     expect(FakeXHR.prototype.open).toBe(laterOpen);
   });
 
+  it('clear(videoId) 只清别的视频，保留同视频已捕获内容', async () => {
+    const { win } = captureHarness();
+    const capture = installNetworkCapture(win);
+    try {
+      await win.fetch('/api/timedtext?v=abc');
+      await vi.waitFor(() => expect(capture.get()?.[0]?.text).toBe('hello'));
+      capture.clear('abc');
+      expect(capture.get()).not.toBeNull();
+      capture.clear('xyz');
+      expect(capture.get()).toBeNull();
+    } finally {
+      capture.restore();
+    }
+  });
+
   it('abort 后 open 非捕获 URL 不让旧 listener 接收新响应', () => {
     const { win, FakeXHR } = captureHarness();
     const capture = installNetworkCapture(win);

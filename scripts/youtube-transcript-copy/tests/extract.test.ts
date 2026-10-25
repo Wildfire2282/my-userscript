@@ -144,6 +144,110 @@ describe('extractFromPanelResponse', () => {
     ]);
   });
 
+  it('同一响应同时含 actions 与 engagementPanels 时不重复', () => {
+    const response = {
+      ...PANEL_RESPONSE,
+      actions: [
+        {
+          updateEngagementPanelAction: {
+            content: {
+              transcriptRenderer: {
+                content: {
+                  transcriptSearchPanelRenderer: {
+                    body: {
+                      transcriptSegmentListRenderer: {
+                        initialSegments: [
+                          {
+                            transcriptSegmentRenderer: {
+                              startMs: 0,
+                              snippet: { runs: [{ text: '第一句 台词' }] },
+                            },
+                          },
+                          {
+                            transcriptSegmentRenderer: {
+                              startMs: 2_500,
+                              snippet: { runs: [{ text: '第二句台词' }] },
+                            },
+                          },
+                        ],
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      ],
+    };
+    expect(extractFromPanelResponse(response)).toHaveLength(2);
+  });
+
+  it('cue 的 startOffsetMs 是数字字符串时保留时间戳', () => {
+    const response = {
+      engagementPanels: [
+        {
+          engagementPanelSectionListRenderer: {
+            panelIdentifier: 'engagement-panel-searchable-transcript',
+            content: {
+              transcriptRenderer: {
+                body: {
+                  transcriptBodyRenderer: {
+                    cueGroups: [
+                      {
+                        transcriptCueGroupRenderer: {
+                          cues: [
+                            {
+                              transcriptCueRenderer: {
+                                startOffsetMs: '2500',
+                                simpleText: '第二句台词',
+                              },
+                            },
+                          ],
+                        },
+                      },
+                    ],
+                  },
+                },
+              },
+            },
+          },
+        },
+      ],
+    };
+    expect(extractFromPanelResponse(response)).toEqual([{ start: 2500, text: '第二句台词' }]);
+  });
+
+  it('只有空白的 cue 不产出空文本片段', () => {
+    const response = {
+      engagementPanels: [
+        {
+          engagementPanelSectionListRenderer: {
+            panelIdentifier: 'engagement-panel-searchable-transcript',
+            content: {
+              transcriptRenderer: {
+                body: {
+                  transcriptBodyRenderer: {
+                    cueGroups: [
+                      {
+                        transcriptCueGroupRenderer: {
+                          cues: [
+                            { transcriptCueRenderer: { startOffsetMs: 0, simpleText: '   ' } },
+                          ],
+                        },
+                      },
+                    ],
+                  },
+                },
+              },
+            },
+          },
+        },
+      ],
+    };
+    expect(extractFromPanelResponse(response)).toBeNull();
+  });
+
   it('没有标识但内容里有 cueGroup 也认', () => {
     const response = {
       engagementPanels: [
@@ -349,6 +453,13 @@ describe('extractFromPanelDump', () => {
   });
 
   it('没有匹配行时返回 null', () => {
+    expect(extractFromPanelDump(document.body)).toBeNull();
+  });
+
+  it('时间戳后只有空白时不产出空文本片段', () => {
+    const node = document.createElement('div');
+    node.textContent = '0:05   ';
+    document.body.appendChild(node);
     expect(extractFromPanelDump(document.body)).toBeNull();
   });
 

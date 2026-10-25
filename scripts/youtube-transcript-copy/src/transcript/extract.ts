@@ -29,6 +29,13 @@ function numberOr(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
+/** 数字或数字字符串；面板两种形状的时间字段类型不一致。 */
+function numberOrNumericString(value: unknown): number | null {
+  const numeric = numberOr(value);
+  if (numeric !== null) return numeric;
+  return typeof value === 'string' && value.trim() !== '' ? numberOr(Number(value)) : null;
+}
+
 /**
  * 面板里是否出现 cueGroup：直接按 key 找，比整块 JSON.stringify 快得多。
  * 面板响应可能很大，每份都序列化一次会拖慢每次复制。
@@ -61,10 +68,7 @@ export function extractFromPanelResponse(data: unknown): Segment[] | null {
           .join(''),
       );
       if (!text) continue;
-      const start = item?.startMs;
-      const startMs =
-        numberOr(start) ??
-        (typeof start === 'string' && start.trim() !== '' ? numberOr(Number(start)) : null);
+      const startMs = numberOrNumericString(item?.startMs);
       const seconds =
         startMs === null ? tsToSec(asString(asRecord(item?.startTimeText)?.simpleText)) : null;
       segments.push({
@@ -111,16 +115,20 @@ export function extractFromPanelResponse(data: unknown): Segment[] | null {
             : asString(renderer?.simpleText) ||
               asString(cueRecord2?.simpleText) ||
               asString(asRecord(renderer?.cue)?.simpleText);
-        if (!text) continue;
+        const cleaned = clean(text);
+        if (cleaned === '') continue;
         segments.push({
-          start: numberOr(renderer?.startOffsetMs) ?? numberOr(cueRecord.startOffsetMs),
-          text: clean(text),
+          start:
+            numberOrNumericString(renderer?.startOffsetMs) ??
+            numberOrNumericString(cueRecord.startOffsetMs),
+          text: cleaned,
         });
       }
     }
   }
 
-  return segments.length > 0 ? segments : null;
+  const unique = dedupeSegments(segments);
+  return unique.length > 0 ? unique : null;
 }
 
 /** 中日韩文字之间没有空格分隔：两边都是 CJK 字符时直接拼接，否则补一个空格。 */
@@ -241,8 +249,10 @@ export function extractFromPanelDump(root: ParentNode): Segment[] | null {
     if (!linePattern.test(content)) continue;
     const match = /^(\d{1,2}(?::\d{2}){1,2})\s+(.*)$/.exec(content);
     if (!match?.[1] || match[2] === undefined) continue;
+    const cleaned = clean(match[2]);
+    if (cleaned === '') continue;
     const seconds = tsToSec(match[1]);
-    segments.push({ start: seconds === null ? null : seconds * 1000, text: clean(match[2]) });
+    segments.push({ start: seconds === null ? null : seconds * 1000, text: cleaned });
   }
   // 面板同样会挂一份隐藏副本：不去重会让整篇台词翻倍。
   const unique = dedupeSegments(segments);

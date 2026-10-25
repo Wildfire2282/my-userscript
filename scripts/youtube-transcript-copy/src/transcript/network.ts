@@ -103,7 +103,7 @@ export interface NetworkCapture {
   /** 当前视频已捕获的片段；没有捕获或是别的视频的响应时返回 null。 */
   get: () => Segment[] | null;
   /** 清空捕获：SPA 换视频后旧的转写不能给新视频用。 */
-  clear: () => void;
+  clear: (keepVideoId?: string) => void;
   /** 还原被替换的 fetch / open（测试与重复注入时用）。 */
   restore: () => void;
 }
@@ -199,7 +199,9 @@ export function installNetworkCapture(
 
   const capture: NetworkCapture = {
     get: read,
-    clear() {
+    clear(keepVideoId?: string) {
+      // 新视频的响应可能比导航回调先到；只清不属于它的旧捕获。
+      if (keepVideoId !== undefined && state?.videoId === keepVideoId) return;
       state = null;
     },
     restore() {

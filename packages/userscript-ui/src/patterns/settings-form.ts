@@ -125,6 +125,8 @@ export function createSettingsForm<T extends object>(
   });
 
   const fields: Record<string, SettingsFormField> = {};
+  // 只为“隐藏 → 显示”跳变清一次旧错误；每次刷新都清会让保存失败的提示一碰别的控件就消失。
+  const shownBefore: Record<string, boolean> = {};
 
   for (const sectionSchema of schema.sections) {
     const section = createSection(ui, {
@@ -179,10 +181,12 @@ export function createSettingsForm<T extends object>(
   const refresh = (): void => {
     if (!options.visible) return;
     const values = readValues();
-    for (const [key, { control, field }] of Object.entries(fields)) {
+    for (const [key, { field }] of Object.entries(fields)) {
       const shown = options.visible(key, values);
-      control.el.hidden = !shown;
-      if (shown) field.setError(undefined);
+      // 隐藏整个字段：只藏控件会把标签与说明留在面板里。
+      field.el.hidden = !shown;
+      if (shown && shownBefore[key] === false) field.setError(undefined);
+      shownBefore[key] = shown;
     }
   };
 
@@ -232,6 +236,8 @@ export function createSettingsForm<T extends object>(
         let ok = true;
         if (options.validate) {
           for (const key of Object.keys(fields)) {
+            // 看不见的字段不参与保存校验：错误文案没有地方显示。
+            if (fields[key]?.field.el.hidden) continue;
             const problem = options.validate(key, (values as Record<string, unknown>)[key], values);
             setError(key, problem);
             if (problem) ok = false;

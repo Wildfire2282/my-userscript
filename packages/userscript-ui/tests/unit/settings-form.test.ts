@@ -155,11 +155,45 @@ describe('createSettingsForm', () => {
       },
     );
     form.open();
-    expect(form.fields['name']?.control.el.hidden).toBe(false);
+    expect(form.fields['name']?.field.el.hidden).toBe(false);
     name = 'second';
     form.open();
     const nameInput = form.fields['name']?.control.input as HTMLInputElement;
     expect(nameInput.value).toBe('second');
+    expect(form.fields['name']?.field.el.hidden).toBe(true);
+    form.destroy();
+  });
+
+  it('visible=false 隐藏整个字段，且不参与保存校验', () => {
+    const host = setup();
+    const onSubmit = vi.fn();
+    const form = createSettingsForm<Values>(
+      host,
+      {
+        title: '功能设置',
+        sections: [
+          {
+            title: '常规',
+            fields: [
+              { key: 'enabled', type: 'switch', label: '启用' },
+              { key: 'name', type: 'input', label: '名称', description: '只在启用时出现' },
+            ],
+          },
+        ],
+      },
+      {
+        mode: 'draft',
+        get: () => ({ enabled: false, name: '' }),
+        visible: (key) => key !== 'name',
+        validate: (key) => (key === 'name' ? '不能为空' : undefined),
+        onSubmit,
+      },
+    );
+    form.open();
+    expect(form.fields['name']?.field.el.hidden).toBe(true);
+    const buttons = [...form.panel.footer.querySelectorAll('button')];
+    buttons[1]?.click();
+    expect(onSubmit).toHaveBeenCalledWith({ enabled: false, name: '' });
     form.destroy();
   });
 });

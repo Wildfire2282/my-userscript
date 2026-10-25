@@ -28,3 +28,6 @@ export { createLogger, guard } from './runtime/logger';
 export type { Logger } from './runtime/logger';
 export { createUserscript, installOnce, siteKey } from './runtime/boot';
 export type { MenuItem, UserscriptKit, UserscriptOptions } from './runtime/boot';
+export { deepActiveElement, isEditableField, isInsideEditable } from './dom/editable';
+export { clamp, clampToViewport } from './dom/position';
+export type { ClampBox, ViewportSize } from './dom/position';

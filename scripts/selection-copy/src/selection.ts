@@ -1,4 +1,7 @@
 import type { SelectionSnapshot } from './gesture';
+import { deepActiveElement, isInsideEditable } from '@shared';
+
+export { isInsideEditable };
 
 /**
  * 选区与焦点相关的 DOM 读取。
@@ -47,34 +50,9 @@ export function isInsideOwnUi(node: Node | null): boolean {
   return root instanceof ShadowRoot && root.host?.hasAttribute('data-ds-root') === true;
 }
 
-/**
- * 元素是不是可编辑区域或它的后代。
- *
- * 优先用浏览器的 `isContentEditable`（能正确处理嵌套的 `contenteditable="false"`）；
- * 测试环境没有实现该属性时退回读祖先链上的属性值。
- * `designMode` 打开的文档整页都是编辑器（老式富文本），也一并排除。
- */
-export function isInsideEditable(element: Element | null): boolean {
-  const designMode = document.designMode;
-  if (typeof designMode === 'string' && designMode.toLowerCase() === 'on') return true;
-
-  for (let node: Element | null = element; node; node = node.parentElement) {
-    if (!(node instanceof HTMLElement)) continue;
-    if (node.isContentEditable) return true;
-    const attribute = node.getAttribute('contenteditable');
-    // contenteditable="false" 自己不是可编辑区，但要继续看祖先。
-    if (attribute === '' || attribute === 'true' || attribute === 'plaintext-only') return true;
-  }
-  return false;
-}
-
 /** 焦点可能落在 Shadow Root 内部，`document.activeElement` 只会给出宿主元素。 */
 export function getActiveElement(doc: Document = document): Element | null {
-  let element: Element | null = doc.activeElement;
-  while (element?.shadowRoot?.activeElement) {
-    element = element.shadowRoot.activeElement;
-  }
-  return element;
+  return deepActiveElement(doc);
 }
 
 /** 控件自己是否有一段非空选区；number / email 等 input 没有 selectionStart。 */

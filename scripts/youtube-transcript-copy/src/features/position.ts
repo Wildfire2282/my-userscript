@@ -5,6 +5,8 @@
  * 换分辨率或改窗口大小时只需要重新夹紧，不需要知道页面布局。
  */
 
+import { clamp } from '@shared';
+
 export interface ButtonPosition {
   right: number;
   top: number;
@@ -17,11 +19,6 @@ export interface ViewportSize {
 
 /** 按钮用的是 `@ui` 的 `size: 'lg'` 图标按钮，等于 `--ds-control-h-lg`；夹紧时按它留边。 */
 export const BUTTON_SIZE = 36;
-
-function clamp(value: number, min: number, max: number): number {
-  if (max < min) return min;
-  return Math.min(Math.max(value, min), max);
-}
 
 /** 把位置收回视口内；视口比按钮还小时贴住左上角。 */
 export function clampPosition(

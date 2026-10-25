@@ -1,3 +1,4 @@
+import { clamp } from '@shared';
 import { INDICATOR, type CopyFeedbackVariant } from '../config';
 import type { AnchorBox } from '../features/geometry';
 
@@ -16,12 +17,6 @@ export interface Viewport {
 export interface IndicatorPoint {
   left: number;
   top: number;
-}
-
-function clamp(value: number, min: number, max: number): number {
-  // 视口比“标签 + 两侧边距”还窄时 max < min：贴住左上角，不要算出负坐标。
-  if (max < min) return min;
-  return Math.min(Math.max(value, min), max);
 }
 
 /**

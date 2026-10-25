@@ -10,6 +10,8 @@
  * 全部失败返回 `false`，提示文案由调用方决定；这里不抛错，避免一次复制失败打断页面。
  */
 
+import { deepActiveElement } from '../dom/editable';
+
 /** 页面里可能存在的管理器剪贴板函数；缺失时跳过该通道。 */
 interface ClipboardGlobals {
   GM_setClipboard?: (text: string, info?: string) => unknown;
@@ -51,8 +53,7 @@ function defaultScope(): ClipboardScope {
 /** textarea 兜底：必须在用户手势的同一个任务里同步执行，跨 await 会失去写权限。 */
 function copyWithTextarea(document: Document | undefined, text: string): boolean {
   if (!document?.body) return false;
-  let active = document.activeElement as HTMLElement | null;
-  while (active?.shadowRoot?.activeElement) active = active.shadowRoot.activeElement as HTMLElement;
+  const active = deepActiveElement(document) as HTMLElement | null;
   const control =
     active?.tagName === 'INPUT' || active?.tagName === 'TEXTAREA'
       ? (active as HTMLInputElement | HTMLTextAreaElement)

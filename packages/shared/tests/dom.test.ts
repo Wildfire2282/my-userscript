@@ -1,0 +1,82 @@
+import { describe, expect, it } from 'vitest';
+import { deepActiveElement, isEditableField, isInsideEditable } from '../src/dom/editable';
+import { clamp, clampToViewport } from '../src/dom/position';
+
+describe('isEditableField', () => {
+  it('表单控件本身算可编辑', () => {
+    for (const tag of ['input', 'textarea', 'select']) {
+      expect(isEditableField(document.createElement(tag))).toBe(true);
+    }
+  });
+
+  it('空 contenteditable 与 plaintext-only 算可编辑', () => {
+    const plain = document.createElement('div');
+    plain.setAttribute('contenteditable', '');
+    expect(isEditableField(plain)).toBe(true);
+    const rich = document.createElement('div');
+    rich.setAttribute('contenteditable', 'plaintext-only');
+    expect(isEditableField(rich)).toBe(true);
+  });
+
+  it('普通元素与 textbox 角色', () => {
+    expect(isEditableField(document.createElement('div'))).toBe(false);
+    expect(isEditableField(null)).toBe(false);
+    const role = document.createElement('div');
+    role.setAttribute('role', 'textbox');
+    expect(isEditableField(role)).toBe(true);
+  });
+});
+
+describe('isInsideEditable', () => {
+  it('designMode 整页算可编辑', () => {
+    const doc = { designMode: 'on' } as Document;
+    expect(isInsideEditable(document.createElement('div'), doc)).toBe(true);
+  });
+
+  it('祖先可编辑则后代也算', () => {
+    const outer = document.createElement('div');
+    outer.setAttribute('contenteditable', 'true');
+    const inner = document.createElement('span');
+    outer.append(inner);
+    expect(isInsideEditable(inner)).toBe(true);
+  });
+
+  it('contenteditable=false 继续看祖先', () => {
+    const outer = document.createElement('div');
+    outer.setAttribute('contenteditable', 'true');
+    const middle = document.createElement('div');
+    middle.setAttribute('contenteditable', 'false');
+    const inner = document.createElement('span');
+    outer.append(middle);
+    middle.append(inner);
+    expect(isInsideEditable(inner)).toBe(true);
+    expect(isInsideEditable(document.createElement('span'))).toBe(false);
+  });
+});
+
+describe('deepActiveElement', () => {
+  it('无 shadow 时返回 activeElement', () => {
+    expect(deepActiveElement(document)).toBe(document.activeElement);
+  });
+});
+
+describe('clamp', () => {
+  it('钳在范围内，max<min 时贴 min', () => {
+    expect(clamp(5, 0, 10)).toBe(5);
+    expect(clamp(-1, 0, 10)).toBe(0);
+    expect(clamp(11, 0, 10)).toBe(10);
+    expect(clamp(5, 8, 3)).toBe(8);
+  });
+
+  it('clampToViewport 留边距', () => {
+    expect(
+      clampToViewport({ left: -5, top: -5, width: 36, height: 36 }, { width: 100, height: 100 }),
+    ).toEqual({
+      left: 0,
+      top: 0,
+    });
+    expect(
+      clampToViewport({ left: 90, top: 90, width: 36, height: 36 }, { width: 100, height: 100 }, 8),
+    ).toEqual({ left: 56, top: 56 });
+  });
+});

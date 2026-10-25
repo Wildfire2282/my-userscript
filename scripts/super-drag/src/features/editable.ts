@@ -1,20 +1,6 @@
-/**
- * 判断事件发生在可编辑控件上。
- *
- * 输入框里的拖拽是浏览器原生的“移动文字 / 拖入粘贴”，脚本不能抢；
- * 但 contenteditable 祖先（例如评论富文本容器）不能一层层往上否决，否则静态评论文字也会失效。
- */
+import { isEditableField } from '@shared';
 
-/** 元素本身是否是表单控件或可编辑区域。 */
-export function isEditableField(node: Element | null): boolean {
-  if (!node || node.nodeType !== Node.ELEMENT_NODE) return false;
-  const tag = node.tagName.toLowerCase();
-  if (tag === 'input' || tag === 'textarea' || tag === 'select') return true;
-  if ((node as HTMLElement).isContentEditable) return true;
-  if (node.getAttribute('contenteditable') === 'true') return true;
-  if (node.getAttribute('role') === 'textbox') return true;
-  return false;
-}
+export { isEditableField };
 
 /**
  * 事件发生处最近的可拖动祖先（`draggable="true"`）。

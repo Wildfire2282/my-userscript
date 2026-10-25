@@ -60,9 +60,9 @@ scripts/<slug>/src/             main.ts（接线）+ features/ + ui/
 | `@shared/runtime/logger` | `createLogger(slug)` / `guard(label, fn)` | 4 | 统一 `[slug]` 前缀与兜底 |
 | `@ui/patterns/app-host` | `createUiHost({ theme })` → `ensure/destroy` | 4 | 整页只 `mountUI()` 一次；Toast 由需要的脚本各自单例（统一引用会把 toast 拉进不用它的产物，+11KB）；面板懒建留在脚本 |
 | `@ui/patterns/settings-form` | `createSettingsForm(ui, schema, options)` | 3 | 声明式设置面板，见下方硬边界 |
-| `@shared/dom` | `realTarget` / `isEditableField` / `isInputLike` / `deepActiveElement` / `queryAllDeep` | 3 | `composedPath()[0]` 取真实目标；只穿 open shadow root |
-| `@shared/url` | `isBlockedScheme` / `resolveUrl` / `extractUrlFromText` / `isImageUrl` | 2 | 黑名单 `javascript|data|vbscript`；中文标点截断与括号配平沿用现实现 |
-| `@shared/dom/position` | `clampToViewport({ left, top, width, height, viewport, margin })` | 2 | `max < min` 时贴左上角 |
+| `@shared/dom` | `isEditableField` / `isInsideEditable` / `deepActiveElement` | 2 | 单元素判定（super-drag 语义 + `plaintext-only`）与祖先链判定（selection-copy 全语义）并存；`realTarget` / `queryAllDeep` 各只有一处用，留脚本内 |
+| `@shared/url` | （未建） | 0 | `resolveUrl` / `extractUrlFromText` / `isImageUrl` 各只有一处用（准入要求两处）；`isBlockedScheme` 与 super-drag `isIgnorableHref` 的 `#` 语义不同，硬合并改行为；留脚本内 |
+| `@shared/dom/position` | `clamp(value, min, max)` / `clampToViewport(box, viewport, margin)` | 2 | `max < min` 时贴左上角 |
 
 `createUserscript` 契约：
 
@@ -112,7 +112,7 @@ createUserscript<T>({
 | 3 | `createUserscript`，顺序 super-drag → capture-links → youtube → selection-copy | 4 个 `main.ts` | 卸载时真正清理监听；补启动兜底 | −230 | 已完成（2026-10-25） |
 | 4 | `createUiHost`，顺序 capture-links → youtube → selection-copy → super-drag | 3 个 `ui/app.ts` + 1 处内联 | 无（Toast 改为按需单例，不进不用它的产物） | −125 | 已完成（2026-10-25） |
 | 5 | `createSettingsForm`，顺序 capture-links → selection-copy → super-drag | 3 个设置面板 | 无 | −300 | 已完成（2026-10-25） |
-| 6 | `url` / `dom` / `position` 纯函数搬入 | 3 个脚本 features | 无 | −80 | 待做 |
+| 6 | `dom`（可编辑判定×2、焦点穿透）/`position`（夹紧原语）纯函数搬入；`url` 按准入留脚本内 | 3 个脚本 features | super-drag `contenteditable=""`/`plaintext-only` 目标此前误判为不可编辑，现交还页面（修复） | −80 | 已完成（2026-10-25） |
 | 7 | 清理死代码、脚本 `README.md` / `CHANGELOG.md`、四条 patch 版本 | 文档 + `package.json` | 无 | — | 待做 |
 
 每步的行为等价清单（逐脚本核对六项）：字段与顺序、文案、默认值、保存时机、存储键（`settings` / `pos` / `strategy` / `selection-copy:config.settings`）、菜单项与快捷键。

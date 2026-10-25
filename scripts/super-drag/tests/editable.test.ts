@@ -52,6 +52,17 @@ describe('isInputElement', () => {
     expect(dispatchedOn(span)).toBe(true);
   });
 
+  it('shadow root 里的可编辑宿主也能被识别', () => {
+    const editable = document.createElement('div');
+    editable.setAttribute('contenteditable', 'true');
+    document.body.appendChild(editable);
+    const shadow = editable.attachShadow({ mode: 'open' });
+    const span = document.createElement('span');
+    span.textContent = '组件内文字';
+    shadow.appendChild(span);
+    expect(dispatchedOn(span)).toBe(true);
+  });
+
   it('容器内被显式排除的区域仍然可拖拽', () => {
     const editable = document.createElement('div');
     editable.setAttribute('contenteditable', 'true');

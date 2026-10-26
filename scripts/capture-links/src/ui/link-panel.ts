@@ -81,6 +81,9 @@ export function createLinkPanel(options: LinkPanelOptions): LinkPanelHandle {
   let selectedIds = new Set<string>();
   // 首屏只建这么多行：上千条链接一次全建会卡住，点“显示更多”再往后加。
   let shownCount = PAGE_SIZE;
+  // 当前筛选结果的 id 集合与选中数：勾选切换只做 O(1) 更新，不再全量扫描。
+  let filteredIds = new Set<string>();
+  let chosenCount = 0;
 
   /** 勾选状态与“显示更多”都用事件委托：行会被反复重建，逐行挂监听会随重画次数累积。 */
   list.addEventListener(
@@ -90,9 +93,15 @@ export function createLinkPanel(options: LinkPanelOptions): LinkPanelHandle {
       if (!(target instanceof HTMLInputElement) || target.type !== 'checkbox') return;
       const id = target.dataset.id;
       if (id === undefined) return;
-      if (target.checked) selectedIds.add(id);
-      else selectedIds.delete(id);
-      updateStats();
+      if (target.checked) {
+        if (!selectedIds.has(id)) {
+          selectedIds.add(id);
+          if (filteredIds.has(id)) chosenCount += 1;
+        }
+      } else if (selectedIds.delete(id)) {
+        if (filteredIds.has(id)) chosenCount -= 1;
+      }
+      renderStats();
     },
     { signal: ui.signal },
   );
@@ -110,9 +119,17 @@ export function createLinkPanel(options: LinkPanelOptions): LinkPanelHandle {
     { signal: ui.signal },
   );
 
+  function renderStats(): void {
+    stats.textContent = `共 ${allItems.length} / 筛选 ${filteredItems.length} / 选中 ${chosenCount}`;
+  }
+
   function updateStats(): void {
-    const chosen = filteredItems.filter((item) => selectedIds.has(item.id)).length;
-    stats.textContent = `共 ${allItems.length} / 筛选 ${filteredItems.length} / 选中 ${chosen}`;
+    filteredIds = new Set(filteredItems.map((item) => item.id));
+    chosenCount = 0;
+    for (const item of filteredItems) {
+      if (selectedIds.has(item.id)) chosenCount += 1;
+    }
+    renderStats();
   }
 
   function createRow(item: LinkItem, index: number): HTMLElement {
@@ -178,7 +195,11 @@ export function createLinkPanel(options: LinkPanelOptions): LinkPanelHandle {
     for (const input of list.querySelectorAll<HTMLInputElement>('input.cl-check')) {
       input.checked = selectedIds.has(input.dataset.id ?? '');
     }
-    updateStats();
+    chosenCount = 0;
+    for (const item of filteredItems) {
+      if (selectedIds.has(item.id)) chosenCount += 1;
+    }
+    renderStats();
   }
 
   function applyFilter(): void {
@@ -195,6 +216,8 @@ export function createLinkPanel(options: LinkPanelOptions): LinkPanelHandle {
     allItems = [];
     filteredItems = [];
     selectedIds = new Set();
+    filteredIds = new Set();
+    chosenCount = 0;
     shownCount = PAGE_SIZE;
     list.replaceChildren();
   }

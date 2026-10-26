@@ -63,6 +63,16 @@ export function createTooltip(ui: UI, target: HTMLElement, options: TooltipOptio
 
   const position = () => {
     const targetRect = target.getBoundingClientRect();
+    // 滚动中目标已完全离开视口：直接收起，下次 show 会重建，避免每帧为隐藏提示算位置。
+    if (
+      targetRect.bottom < 0 ||
+      targetRect.top > window.innerHeight ||
+      targetRect.right < 0 ||
+      targetRect.left > window.innerWidth
+    ) {
+      hideNow();
+      return;
+    }
     if (targetRect.width === 0 && targetRect.height === 0) return;
 
     const tipRect = el.getBoundingClientRect();
@@ -129,18 +139,9 @@ export function createTooltip(ui: UI, target: HTMLElement, options: TooltipOptio
     applyDescribedBy();
 
     viewController = new AbortController();
+    // 滚动一帧内可能触发多次：只合并且到下一帧统一测量，避免每次事件都强制布局。
     const reposition = () => {
       if (!open) return;
-      const rect = target.getBoundingClientRect();
-      if (
-        rect.bottom < 0 ||
-        rect.top > window.innerHeight ||
-        rect.right < 0 ||
-        rect.left > window.innerWidth
-      ) {
-        hideNow();
-        return;
-      }
       schedulePosition();
     };
 

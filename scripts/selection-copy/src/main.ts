@@ -61,6 +61,7 @@ createUserscript(createGmApi(), {
     return () => {
       uninstallSensor();
       panel?.destroy();
+      app.destroy();
     };
   },
 });

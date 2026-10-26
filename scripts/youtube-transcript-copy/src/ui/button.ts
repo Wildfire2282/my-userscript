@@ -57,6 +57,7 @@ export function createTranscriptButton(options: TranscriptButtonOptions): Transc
   let state: ButtonState = 'normal';
   let position: ButtonPosition = { right: 30, top: 30 };
   let suppressClick = false;
+  let suppressTimer: number | undefined;
   let resetTimer: number | undefined;
   // 拖动中的 pointermove / pointerup 挂在 document 上，必须能随 UI 销毁一起收掉。
   let dragScope: AbortController | null = null;
@@ -170,7 +171,9 @@ export function createTranscriptButton(options: TranscriptButtonOptions): Transc
       if (!moved) return;
       options.onMoveEnd(position);
       suppressClick = true;
-      window.setTimeout(() => {
+      if (suppressTimer !== undefined) window.clearTimeout(suppressTimer);
+      suppressTimer = window.setTimeout(() => {
+        suppressTimer = undefined;
         suppressClick = false;
       }, CLICK_SUPPRESS_MS);
     };
@@ -188,6 +191,9 @@ export function createTranscriptButton(options: TranscriptButtonOptions): Transc
   const cleanup = (): void => {
     if (resetTimer !== undefined) window.clearTimeout(resetTimer);
     resetTimer = undefined;
+    if (suppressTimer !== undefined) window.clearTimeout(suppressTimer);
+    suppressTimer = undefined;
+    suppressClick = false;
     dragScope?.abort();
     dragScope = null;
   };

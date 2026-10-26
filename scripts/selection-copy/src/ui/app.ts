@@ -12,6 +12,7 @@ export interface UiHost {
   /** 取（必要时创建）共享的 UI；设置面板与反馈都挂在这里。 */
   ensure: () => UI;
   showFeedback: (feedback: CopyFeedback) => void;
+  destroy: () => void;
 }
 
 export function createUiHost(): UiHost {
@@ -29,6 +30,11 @@ export function createUiHost(): UiHost {
         // 界面挂不上只影响提示，复制本身已经完成，不能把异常抛回页面。
         console.error('[selection-copy] 复制提示显示失败', error);
       }
+    },
+    destroy() {
+      indicator?.destroy();
+      indicator = null;
+      host.destroy();
     },
   };
 }

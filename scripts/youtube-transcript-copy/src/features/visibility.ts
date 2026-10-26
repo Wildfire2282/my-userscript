@@ -84,7 +84,11 @@ export function watchVisibility(
   };
 
   doc.addEventListener('fullscreenchange', emit);
-  const timer = window.setInterval(emit, options.intervalMs ?? 500);
+  const timer = window.setInterval(() => {
+    // 后台标签页不读播放器布局：切回前台时 fullscreen 事件或下一次轮询会补上。
+    if (doc.hidden) return;
+    emit();
+  }, options.intervalMs ?? 500);
   emit();
 
   return () => {

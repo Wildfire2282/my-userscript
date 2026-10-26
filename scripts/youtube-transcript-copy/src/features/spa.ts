@@ -31,6 +31,8 @@ export function watchNavigation(
   win.addEventListener('yt-navigate-finish', onNavigate);
 
   const timer = win.setInterval(() => {
+    // 后台标签页不需要同步按钮位置：切回来时导航事件或下一次轮询会补上。
+    if (doc.hidden) return;
     if (doc.location.href !== lastHref) {
       notify();
     } else if (doc.location.href.includes('/watch')) {

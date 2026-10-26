@@ -1,6 +1,8 @@
 // @vitest-environment happy-dom
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  closeTranscriptPanel,
+  collapseDescription,
   expandDescription,
   findTranscriptTrigger,
   isPanelOpen,
@@ -100,6 +102,91 @@ describe('expandDescription', () => {
   });
 });
 
+describe('collapseDescription', () => {
+  beforeEach(() => {
+    document.body.replaceChildren();
+  });
+
+  it('点击“收起”按钮并把描述折回去', () => {
+    const expander = document.createElement('ytd-text-inline-expander');
+    const less = document.createElement('button');
+    less.setAttribute('aria-label', 'Show less');
+    const onClick = vi.fn();
+    less.addEventListener('click', onClick);
+    expander.appendChild(less);
+    document.body.appendChild(expander);
+
+    expect(collapseDescription(document)).toBe(true);
+    expect(onClick).toHaveBeenCalledTimes(1);
+  });
+
+  it('只有展开入口、没有收起入口时不动', () => {
+    const expander = document.createElement('ytd-text-inline-expander');
+    const more = document.createElement('button');
+    more.textContent = '...more';
+    expander.appendChild(more);
+    document.body.appendChild(expander);
+
+    expect(collapseDescription(document)).toBe(false);
+  });
+});
+
+describe('closeTranscriptPanel', () => {
+  beforeEach(() => {
+    document.body.replaceChildren();
+  });
+
+  function panelWithClose(targetId: string): {
+    panel: Element;
+    close: HTMLElement;
+    clicks: () => number;
+  } {
+    const panel = document.createElement('ytd-engagement-panel-section-list-renderer');
+    panel.setAttribute('target-id', targetId);
+    const close = document.createElement('button');
+    close.setAttribute('aria-label', 'Close transcript');
+    let clicks = 0;
+    close.addEventListener('click', () => {
+      clicks += 1;
+      panel.remove();
+    });
+    panel.appendChild(close);
+    document.body.appendChild(panel);
+    return { panel, close, clicks: () => clicks };
+  }
+
+  it('只关转写面板，不碰评论面板', () => {
+    const comments = panelWithClose('engagement-panel-comments-section');
+    const transcript = panelWithClose('engagement-panel-searchable-transcript');
+
+    expect(closeTranscriptPanel(document)).toBe(true);
+    expect(transcript.clicks()).toBe(1);
+    expect(comments.clicks()).toBe(0);
+    expect(transcript.panel.isConnected).toBe(false);
+  });
+
+  it('靠组件 id 也能找到关闭按钮，不依赖界面语言', () => {
+    const panel = document.createElement('ytd-engagement-panel-section-list-renderer');
+    panel.setAttribute('target-id', 'engagement-panel-searchable-transcript');
+    const header = document.createElement('div');
+    header.id = 'visibility-button';
+    const close = document.createElement('button');
+    close.setAttribute('aria-label', 'Schließen');
+    const onClick = vi.fn();
+    close.addEventListener('click', onClick);
+    header.appendChild(close);
+    panel.appendChild(header);
+    document.body.appendChild(panel);
+
+    expect(closeTranscriptPanel(document)).toBe(true);
+    expect(onClick).toHaveBeenCalledTimes(1);
+  });
+
+  it('没有关闭入口时返回 false', () => {
+    expect(closeTranscriptPanel(document)).toBe(false);
+  });
+});
+
 describe('isPanelOpen', () => {
   beforeEach(() => {
     document.body.replaceChildren();
@@ -137,12 +224,16 @@ describe('openTranscriptPanel', () => {
     });
 
     const sleep = vi.fn(() => Promise.resolve());
-    await expect(openTranscriptPanel({ sleep, attempts: 1 })).resolves.toBe(true);
+    await expect(openTranscriptPanel({ sleep, attempts: 1 })).resolves.toMatchObject({
+      opened: true,
+    });
   });
 
   it('找不到按钮时在重试结束后返回失败', async () => {
     const sleep = vi.fn(() => Promise.resolve());
-    await expect(openTranscriptPanel({ sleep, attempts: 2 })).resolves.toBe(false);
+    await expect(openTranscriptPanel({ sleep, attempts: 2 })).resolves.toMatchObject({
+      opened: false,
+    });
   });
 
   it('匹配到自定义包装元素时点击内部按钮且只点击一次', async () => {
@@ -162,7 +253,81 @@ describe('openTranscriptPanel', () => {
 
     await expect(
       openTranscriptPanel({ sleep: () => Promise.resolve(), attempts: 1 }),
-    ).resolves.toBe(true);
+    ).resolves.toMatchObject({ opened: true });
     expect(clicked).toHaveBeenCalledTimes(1);
+  });
+
+  it('收尾只关掉自己打开的面板、收起自己展开的描述', async () => {
+    const expander = document.createElement('ytd-text-inline-expander');
+    const more = document.createElement('button');
+    more.id = 'expand';
+    more.textContent = '...more';
+    const less = document.createElement('button');
+    less.setAttribute('aria-label', 'Show less');
+    let lessClicks = 0;
+    less.addEventListener('click', () => {
+      lessClicks += 1;
+    });
+    more.addEventListener('click', () => {
+      expander.appendChild(less);
+    });
+    const trigger = document.createElement('button');
+    trigger.setAttribute('aria-label', 'Show transcript');
+    expander.append(more, trigger);
+    document.body.appendChild(expander);
+
+    let closeClicks = 0;
+    trigger.addEventListener('click', () => {
+      const panel = document.createElement('ytd-engagement-panel-section-list-renderer');
+      panel.setAttribute('target-id', 'engagement-panel-searchable-transcript');
+      const close = document.createElement('button');
+      close.setAttribute('aria-label', 'Close transcript');
+      close.addEventListener('click', () => {
+        closeClicks += 1;
+        panel.remove();
+      });
+      const host = document.createElement('transcript-segment-view-model');
+      stubRect(host, 300);
+      panel.append(close, host);
+      document.body.appendChild(panel);
+    });
+
+    const result = await openTranscriptPanel({
+      sleep: () => Promise.resolve(),
+      attempts: 1,
+    });
+    expect(result.opened).toBe(true);
+    expect(lessClicks).toBe(0);
+
+    result.restore();
+    expect(closeClicks).toBe(1);
+    expect(lessClicks).toBe(1);
+    expect(document.querySelector('ytd-engagement-panel-section-list-renderer')).toBeNull();
+
+    // 重复调用不再重复点按钮。
+    result.restore();
+    expect(closeClicks).toBe(1);
+    expect(lessClicks).toBe(1);
+  });
+
+  it('复制前就已经打开的面板不会被收尾关掉', async () => {
+    const panel = document.createElement('ytd-engagement-panel-section-list-renderer');
+    panel.setAttribute('target-id', 'engagement-panel-searchable-transcript');
+    const close = document.createElement('button');
+    close.setAttribute('aria-label', 'Close transcript');
+    const onClick = vi.fn();
+    close.addEventListener('click', onClick);
+    const host = document.createElement('transcript-segment-view-model');
+    stubRect(host, 300);
+    panel.append(close, host);
+    document.body.appendChild(panel);
+
+    const result = await openTranscriptPanel({
+      sleep: () => Promise.resolve(),
+      attempts: 1,
+    });
+    expect(result.opened).toBe(true);
+    result.restore();
+    expect(onClick).not.toHaveBeenCalled();
   });
 });

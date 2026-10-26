@@ -4,9 +4,10 @@ import type { Segment, StrategyKind, StrategyMemory } from './types';
 /**
  * 取转写文稿的策略编排。
  *
- * 顺序：网络层（初始字幕轨 → 页面请求留下的缓存）→ 打开面板 → DOM 层
- * （view-model → 纯文本行）→ 直接请求 API。每层成功就记住下标，下次优先。
- * 所有依赖都通过参数注入，单测可以完整走一遍降级顺序而不碰真实页面。
+ * 顺序：静默层（初始字幕轨 → 页面请求留下的缓存 → 直接请求 API）→ 打开面板 → DOM 层
+ * （view-model → 纯文本行）。静默层不动页面，只有全部失败才打开面板。
+ * 每层成功就记住下标，下次优先。所有依赖都通过参数注入，单测可以完整走一遍降级顺序
+ * 而不碰真实页面。
  */
 
 export interface TranscriptMemory {
@@ -63,18 +64,19 @@ export function createTranscriptService(deps: TranscriptServiceDeps): Transcript
       if (videoId === '') return [];
       if (cache !== null && cache.videoId === videoId) return cache.segments;
 
-      const fromNetwork = await runStrategies('net', [
+      const fromSilent = await runStrategies('net', [
         deps.fromInitialTrack,
         () => deps.fromNetworkCache(),
+        () => deps.fromApi(videoId),
       ]);
       // 取数是异步的，中途换了视频就不能再用这次的结果：调包比报错更伤人。
       if (deps.videoId() !== videoId) return [];
-      if (fromNetwork) {
-        cache = { videoId, segments: fromNetwork };
-        return fromNetwork;
+      if (fromSilent) {
+        cache = { videoId, segments: fromSilent };
+        return fromSilent;
       }
 
-      // 面板打不开不等于拿不到文稿：API 兜底不依赖面板，仍值得一试。
+      // 静默层全失败才动页面：打开面板既不保证成功，也不是拿文稿的唯一手段。
       const panelOpen = await deps.ensurePanelOpen();
       if (deps.videoId() !== videoId) return [];
 
@@ -95,18 +97,6 @@ export function createTranscriptService(deps: TranscriptServiceDeps): Transcript
           // DOM 可能只包含当前渲染部分，不永久缓存，下一次仍允许网络结果补全。
           return fromDom;
         }
-      }
-
-      try {
-        const fromApi = await deps.fromApi(videoId);
-        // API 也要等：等待期间换台时，这份文稿属于上一个视频。
-        if (deps.videoId() !== videoId) return [];
-        if (fromApi && fromApi.length > 0) {
-          cache = { videoId, segments: fromApi };
-          return fromApi;
-        }
-      } catch {
-        // API 只是兜底，失败就返回空数组。
       }
 
       return [];

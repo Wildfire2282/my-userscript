@@ -61,12 +61,57 @@ describe('createTranscriptService', () => {
     expect(deps.fromInitialTrack).not.toHaveBeenCalled();
   });
 
-  it('网络层没有结果时先打开面板，再按 DOM 策略取', async () => {
+  it('静默层都没有结果时才打开面板，再按 DOM 策略取', async () => {
     const { deps, service, remembered } = setup({ fromViewModel: vi.fn(() => C) });
     await expect(service.fetchTranscript()).resolves.toEqual(C);
+    expect(deps.fromApi).toHaveBeenCalledTimes(1);
     expect(deps.ensurePanelOpen).toHaveBeenCalledTimes(1);
     expect(deps.fromPanelDump).not.toHaveBeenCalled();
     expect(remembered).toEqual([['dom', 0]]);
+  });
+
+  it('静默层的尝试顺序：字幕轨 → 缓存 → 直接请求 → 打开面板', async () => {
+    const calls: string[] = [];
+    const { service } = setup({
+      fromInitialTrack: vi.fn(() => {
+        calls.push('track');
+        return Promise.resolve(null);
+      }),
+      fromNetworkCache: vi.fn(() => {
+        calls.push('cache');
+        return null;
+      }),
+      fromApi: vi.fn(() => {
+        calls.push('api');
+        return Promise.resolve(null);
+      }),
+      ensurePanelOpen: vi.fn(() => {
+        calls.push('panel');
+        return Promise.resolve(true);
+      }),
+      fromViewModel: vi.fn(() => {
+        calls.push('dom');
+        return null;
+      }),
+      fromPanelDump: vi.fn(() => {
+        calls.push('dump');
+        return null;
+      }),
+    });
+    await expect(service.fetchTranscript()).resolves.toEqual([]);
+    // 打开面板后会再读一次缓存：页面自己的请求此时才可能留下完整响应。
+    expect(calls).toEqual(['track', 'cache', 'api', 'panel', 'cache', 'dom', 'dump']);
+  });
+
+  it('直接请求成功时不动页面，并把静默层的下标记到最后一位', async () => {
+    const { deps, service, remembered } = setup({
+      fromApi: vi.fn(() => Promise.resolve(E)),
+      fromViewModel: vi.fn(() => C),
+    });
+    await expect(service.fetchTranscript()).resolves.toEqual(E);
+    expect(deps.ensurePanelOpen).not.toHaveBeenCalled();
+    expect(deps.fromViewModel).not.toHaveBeenCalled();
+    expect(remembered).toEqual([['net', 2]]);
   });
 
   it('view-model 失败时改用纯文本行', async () => {
@@ -75,20 +120,15 @@ describe('createTranscriptService', () => {
     expect(remembered).toEqual([['dom', 1]]);
   });
 
-  it('面板打不开时跳过 DOM，但仍用 API 兜底', async () => {
+  it('静默层的记忆把上次成功的直接请求提到最前面', async () => {
     const { deps, service } = setup({
-      ensurePanelOpen: vi.fn(() => Promise.resolve(false)),
+      fromInitialTrack: vi.fn(() => Promise.resolve(A)),
       fromApi: vi.fn(() => Promise.resolve(E)),
     });
+    deps.memory.get().net = { idx: 2, at: 0 };
     await expect(service.fetchTranscript()).resolves.toEqual(E);
-    expect(deps.fromViewModel).not.toHaveBeenCalled();
-    expect(deps.fromApi).toHaveBeenCalledTimes(1);
-  });
-
-  it('DOM 都没有时用 API 兜底，API 结果不写入策略记忆', async () => {
-    const { service, remembered } = setup({ fromApi: vi.fn(() => Promise.resolve(E)) });
-    await expect(service.fetchTranscript()).resolves.toEqual(E);
-    expect(remembered).toEqual([]);
+    expect(deps.fromInitialTrack).not.toHaveBeenCalled();
+    expect(deps.ensurePanelOpen).not.toHaveBeenCalled();
   });
 
   it('单个策略抛错时继续下一个', async () => {
@@ -129,6 +169,22 @@ describe('createTranscriptService', () => {
       fromViewModel: () => C,
     });
     await expect(service.fetchTranscript()).resolves.toEqual(B);
+  });
+
+  it('面板打不开且静默层也没结果时返回空数组', async () => {
+    const { deps, service } = setup({
+      ensurePanelOpen: vi.fn(() => Promise.resolve(false)),
+    });
+    await expect(service.fetchTranscript()).resolves.toEqual([]);
+    expect(deps.fromViewModel).not.toHaveBeenCalled();
+    expect(deps.fromPanelDump).not.toHaveBeenCalled();
+  });
+
+  it('面板打开但 DOM 也读不到时不再发第二次请求', async () => {
+    const { deps, service } = setup({ fromApi: vi.fn(() => Promise.resolve(null)) });
+    await expect(service.fetchTranscript()).resolves.toEqual([]);
+    expect(deps.fromApi).toHaveBeenCalledTimes(1);
+    expect(deps.ensurePanelOpen).toHaveBeenCalledTimes(1);
   });
 
   it('局部 DOM 不阻止下一次取得完整网络文稿', async () => {

@@ -115,4 +115,30 @@ describe('requestPanel', () => {
     ).resolves.toBeNull();
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
+
+  it('带上页面自己的上下文、客户端版本与访客标识', async () => {
+    const context = { client: { clientName: 'WEB', clientVersion: 'page-version', hl: 'zh-CN' } };
+    (globalThis as Record<string, unknown>)['ytcfg'] = {
+      get: (key: string) => {
+        if (key === 'INNERTUBE_CONTEXT') return context;
+        if (key === 'CLIENT_VERSION') return 'page-version';
+        if (key === 'VISITOR_DATA') return 'visitor-123';
+        return undefined;
+      },
+    };
+    const fetchImpl = fetchOk();
+
+    await requestPanel('vid', fetchImpl as unknown as typeof fetch);
+
+    const call = fetchImpl.mock.calls[0];
+    expect(call).toBeDefined();
+    const init = call?.[1];
+    expect(init?.headers).toMatchObject({
+      'content-type': 'application/json',
+      'x-youtube-client-name': '1',
+      'x-youtube-client-version': 'page-version',
+      'x-goog-visitor-id': 'visitor-123',
+    });
+    expect(JSON.parse(init?.body as string)).toMatchObject({ context, videoId: 'vid' });
+  });
 });

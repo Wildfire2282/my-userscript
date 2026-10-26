@@ -8,9 +8,11 @@ import { clean } from './format';
  * 面板节点出现且真的占据版面才算打开。
  */
 
-function fireClick(element: Element): void {
+function fireClick(element: Element, onScroll?: () => void): void {
   if (element instanceof HTMLElement && !isElementVisible(element)) {
     element.scrollIntoView({ block: 'center', behavior: 'instant' });
+    // 回调在滚动之后：调用方借此记下“我们把页面滚到了哪里”，收尾时才知道要不要滚回去。
+    onScroll?.();
   }
   (element as HTMLElement).click();
 }
@@ -87,7 +89,7 @@ export function findTranscriptTrigger(doc: Document = document): Element | null 
 }
 
 /** 展开被折叠的视频描述，转写按钮通常藏在里面。 */
-export function expandDescription(doc: Document = document): boolean {
+export function expandDescription(doc: Document = document, onScroll?: () => void): boolean {
   const expander = doc.querySelector(
     'ytd-text-inline-expander, ytd-expandable-video-description-body-renderer',
   );
@@ -102,8 +104,56 @@ export function expandDescription(doc: Document = document): boolean {
   );
   if (!moreButton) return false;
 
-  fireClick(moreButton);
+  fireClick(moreButton, onScroll);
   return true;
+}
+
+/** 收起这次为找按钮而展开的描述；找不到“收起”入口就不动。 */
+export function collapseDescription(doc: Document = document): boolean {
+  const expander = doc.querySelector(
+    'ytd-text-inline-expander, ytd-expandable-video-description-body-renderer',
+  );
+  if (!expander) return false;
+
+  const lessButton = [
+    ...expander.querySelectorAll('button, [role="button"], tp-yt-paper-button, yt-button-shape'),
+  ].find((button) =>
+    /(?:\.{3}\s*less|show less|收起|折りたたみ|접기|свернуть)/i.test(ariaOrText(button)),
+  );
+  if (!lessButton) return false;
+
+  (lessButton as HTMLElement).click();
+  return true;
+}
+
+/** 面板容器里是否装着转写文稿；通用面板（评论、简介）不能误关。 */
+function panelHoldsTranscript(panel: Element): boolean {
+  if (/transcript/i.test(panel.getAttribute('target-id') ?? '')) return true;
+  return (
+    panel.querySelector(
+      'ytd-transcript-renderer, transcript-segment-view-model, ytd-transcript-segment-renderer',
+    ) !== null
+  );
+}
+
+/**
+ * 关掉转写面板。
+ *
+ * 优先点面板自己的关闭按钮：不同语言下按钮文字会变，但 `#visibility-button` /
+ * `#close-button` 是组件自带的 id。
+ */
+export function closeTranscriptPanel(doc: Document = document): boolean {
+  for (const panel of doc.querySelectorAll('ytd-engagement-panel-section-list-renderer')) {
+    if (!panelHoldsTranscript(panel)) continue;
+    const closeButton = panel.querySelector(
+      '#visibility-button button, #close-button button, button[aria-label*="close" i], button[aria-label*="关闭"]',
+    );
+    if (closeButton instanceof HTMLElement) {
+      closeButton.click();
+      return true;
+    }
+  }
+  return false;
 }
 
 /** 面板里已经有可见的片段节点。 */
@@ -123,6 +173,13 @@ export interface OpenPanelOptions {
   attempts?: number;
 }
 
+export interface OpenPanelResult {
+  /** 面板是否真的打开。 */
+  opened: boolean;
+  /** 把这次为打开面板而动过的页面恢复原状；没动过就是空操作，可重复调用。 */
+  restore: () => void;
+}
+
 /**
  * 打开转写面板。
  *
@@ -131,17 +188,30 @@ export interface OpenPanelOptions {
  * 第一轮给足 3.6 秒（面板首次展开最慢）；之后每轮只等 1.2 秒，避免打不开时
  * 每次点击都卡十几秒。
  *
- * @returns 面板是否真的打开
+ * 返回值带一个收尾函数：只有本次真的展开了描述、滚动了页面或打开了面板时才会恢复，
+ * 打开前就已经存在的面板与用户自己滚到的位置一律不动。
+ *
+ * @returns 面板是否打开，以及恢复页面的收尾函数
  */
-export async function openTranscriptPanel(options: OpenPanelOptions = {}): Promise<boolean> {
+export async function openTranscriptPanel(
+  options: OpenPanelOptions = {},
+): Promise<OpenPanelResult> {
   const doc = options.doc ?? document;
+  const win = doc.defaultView;
   const sleep =
     options.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
   const attempts = options.attempts ?? 4;
+  const wasOpen = isPanelOpen(doc);
+  const before = { x: win?.scrollX ?? 0, y: win?.scrollY ?? 0 };
+  let expanded = false;
+  let scrolledTo: { x: number; y: number } | null = null;
+  const noteScroll = (): void => {
+    if (win) scrolledTo = { x: win.scrollX, y: win.scrollY };
+  };
 
   for (let attempt = 0; attempt < attempts && !isPanelOpen(doc); attempt += 1) {
     const waits = attempt === 0 ? 12 : 4;
-    expandDescription(doc);
+    if (expandDescription(doc, noteScroll)) expanded = true;
     await sleep(400);
     const candidate = findTranscriptTrigger(doc);
     if (!candidate) continue;
@@ -151,7 +221,7 @@ export async function openTranscriptPanel(options: OpenPanelOptions = {}): Promi
     // 只有 click() 抛错才尝试事件方式；普通自定义包装元素应点击其内部按钮。
     let clicked = false;
     try {
-      (trigger as HTMLElement).click();
+      fireClick(trigger, noteScroll);
       clicked = true;
     } catch {
       // 继续尝试事件方式
@@ -159,7 +229,7 @@ export async function openTranscriptPanel(options: OpenPanelOptions = {}): Promi
     if (clicked) {
       for (let wait = 0; wait < waits; wait += 1) {
         await sleep(300);
-        if (isPanelOpen(doc)) return true;
+        if (isPanelOpen(doc)) break;
       }
       continue;
     }
@@ -171,9 +241,28 @@ export async function openTranscriptPanel(options: OpenPanelOptions = {}): Promi
 
     for (let wait = 0; wait < waits; wait += 1) {
       await sleep(300);
-      if (isPanelOpen(doc)) return true;
+      if (isPanelOpen(doc)) break;
     }
   }
 
-  return isPanelOpen(doc);
+  const opened = isPanelOpen(doc);
+  let restored = false;
+  return {
+    opened,
+    restore() {
+      if (restored) return;
+      restored = true;
+      // 先把“用户是否还在我们滚到的位置”定下来：关面板会让布局变化，之后再判断就晚了。
+      const scrollBack =
+        scrolledTo !== null &&
+        win !== null &&
+        Math.abs(win.scrollX - scrolledTo.x) <= 2 &&
+        Math.abs(win.scrollY - scrolledTo.y) <= 2;
+      if (!wasOpen && opened) closeTranscriptPanel(doc);
+      if (expanded) collapseDescription(doc);
+      if (scrollBack && win) {
+        win.scrollTo({ left: before.x, top: before.y, behavior: 'instant' });
+      }
+    },
+  };
 }

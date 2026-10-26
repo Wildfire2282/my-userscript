@@ -31,7 +31,7 @@
 | 拖拽打开（`super-drag`） | 2.9.11 | 已迁移：由 `src/` 构建，界面使用 `@ui` |
 | 捕获链接（`capture-links`） | 1.3.9 | 已迁移：由 `src/` 构建，界面使用 `@ui` |
 | 选中复制（`selection-copy`） | 1.4.11 | 已迁移：由 `src/` 构建，界面使用 `@ui` |
-| YouTube 转写文稿复制（`youtube-transcript-copy`） | 1.4.11 | 已迁移：由 `src/` 构建，界面使用 `@ui` |
+| YouTube 转写文稿复制（`youtube-transcript-copy`） | 1.4.12 | 已迁移：由 `src/` 构建，界面使用 `@ui` |
 
 状态变化时同步更新本表与目标脚本的 `README.md`。四个脚本都已迁移，`legacy/` 只做对照，不再作为发布来源。
 

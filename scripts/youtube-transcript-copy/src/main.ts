@@ -90,6 +90,9 @@ function startOnWatchPage(kit: UserscriptKit): () => void {
   };
   captureInitialTrack();
 
+  // 面板兜底打开时记下复原动作；取完（无论成败）立刻执行，页面尽量回到原样。
+  let restorePage: (() => void) | null = null;
+
   const service = createTranscriptService({
     videoId: currentVideoId,
     fromInitialTrack: () =>
@@ -97,7 +100,12 @@ function startOnWatchPage(kit: UserscriptKit): () => void {
         ? fetchInitialTrack(initialTrack)
         : Promise.resolve(null),
     fromNetworkCache: () => network.get(),
-    ensurePanelOpen: () => openTranscriptPanel(),
+    // 静默层全失败才会走到这里：打开面板会动页面，复制完由 copyTranscript 复原。
+    ensurePanelOpen: async () => {
+      const result = await openTranscriptPanel();
+      restorePage = result.restore;
+      return result.opened;
+    },
     // 地址栏已经换台时，DOM 可能还是上一个视频的面板；同步读取没有 await 守卫。
     fromViewModel: () =>
       isPlayerOnVideo(currentVideoId()) ? extractFromViewModel(document.body) : null,
@@ -111,7 +119,11 @@ function startOnWatchPage(kit: UserscriptKit): () => void {
   });
 
   const copyTranscript = async (): Promise<CopyOutcome> => {
-    const segments = await service.fetchTranscript();
+    const segments = await service.fetchTranscript().finally(() => {
+      // 取完就不再需要面板里的内容：先把页面恢复原状，再写剪贴板。
+      restorePage?.();
+      restorePage = null;
+    });
     if (segments.length === 0) return 'empty';
     const written = await clipboard.copy(formatLines(segments));
     return written ? 'success' : 'error';

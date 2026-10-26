@@ -8,7 +8,7 @@
 
 export const fixture = 'watch.html?v=first';
 
-/** 产物注入前的页面准备：播放器状态 + 固定的 get_panel 响应。 */
+/** 产物注入前的页面准备：播放器状态与固定的 get_panel 响应。 */
 export function setup() {
   const cues = [
     { transcriptCueRenderer: { startOffsetMs: 0, simpleText: '你好，世界' } },
@@ -33,31 +33,115 @@ export function setup() {
       },
     ],
   };
+  // 直接请求的两种响应形状：令牌与文稿。场景按需打开，其余场景仍走缓存或面板。
+  window.__transcriptToken = {
+    engagementPanels: [
+      {
+        engagementPanelSectionListRenderer: {
+          panelIdentifier: 'engagement-panel-searchable-transcript',
+          content: {
+            continuationItemRenderer: {
+              continuationEndpoint: { getTranscriptEndpoint: { params: 'fixture-token' } },
+            },
+          },
+        },
+      },
+    ],
+  };
+  window.__panelActions = {
+    actions: [
+      {
+        updateEngagementPanelAction: {
+          content: {
+            transcriptRenderer: {
+              content: {
+                transcriptSearchPanelRenderer: {
+                  body: {
+                    transcriptSegmentListRenderer: {
+                      initialSegments: cues.map((cue) => ({
+                        transcriptSegmentRenderer: {
+                          startMs: cue.transcriptCueRenderer.startOffsetMs,
+                          snippet: { runs: [{ text: cue.transcriptCueRenderer.simpleText }] },
+                        },
+                      })),
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    ],
+  };
+  window.__apiTranscript = false;
+  window.__expandClicks = 0;
+  window.__triggerClicks = 0;
+  window.__expanded = false;
+
+  const json = (body) =>
+    Promise.resolve(
+      new Response(JSON.stringify(body), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
 
   window.fetch = (input) => {
     const url = typeof input === 'string' ? input : (input && input.url) || '';
     if (/timedtext/i.test(url)) {
       // 播放器自己拉的字幕：内容与当前视频无关，用来验证别的视频的响应不会被留下。
-      const body = { events: [{ tStartMs: 0, segs: [{ utf8: '别人的台词' }] }] };
-      return Promise.resolve(
-        new Response(JSON.stringify(body), {
-          status: 200,
-          headers: { 'content-type': 'application/json' },
-        }),
-      );
+      return json({ events: [{ tStartMs: 0, segs: [{ utf8: '别人的台词' }] }] });
     }
-    if (/get_panel/i.test(url)) {
-      return Promise.resolve(
-        new Response(JSON.stringify(window.__panel), {
-          status: 200,
-          headers: { 'content-type': 'application/json' },
-        }),
-      );
+    if (/get_panel/i.test(url)) return json(window.__panel);
+    if (/youtubei\/v1\/next/i.test(url)) {
+      return json(window.__apiTranscript ? window.__transcriptToken : {});
     }
-    return Promise.resolve(new Response('{}', { status: 200 }));
+    if (/youtubei\/v1\/get_transcript/i.test(url)) {
+      return json(window.__apiTranscript ? window.__panelActions : {});
+    }
+    return json({});
   };
   // 产物注入前记下原始请求函数：非播放页应当完全不碰它，场景靠此判断。
   window.__setupFetch = window.fetch;
+
+  const expand = document.querySelector('#expand');
+  const collapse = document.querySelector('#collapse');
+  if (expand && collapse) {
+    expand.addEventListener('click', () => {
+      window.__expandClicks += 1;
+      window.__expanded = true;
+      expand.hidden = true;
+      collapse.hidden = false;
+    });
+    collapse.addEventListener('click', () => {
+      window.__expanded = false;
+      expand.hidden = false;
+      collapse.hidden = true;
+    });
+  }
+  // 点“显示转写文稿”才出现面板：面板兜底场景靠它判断页面是否被动过。
+  document.querySelector('#transcript-trigger')?.addEventListener('click', () => {
+    window.__triggerClicks += 1;
+    if (document.querySelector('ytd-engagement-panel-section-list-renderer')) return;
+    const panel = document.createElement('ytd-engagement-panel-section-list-renderer');
+    panel.setAttribute('target-id', 'engagement-panel-searchable-transcript');
+    panel.style.cssText = 'display:block;width:400px;height:240px';
+    const close = document.createElement('button');
+    close.setAttribute('aria-label', 'Close transcript');
+    close.addEventListener('click', () => panel.remove());
+    const segment = document.createElement('transcript-segment-view-model');
+    segment.style.cssText = 'display:block;width:400px;height:40px';
+    const stamp = document.createElement('span');
+    stamp.setAttribute('aria-hidden', 'true');
+    stamp.textContent = '0:00';
+    const text = document.createElement('span');
+    text.setAttribute('role', 'text');
+    text.textContent = '面板兜底台词';
+    segment.append(stamp, text);
+    panel.append(close, segment);
+    document.body.appendChild(panel);
+  });
 
   const video = document.querySelector('video');
   if (video) {
@@ -107,6 +191,17 @@ export function helpers() {
     /** 触发一次 get_panel 请求，让脚本的网络钩子拿到转写。 */
     capturePanel: () =>
       window.fetch('https://www.youtube.com/youtubei/v1/get_panel?prettyPrint=false'),
+    /** 让直接请求（next + get_transcript）返回文稿，模拟静默路径可用。 */
+    enableApiTranscript: () => {
+      window.__apiTranscript = true;
+    },
+    expandClicks: () => window.__expandClicks,
+    triggerClicks: () => window.__triggerClicks,
+    expandVisible: () => {
+      const element = document.querySelector('#expand');
+      return element instanceof HTMLElement && !element.hidden;
+    },
+    panelNode: () => document.querySelector('ytd-engagement-panel-section-list-renderer'),
     expectedRightTop: () => {
       const rect = document.querySelector('#movie_player').getBoundingClientRect();
       return {
@@ -328,6 +423,55 @@ export const scenarios = [
       return {
         expected: `${EXPECTED.replace(/\n/g, ' / ')} / success / ✓`,
         actual: `${state.clipboard.replace(/\n/g, ' / ')} / ${state.buttonState} / ${state.label}`,
+      };
+    },
+  },
+  {
+    name: '直接请求可用 → 复制成功且简介不展开、面板不打开、滚动不动',
+    async run(ctx) {
+      const before = await ctx.evaluate(() => {
+        window.__page.enableApiTranscript();
+        return { scroll: Math.round(window.scrollY) };
+      });
+      const point = await ctx.evaluate(() => window.__page.center());
+      await ctx.input.click(point);
+      await ctx.wait(500);
+      const state = await ctx.evaluate(() => ({
+        clipboard: window.__page.lastClipboard(),
+        buttonState: window.__page.state(),
+        scroll: Math.round(window.scrollY),
+        expand: window.__page.expandClicks(),
+        trigger: window.__page.triggerClicks(),
+        panel: window.__page.panelNode() !== null,
+      }));
+      return {
+        expected: `${EXPECTED.replace(/\n/g, ' / ')} / success / 未展开 / 未点击 / 未打开 / ${before.scroll}`,
+        actual: `${state.clipboard.replace(/\n/g, ' / ')} / ${state.buttonState} / ${
+          state.expand === 0 ? '未展开' : `展开 ${state.expand} 次`
+        } / ${state.trigger === 0 ? '未点击' : `点击 ${state.trigger} 次`} / ${
+          state.panel ? '已打开' : '未打开'
+        } / ${state.scroll}`,
+      };
+    },
+  },
+  {
+    name: '静默拿不到 → 自动打开面板兜底，复制后页面复原',
+    async run(ctx) {
+      const point = await ctx.evaluate(() => window.__page.center());
+      await ctx.input.click(point);
+      await ctx.wait(1500);
+      const state = await ctx.evaluate(() => ({
+        clipboard: window.__page.lastClipboard(),
+        buttonState: window.__page.state(),
+        trigger: window.__page.triggerClicks(),
+        panel: window.__page.panelNode() !== null,
+        expandVisible: window.__page.expandVisible(),
+      }));
+      return {
+        expected: '[0:00] 面板兜底台词 / success / 打开过面板 / 已复原',
+        actual: `${state.clipboard.replace(/\n/g, ' / ')} / ${state.buttonState} / ${
+          state.trigger > 0 ? '打开过面板' : '没碰面板'
+        } / ${state.panel ? '面板仍在' : state.expandVisible ? '已复原' : '描述仍展开'}`,
       };
     },
   },

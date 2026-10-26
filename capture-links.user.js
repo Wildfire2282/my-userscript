@@ -2,7 +2,7 @@
 // @name         捕获链接
 // @name:en      Link Capture
 // @namespace    https://github.com/Wildfire2282
-// @version      1.3.8
+// @version      1.3.9
 // @description  捕获页面中的全部链接，支持关键词筛选与批量复制
 // @description:en Collect, filter, and copy all links on a page
 // @author       Wildfire2282 (https://github.com/Wildfire2282)
@@ -2244,15 +2244,23 @@
 		let filteredItems = [];
 		let selectedIds = /* @__PURE__ */ new Set();
 		let shownCount = PAGE_SIZE;
+		let filteredIds = /* @__PURE__ */ new Set();
+		let chosenCount = 0;
 		/** 勾选状态与“显示更多”都用事件委托：行会被反复重建，逐行挂监听会随重画次数累积。 */
 		list.addEventListener("change", (event) => {
 			const target = event.target;
 			if (!(target instanceof HTMLInputElement) || target.type !== "checkbox") return;
 			const id = target.dataset.id;
 			if (id === void 0) return;
-			if (target.checked) selectedIds.add(id);
-			else selectedIds.delete(id);
-			updateStats();
+			if (target.checked) {
+				if (!selectedIds.has(id)) {
+					selectedIds.add(id);
+					if (filteredIds.has(id)) chosenCount += 1;
+				}
+			} else if (selectedIds.delete(id)) {
+				if (filteredIds.has(id)) chosenCount -= 1;
+			}
+			renderStats();
 		}, { signal: ui.signal });
 		list.addEventListener("click", (event) => {
 			const target = event.target;
@@ -2261,9 +2269,14 @@
 			render();
 			list.querySelector(".cl-more")?.focus();
 		}, { signal: ui.signal });
+		function renderStats() {
+			stats.textContent = `共 ${allItems.length} / 筛选 ${filteredItems.length} / 选中 ${chosenCount}`;
+		}
 		function updateStats() {
-			const chosen = filteredItems.filter((item) => selectedIds.has(item.id)).length;
-			stats.textContent = `共 ${allItems.length} / 筛选 ${filteredItems.length} / 选中 ${chosen}`;
+			filteredIds = new Set(filteredItems.map((item) => item.id));
+			chosenCount = 0;
+			for (const item of filteredItems) if (selectedIds.has(item.id)) chosenCount += 1;
+			renderStats();
 		}
 		function createRow(item, index) {
 			const row = document.createElement("label");
@@ -2315,7 +2328,9 @@
 		*/
 		function syncChecks() {
 			for (const input of list.querySelectorAll("input.cl-check")) input.checked = selectedIds.has(input.dataset.id ?? "");
-			updateStats();
+			chosenCount = 0;
+			for (const item of filteredItems) if (selectedIds.has(item.id)) chosenCount += 1;
+			renderStats();
 		}
 		function applyFilter() {
 			filteredItems = filterLinks(allItems, search.getValue(), magnet.isChecked());
@@ -2330,6 +2345,8 @@
 			allItems = [];
 			filteredItems = [];
 			selectedIds = /* @__PURE__ */ new Set();
+			filteredIds = /* @__PURE__ */ new Set();
+			chosenCount = 0;
 			shownCount = PAGE_SIZE;
 			list.replaceChildren();
 		}

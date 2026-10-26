@@ -2,7 +2,7 @@
 // @name         YouTube 转写文稿复制
 // @name:en      YouTube Transcript Copy
 // @namespace    https://github.com/Wildfire2282
-// @version      1.4.10
+// @version      1.4.11
 // @description  视频播放页面出现可拖拽悬浮按钮，可一键复制转写文稿（transcript），支持英语等多语言界面
 // @description:en Add a draggable button to copy YouTube transcripts
 // @author       Wildfire2282 (https://github.com/Wildfire2282)
@@ -313,6 +313,46 @@
 	}
 	//#endregion
 	//#region scripts/youtube-transcript-copy/src/features/spa.ts
+	/**
+	* 只在播放页生效的开关。
+	*
+	* 直接打开非播放页时什么都不做，只留一个地址观察；单页从首页点进视频
+	* （脚本不会重新注入）时靠导航信号补启动，切出播放页时收掉，避免按钮、
+	* 菜单和定时器留在首页、搜索页这些地方。
+	*/
+	function watchWatchPage(options) {
+		const watchNavigate = options.watchNavigate ?? watchNavigation;
+		let inside = false;
+		const sync = () => {
+			if (options.isWatchPage()) {
+				if (inside) return;
+				inside = true;
+				options.onEnterWatch();
+			} else if (inside) {
+				inside = false;
+				options.onLeaveWatch();
+			}
+		};
+		sync();
+		const stopNavigate = watchNavigate(sync);
+		return () => {
+			stopNavigate();
+			if (inside) {
+				inside = false;
+				options.onLeaveWatch();
+			}
+		};
+	}
+	/**
+	* 是否普通观看页。
+	*
+	* 离线夹具 `watch.html` 同样视为播放页，否则真实浏览器场景（file:// 协议）
+	* 永远进不了播放分支；线上不存在该路径，没有误判。
+	*/
+	function isWatchPage(doc = document) {
+		const path = doc.location.pathname;
+		return path === "/watch" || path.endsWith("/watch.html");
+	}
 	function watchNavigation(onTick, options = {}) {
 		const win = options.win ?? window;
 		const doc = options.doc ?? document;
@@ -324,6 +364,7 @@
 		const onNavigate = () => notify();
 		win.addEventListener("yt-navigate-finish", onNavigate);
 		const timer = win.setInterval(() => {
+			if (doc.hidden) return;
 			if (doc.location.href !== lastHref) notify();
 			else if (doc.location.href.includes("/watch")) onTick();
 		}, options.intervalMs ?? 1500);
@@ -383,7 +424,10 @@
 			onChange(next);
 		};
 		doc.addEventListener("fullscreenchange", emit);
-		const timer = window.setInterval(emit, options.intervalMs ?? 500);
+		const timer = window.setInterval(() => {
+			if (doc.hidden) return;
+			emit();
+		}, options.intervalMs ?? 500);
 		emit();
 		return () => {
 			window.clearInterval(timer);
@@ -2235,6 +2279,7 @@
 			top: 30
 		};
 		let suppressClick = false;
+		let suppressTimer;
 		let resetTimer;
 		let dragScope = null;
 		const button = createButton(ui, {
@@ -2330,7 +2375,9 @@
 				if (!moved) return;
 				options.onMoveEnd(position);
 				suppressClick = true;
-				window.setTimeout(() => {
+				if (suppressTimer !== void 0) window.clearTimeout(suppressTimer);
+				suppressTimer = window.setTimeout(() => {
+					suppressTimer = void 0;
 					suppressClick = false;
 				}, CLICK_SUPPRESS_MS);
 			};
@@ -2344,6 +2391,9 @@
 		const cleanup = () => {
 			if (resetTimer !== void 0) window.clearTimeout(resetTimer);
 			resetTimer = void 0;
+			if (suppressTimer !== void 0) window.clearTimeout(suppressTimer);
+			suppressTimer = void 0;
+			suppressClick = false;
 			dragScope?.abort();
 			dragScope = null;
 		};
@@ -2546,7 +2596,10 @@
 	//#endregion
 	//#region scripts/youtube-transcript-copy/src/main.ts
 	/**
-	* 入口：先装网络钩子（越早越好），DOM 就绪后再建悬浮按钮、挂 SPA 与播放状态监听。
+	* 入口：只在播放页生效。
+	*
+	* 播放页直接装网络钩子（越早越好），DOM 就绪后建悬浮按钮、挂 SPA 与播放状态监听；
+	* 首页、搜索页只留一个地址观察，切进播放页才启动，切出去收掉。
 	*
 	* 只在顶层 frame 运行：转写面板与播放器都在主文档里，iframe 里跑一份只会重复请求。
 	*/
@@ -2555,87 +2608,109 @@
 		topFrameOnly: true,
 		installLock: false,
 		onStart: () => {
+			if (!isWatchPage()) return void 0;
 			const currentVideoId = () => readVideoId(location.search, location.pathname);
 			const network = installNetworkCapture(window, { currentVideoId });
 			return () => network.restore();
 		},
 		onReady: (kit) => {
-			const store = createStore(kit.gm);
-			const clipboard = createClipboard();
-			const currentVideoId = () => readVideoId(location.search, location.pathname);
-			const network = installNetworkCapture(window, { currentVideoId });
-			let initialTrack = null;
-			const captureInitialTrack = () => {
-				const videoId = currentVideoId();
-				initialTrack = [readPlayerResponse(), window.ytInitialPlayerResponse].map(readInitialTrack).find((track) => track !== null && track.videoId === videoId) ?? null;
-			};
-			captureInitialTrack();
-			const service = createTranscriptService({
-				videoId: currentVideoId,
-				fromInitialTrack: () => initialTrack && initialTrack.videoId === currentVideoId() ? fetchInitialTrack(initialTrack) : Promise.resolve(null),
-				fromNetworkCache: () => network.get(),
-				ensurePanelOpen: () => openTranscriptPanel(),
-				fromViewModel: () => isPlayerOnVideo(currentVideoId()) ? extractFromViewModel(document.body) : null,
-				fromPanelDump: () => isPlayerOnVideo(currentVideoId()) ? extractFromPanelDump(document.body) : null,
-				fromApi: (videoId) => requestPanel(videoId),
-				memory: {
-					get: store.getStrategy,
-					remember: (kind, index) => store.rememberStrategy(kind, index)
+			let stopWatch = null;
+			return watchWatchPage({
+				isWatchPage: () => isWatchPage(document),
+				onEnterWatch: () => {
+					stopWatch = startOnWatchPage(kit);
+				},
+				onLeaveWatch: () => {
+					stopWatch?.();
+					stopWatch = null;
 				}
 			});
-			const copyTranscript = async () => {
-				const segments = await service.fetchTranscript();
-				if (segments.length === 0) return "empty";
-				return await clipboard.copy(formatLines(segments)) ? "success" : "error";
-			};
-			const app = createTranscriptButtonApp({
-				getSavedPosition: store.getPosition,
-				savePosition: store.savePosition,
-				getDefaultPosition: () => defaultButtonPosition(readPlayerRect(), {
-					width: window.innerWidth,
-					height: window.innerHeight
-				}),
-				isVisible: () => shouldShowButton(readVideoState()),
-				activate: copyTranscript,
-				clearSavedPosition: store.clearPosition,
-				clearStrategy: store.clearStrategy
-			});
-			kit.menu({
-				label: "操作面板",
-				run: () => app.openActions()
-			});
-			kit.menu({
-				label: "功能设置",
-				run: () => app.openSettings()
-			});
-			app.sync();
-			const stopVisibility = watchVisibility((visible) => app.setVisible(visible));
-			let lastVideoId = currentVideoId();
-			const stopNavigation = watchNavigation(() => {
-				const videoId = currentVideoId();
-				if (videoId !== lastVideoId) {
-					lastVideoId = videoId;
-					network.clear(videoId);
-					captureInitialTrack();
-				}
-				app.sync();
-			});
-			let resizeFrame = 0;
-			const onResize = () => {
-				if (resizeFrame !== 0) return;
-				resizeFrame = window.requestAnimationFrame(() => {
-					resizeFrame = 0;
-					app.sync();
-				});
-			};
-			window.addEventListener("resize", onResize, { signal: kit.signal });
-			return () => {
-				stopVisibility();
-				stopNavigation();
-				window.cancelAnimationFrame(resizeFrame);
-				app.destroy();
-			};
 		}
 	});
+	/**
+	* 播放页内的全部功能：网络缓存、服务、悬浮按钮、菜单、SPA 与显隐监听。
+	*
+	* 调用方保证只在播放页调用、离开时调用返回的清理函数；重复进入会重新调用。
+	*/
+	function startOnWatchPage(kit) {
+		const store = createStore(kit.gm);
+		const clipboard = createClipboard();
+		const currentVideoId = () => readVideoId(location.search, location.pathname);
+		const network = installNetworkCapture(window, { currentVideoId });
+		let initialTrack = null;
+		const captureInitialTrack = () => {
+			const videoId = currentVideoId();
+			initialTrack = [readPlayerResponse(), window.ytInitialPlayerResponse].map(readInitialTrack).find((track) => track !== null && track.videoId === videoId) ?? null;
+		};
+		captureInitialTrack();
+		const service = createTranscriptService({
+			videoId: currentVideoId,
+			fromInitialTrack: () => initialTrack && initialTrack.videoId === currentVideoId() ? fetchInitialTrack(initialTrack) : Promise.resolve(null),
+			fromNetworkCache: () => network.get(),
+			ensurePanelOpen: () => openTranscriptPanel(),
+			fromViewModel: () => isPlayerOnVideo(currentVideoId()) ? extractFromViewModel(document.body) : null,
+			fromPanelDump: () => isPlayerOnVideo(currentVideoId()) ? extractFromPanelDump(document.body) : null,
+			fromApi: (videoId) => requestPanel(videoId),
+			memory: {
+				get: store.getStrategy,
+				remember: (kind, index) => store.rememberStrategy(kind, index)
+			}
+		});
+		const copyTranscript = async () => {
+			const segments = await service.fetchTranscript();
+			if (segments.length === 0) return "empty";
+			return await clipboard.copy(formatLines(segments)) ? "success" : "error";
+		};
+		const app = createTranscriptButtonApp({
+			getSavedPosition: store.getPosition,
+			savePosition: store.savePosition,
+			getDefaultPosition: () => defaultButtonPosition(readPlayerRect(), {
+				width: window.innerWidth,
+				height: window.innerHeight
+			}),
+			isVisible: () => shouldShowButton(readVideoState()),
+			activate: copyTranscript,
+			clearSavedPosition: store.clearPosition,
+			clearStrategy: store.clearStrategy
+		});
+		kit.menu({
+			label: "操作面板",
+			run: () => app.openActions()
+		});
+		kit.menu({
+			label: "功能设置",
+			run: () => app.openSettings()
+		});
+		app.sync();
+		const stopVisibility = watchVisibility((visible) => app.setVisible(visible));
+		let lastVideoId = currentVideoId();
+		const stopNavigation = watchNavigation(() => {
+			const videoId = currentVideoId();
+			if (videoId !== lastVideoId) {
+				lastVideoId = videoId;
+				network.clear(videoId);
+				captureInitialTrack();
+			}
+			app.sync();
+		});
+		const scope = new AbortController();
+		let resizeFrame = 0;
+		const onResize = () => {
+			if (resizeFrame !== 0) return;
+			resizeFrame = window.requestAnimationFrame(() => {
+				resizeFrame = 0;
+				app.sync();
+			});
+		};
+		window.addEventListener("resize", onResize, { signal: scope.signal });
+		return () => {
+			scope.abort();
+			stopVisibility();
+			stopNavigation();
+			window.cancelAnimationFrame(resizeFrame);
+			app.destroy();
+			network.restore();
+		};
+	}
 	//#endregion
 })();

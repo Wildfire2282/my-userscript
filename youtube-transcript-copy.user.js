@@ -2,7 +2,7 @@
 // @name         YouTube 转写文稿复制
 // @name:en      YouTube Transcript Copy
 // @namespace    https://github.com/Wildfire2282
-// @version      1.4.11
+// @version      1.4.12
 // @description  视频播放页面出现可拖拽悬浮按钮，可一键复制转写文稿（transcript），支持英语等多语言界面
 // @description:en Add a draggable button to copy YouTube transcripts
 // @author       Wildfire2282 (https://github.com/Wildfire2282)
@@ -774,19 +774,40 @@
 	/**
 	* 直接问 YouTube 要转写面板。
 	*
-	* 这是最后一条路：前面的网络缓存与 DOM 都拿不到时才发请求。客户端版本优先读
-	* 页面自己的配置，读不到才用写死的兜底，这样 YouTube 升级后主路径不受影响。
+	* 这条路不动页面，是复制时的主路径；前面的字幕轨与网络缓存都拿不到时才轮到它，
+	* 它再拿不到才由调用方决定是否打开面板。
+	*
+	* 请求尽量贴近页面自己发的：客户端版本、访客信息与上下文都先读页面配置，读不到才用
+	* 写死的兜底，这样 YouTube 升级后主路径不受影响。
 	*/
 	var API_ROOT = "https://www.youtube.com/youtubei/v1/";
 	var FALLBACK_CLIENT_VERSION = "2.20260710.06.00";
+	function readConfig(key, scope) {
+		try {
+			return scope.ytcfg?.get?.(key);
+		} catch {
+			return;
+		}
+	}
 	/** 读页面当前的客户端版本，读不到返回 null（调用方用写死的兜底）。 */
 	function readPageClientVersion(scope = globalThis) {
-		try {
-			const version = scope.ytcfg?.get?.("CLIENT_VERSION");
-			return typeof version === "string" && version !== "" ? version : null;
-		} catch {
-			return null;
-		}
+		const version = readConfig("CLIENT_VERSION", scope);
+		return typeof version === "string" && version !== "" ? version : null;
+	}
+	/** 页面的访客标识；没有时返回空串，不伪造。 */
+	function readPageVisitorData(scope = globalThis) {
+		const visitor = readConfig("VISITOR_DATA", scope);
+		return typeof visitor === "string" ? visitor : "";
+	}
+	/**
+	* 页面自己的请求上下文（客户端名、版本、语言、地区等）。
+	*
+	* 用它发出的请求与页面点“显示转写文稿”时的请求最接近，静默路径才不容易被拒。
+	* 读不到或形状不对时返回 null，由调用方拼最小上下文。
+	*/
+	function readPageContext(scope = globalThis) {
+		const context = readConfig("INNERTUBE_CONTEXT", scope);
+		return typeof context === "object" && context !== null && !Array.isArray(context) ? context : null;
 	}
 	/**
 	* 请求当前视频的转写面板。
@@ -798,14 +819,21 @@
 	async function requestPanel(videoId, fetchImpl = fetch, clientVersion = readPageClientVersion() ?? FALLBACK_CLIENT_VERSION) {
 		if (videoId === "") return null;
 		try {
-			const context = { client: {
+			const headers = {
+				"content-type": "application/json",
+				"x-youtube-client-name": "1",
+				"x-youtube-client-version": clientVersion
+			};
+			const visitorData = readPageVisitorData();
+			if (visitorData !== "") headers["x-goog-visitor-id"] = visitorData;
+			const context = readPageContext() ?? { client: {
 				clientName: "WEB",
 				clientVersion
 			} };
 			const request = async (endpoint, payload, query = "") => {
 				return (await fetchImpl(`${API_ROOT}${endpoint}?prettyPrint=false${query === "" ? "" : `&${query}`}`, {
 					method: "POST",
-					headers: { "content-type": "application/json" },
+					headers,
 					body: JSON.stringify({
 						context,
 						...payload
@@ -1037,11 +1065,14 @@
 	* 或任何 aria-label / 文字里带 transcript 的按钮。找不到就展开描述再找一次；
 	* 面板节点出现且真的占据版面才算打开。
 	*/
-	function fireClick(element) {
-		if (element instanceof HTMLElement && !isElementVisible(element)) element.scrollIntoView({
-			block: "center",
-			behavior: "instant"
-		});
+	function fireClick(element, onScroll) {
+		if (element instanceof HTMLElement && !isElementVisible(element)) {
+			element.scrollIntoView({
+				block: "center",
+				behavior: "instant"
+			});
+			onScroll?.();
+		}
 		element.click();
 	}
 	function isVisible(element) {
@@ -1084,13 +1115,44 @@
 		return null;
 	}
 	/** 展开被折叠的视频描述，转写按钮通常藏在里面。 */
-	function expandDescription(doc = document) {
+	function expandDescription(doc = document, onScroll) {
 		const expander = doc.querySelector("ytd-text-inline-expander, ytd-expandable-video-description-body-renderer");
 		if (!expander) return false;
 		const moreButton = [...expander.querySelectorAll("button, [role=\"button\"], tp-yt-paper-button, yt-button-shape")].find((button) => /(?:\.{3}\s*more|\.\.\.更多|展开更多|show more|展开)/i.test(ariaOrText(button)) || button.id === "expand");
 		if (!moreButton) return false;
-		fireClick(moreButton);
+		fireClick(moreButton, onScroll);
 		return true;
+	}
+	/** 收起这次为找按钮而展开的描述；找不到“收起”入口就不动。 */
+	function collapseDescription(doc = document) {
+		const expander = doc.querySelector("ytd-text-inline-expander, ytd-expandable-video-description-body-renderer");
+		if (!expander) return false;
+		const lessButton = [...expander.querySelectorAll("button, [role=\"button\"], tp-yt-paper-button, yt-button-shape")].find((button) => /(?:\.{3}\s*less|show less|收起|折りたたみ|접기|свернуть)/i.test(ariaOrText(button)));
+		if (!lessButton) return false;
+		lessButton.click();
+		return true;
+	}
+	/** 面板容器里是否装着转写文稿；通用面板（评论、简介）不能误关。 */
+	function panelHoldsTranscript(panel) {
+		if (/transcript/i.test(panel.getAttribute("target-id") ?? "")) return true;
+		return panel.querySelector("ytd-transcript-renderer, transcript-segment-view-model, ytd-transcript-segment-renderer") !== null;
+	}
+	/**
+	* 关掉转写面板。
+	*
+	* 优先点面板自己的关闭按钮：不同语言下按钮文字会变，但 `#visibility-button` /
+	* `#close-button` 是组件自带的 id。
+	*/
+	function closeTranscriptPanel(doc = document) {
+		for (const panel of doc.querySelectorAll("ytd-engagement-panel-section-list-renderer")) {
+			if (!panelHoldsTranscript(panel)) continue;
+			const closeButton = panel.querySelector("#visibility-button button, #close-button button, button[aria-label*=\"close\" i], button[aria-label*=\"关闭\"]");
+			if (closeButton instanceof HTMLElement) {
+				closeButton.click();
+				return true;
+			}
+		}
+		return false;
 	}
 	/** 面板里已经有可见的片段节点。 */
 	function isPanelOpen(doc = document) {
@@ -1105,28 +1167,45 @@
 	* 第一轮给足 3.6 秒（面板首次展开最慢）；之后每轮只等 1.2 秒，避免打不开时
 	* 每次点击都卡十几秒。
 	*
-	* @returns 面板是否真的打开
+	* 返回值带一个收尾函数：只有本次真的展开了描述、滚动了页面或打开了面板时才会恢复，
+	* 打开前就已经存在的面板与用户自己滚到的位置一律不动。
+	*
+	* @returns 面板是否打开，以及恢复页面的收尾函数
 	*/
 	async function openTranscriptPanel(options = {}) {
 		const doc = options.doc ?? document;
+		const win = doc.defaultView;
 		const sleep = options.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
 		const attempts = options.attempts ?? 4;
+		const wasOpen = isPanelOpen(doc);
+		const before = {
+			x: win?.scrollX ?? 0,
+			y: win?.scrollY ?? 0
+		};
+		let expanded = false;
+		let scrolledTo = null;
+		const noteScroll = () => {
+			if (win) scrolledTo = {
+				x: win.scrollX,
+				y: win.scrollY
+			};
+		};
 		for (let attempt = 0; attempt < attempts && !isPanelOpen(doc); attempt += 1) {
 			const waits = attempt === 0 ? 12 : 4;
-			expandDescription(doc);
+			if (expandDescription(doc, noteScroll)) expanded = true;
 			await sleep(400);
 			const candidate = findTranscriptTrigger(doc);
 			if (!candidate) continue;
 			const trigger = candidate.querySelector("button, [role=\"button\"], tp-yt-paper-button") ?? candidate;
 			let clicked = false;
 			try {
-				trigger.click();
+				fireClick(trigger, noteScroll);
 				clicked = true;
 			} catch {}
 			if (clicked) {
 				for (let wait = 0; wait < waits; wait += 1) {
 					await sleep(300);
-					if (isPanelOpen(doc)) return true;
+					if (isPanelOpen(doc)) break;
 				}
 				continue;
 			}
@@ -1138,10 +1217,26 @@
 			} catch {}
 			for (let wait = 0; wait < waits; wait += 1) {
 				await sleep(300);
-				if (isPanelOpen(doc)) return true;
+				if (isPanelOpen(doc)) break;
 			}
 		}
-		return isPanelOpen(doc);
+		const opened = isPanelOpen(doc);
+		let restored = false;
+		return {
+			opened,
+			restore() {
+				if (restored) return;
+				restored = true;
+				const scrollBack = scrolledTo !== null && win !== null && Math.abs(win.scrollX - scrolledTo.x) <= 2 && Math.abs(win.scrollY - scrolledTo.y) <= 2;
+				if (!wasOpen && opened) closeTranscriptPanel(doc);
+				if (expanded) collapseDescription(doc);
+				if (scrollBack && win) win.scrollTo({
+					left: before.x,
+					top: before.y,
+					behavior: "instant"
+				});
+			}
+		};
 	}
 	//#endregion
 	//#region scripts/youtube-transcript-copy/src/transcript/strategy.ts
@@ -1181,14 +1276,18 @@
 			const videoId = deps.videoId();
 			if (videoId === "") return [];
 			if (cache !== null && cache.videoId === videoId) return cache.segments;
-			const fromNetwork = await runStrategies("net", [deps.fromInitialTrack, () => deps.fromNetworkCache()]);
+			const fromSilent = await runStrategies("net", [
+				deps.fromInitialTrack,
+				() => deps.fromNetworkCache(),
+				() => deps.fromApi(videoId)
+			]);
 			if (deps.videoId() !== videoId) return [];
-			if (fromNetwork) {
+			if (fromSilent) {
 				cache = {
 					videoId,
-					segments: fromNetwork
+					segments: fromSilent
 				};
-				return fromNetwork;
+				return fromSilent;
 			}
 			const panelOpen = await deps.ensurePanelOpen();
 			if (deps.videoId() !== videoId) return [];
@@ -1205,17 +1304,6 @@
 				if (deps.videoId() !== videoId) return [];
 				if (fromDom) return fromDom;
 			}
-			try {
-				const fromApi = await deps.fromApi(videoId);
-				if (deps.videoId() !== videoId) return [];
-				if (fromApi && fromApi.length > 0) {
-					cache = {
-						videoId,
-						segments: fromApi
-					};
-					return fromApi;
-				}
-			} catch {}
 			return [];
 		} };
 	}
@@ -2643,11 +2731,16 @@
 			initialTrack = [readPlayerResponse(), window.ytInitialPlayerResponse].map(readInitialTrack).find((track) => track !== null && track.videoId === videoId) ?? null;
 		};
 		captureInitialTrack();
+		let restorePage = null;
 		const service = createTranscriptService({
 			videoId: currentVideoId,
 			fromInitialTrack: () => initialTrack && initialTrack.videoId === currentVideoId() ? fetchInitialTrack(initialTrack) : Promise.resolve(null),
 			fromNetworkCache: () => network.get(),
-			ensurePanelOpen: () => openTranscriptPanel(),
+			ensurePanelOpen: async () => {
+				const result = await openTranscriptPanel();
+				restorePage = result.restore;
+				return result.opened;
+			},
 			fromViewModel: () => isPlayerOnVideo(currentVideoId()) ? extractFromViewModel(document.body) : null,
 			fromPanelDump: () => isPlayerOnVideo(currentVideoId()) ? extractFromPanelDump(document.body) : null,
 			fromApi: (videoId) => requestPanel(videoId),
@@ -2657,7 +2750,10 @@
 			}
 		});
 		const copyTranscript = async () => {
-			const segments = await service.fetchTranscript();
+			const segments = await service.fetchTranscript().finally(() => {
+				restorePage?.();
+				restorePage = null;
+			});
 			if (segments.length === 0) return "empty";
 			return await clipboard.copy(formatLines(segments)) ? "success" : "error";
 		};

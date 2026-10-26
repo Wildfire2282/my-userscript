@@ -56,11 +56,15 @@ export function setup() {
     }
     return Promise.resolve(new Response('{}', { status: 200 }));
   };
+  // 产物注入前记下原始请求函数：非播放页应当完全不碰它，场景靠此判断。
+  window.__setupFetch = window.fetch;
 
   const video = document.querySelector('video');
-  Object.defineProperty(video, 'paused', { value: false, configurable: true });
-  Object.defineProperty(video, 'ended', { value: false, configurable: true });
-  Object.defineProperty(video, 'readyState', { value: 4, configurable: true });
+  if (video) {
+    Object.defineProperty(video, 'paused', { value: false, configurable: true });
+    Object.defineProperty(video, 'ended', { value: false, configurable: true });
+    Object.defineProperty(video, 'readyState', { value: 4, configurable: true });
+  }
 }
 
 /** 页面侧助手：只做操作与读取，不做断言。 */
@@ -148,6 +152,21 @@ export const scenarios = [
     async run(ctx) {
       const items = await ctx.evaluate(() => window.__page.menuItems());
       return { expected: '操作面板 / 功能设置', actual: items.join(' / ') };
+    },
+  },
+  {
+    name: '非播放页（首页）→ 没有悬浮按钮也不注册菜单，像没装一样',
+    fixture: 'home.html',
+    async run(ctx) {
+      const state = await ctx.evaluate(() => ({
+        uiRoot: document.querySelector('userscript-ui-root') !== null,
+        menus: window.__page.menuItems(),
+        wrapped: window.fetch !== window.__setupFetch,
+      }));
+      return {
+        expected: '无界面 / 无菜单 / 未包装请求',
+        actual: `${state.uiRoot ? '有界面' : '无界面'} / ${state.menus.length === 0 ? '无菜单' : state.menus.join('、')} / ${state.wrapped ? '已包装请求' : '未包装请求'}`,
+      };
     },
   },
   {

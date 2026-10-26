@@ -113,9 +113,9 @@ bun run test:browser       # 真实 Chrome/Edge 场景（需要先构建）
 bun run verify             # 交付前全量：静态检查 + 单测 + 构建 + 元数据 + UI 检查 + 浏览器场景
 ```
 
-本地一条 `bun run verify` 与 CI 都会覆盖真实交互，不存在「记得在本地点一遍」的手工环节；发布链路中的验证位置见 [`release-automation.md`](release-automation.md)。
+本地一条 `bun run verify` 覆盖真实交互，不存在「记得在本地点一遍」的手工环节；CI 只构建与发布，不重复检查。发布链路中的验证位置见 [`release-automation.md`](release-automation.md)。
 
-`.github/workflows/check.yml` 对 PR 全量执行；`main` 上的推送仅当命中 `packages/**`、`tools/**`、`tests/**`、`scripts/*/tests/**`、`*.json`、`*.mjs`、`*.ts`、`.github/workflows/**` 时触发。工程回归在 `tools/pipeline.test.mjs` 中使用临时仓库与模拟下载，不访问 Greasy Fork、不启动发布。
+工程回归在 `tools/pipeline.test.mjs` 中使用临时仓库与模拟下载，不访问 Greasy Fork、不启动发布。
 
 | 检查 | 失败意味着 |
 | --- | --- |

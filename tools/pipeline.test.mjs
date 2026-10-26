@@ -33,6 +33,9 @@ function fixture() {
     'versions.mjs',
   ]) {
     cpSync(path.join(tools, name), path.join(root, 'tools', name));
+    // cpSync 保留源文件 mtime：刚检出的仓库里工具脚本比伪造的 dist 新，
+    // 会把「产物新鲜」用例误判为陈旧。固定成旧时间，只留显式 put 的文件决定新鲜度。
+    utimesSync(path.join(root, 'tools', name), 1_700_000_000, 1_700_000_000);
   }
   return root;
 }

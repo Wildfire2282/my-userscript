@@ -1,13 +1,14 @@
 # 自动发布
 
-> 读者：Agent。目标：push `main` → CI 检查并构建 → 推送 `release` 分支 → webhook 通知 Greasy Fork。构建与上线由 CI 自动完成。发布时机、确认人与回退门禁见 [`AGENTS.md`](../AGENTS.md) 第 10 节，本文件只讲链路、版本、元数据变更与排障。
+> 读者：Agent。目标：本地 `bun run verify` 通过后 push `main` → CI 构建 → 推送 `release` 分支 → webhook 通知 Greasy Fork。发布时机、确认人与回退门禁见 [`AGENTS.md`](../AGENTS.md) 第 10 节，本文件只讲链路、版本、元数据变更与排障。
 
 ## 1. 链路
 
 ```text
-push main
-  → GitHub Actions：bun install --frozen-lockfile、bun run verify（含构建与浏览器场景）
-  → tools/release.mjs 汇总发布物到 release 分支
+本地 bun run verify 通过
+  → push main
+  → GitHub Actions：bun install --frozen-lockfile、bun run build
+  → tools/release.mjs 汇总发布物到 release 分支（唯一门禁：版本与元数据变化）
   → GitHub push webhook
   → api.greasyfork.org
   → Greasy Fork 拉取 raw 文件并更新脚本
@@ -53,13 +54,13 @@ Agent 修改共享运行时代码时，必须在同一批变更中给**每个实
 
 脚本从仓库删除后，下一次发布会清掉 `release` 分支里的旧文件；Greasy Fork 上的脚本不会自动删除，需要到脚本管理页手动停用或删除。
 
-`bun run verify` 的最后一步是浏览器场景，CI 会真跑（ubuntu-latest 自带 Chrome）；本地与 CI 都会拦住真实交互的回归，不需要另开手工检查。
+`bun run verify` 的最后一步是浏览器场景，全部检查都在 push 前本地跑完；CI 只构建与发布，不重复检查。发布剩下的唯一门禁是版本与元数据变化（见下表），其他问题本地没过就不要 push。
 
 ## 3. 日常发布
 
 1. 改 `scripts/<slug>/src/` 或共享运行时代码里的源码；`dist/` 与 `legacy/` 都不直接改。
 2. 提版本：同批修改每个实际产物改变的脚本的 `scripts/<slug>/package.json` 中的 `version`，共享修复提升 patch 版本，构建时注入；不能只提任意一个脚本。在 `CHANGELOG.md` 写一条人话。
-3. 本地跑 `bun run verify`（含浏览器场景）。
+3. 本地跑 `bun run verify`（含浏览器场景），通过才能 push。
 4. 按 [`AGENTS.md`](../AGENTS.md) 第 10 节确认后提交并 push `main`；
    这次推送带元数据变化时，把 `[allow-meta]` 写进最后一个提交的信息（流程见第 4 节）。
    共享运行时代码变化会触发发布；工具链、测试或文档等变化不会单独触发，需要上线的产物变化须同批为每个受影响脚本提版本。
@@ -126,7 +127,7 @@ GitHub 的 push 事件只把「已存在文件的修改」算作 changed files�
 
 | 现象 | 原因 | 处理 |
 | --- | --- | --- |
-| Actions 失败 | lint / 类型 / 测试 / 元数据 / 版本校验 | 看失败步骤，修好再 push |
+| Actions 失败 | 构建失败，或版本 / 元数据门禁拦下 | 版本与元数据问题修好再 push；构建失败先在本地复现 `bun run build` |
 | 检出报 `Repository not found` | 部署密钥或权限配置失效（UI 已并入本仓库，正常构建不再需要任何密钥） | 确认 `release.yml` 没有遗留的 submodule 步骤 |
 | Webhook 401 | Secret 与 Greasy Fork 不一致 | 用 Greasy Fork 页面上的值重填 |
 | Webhook 2xx 但脚本没更新 | 版本没提升、同步 URL 不匹配、分支或文件名写错 | 对比 `release` 分支文件与同步 URL |

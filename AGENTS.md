@@ -78,7 +78,7 @@
 
 | 检查 | 要求 |
 | --- | --- |
-| 构建 | `bun run build <slug>` 成功；交付前跑 `bun run verify`（最后一步会跑浏览器场景） |
+| 构建 | `bun run build <slug>` 成功；交付前跑 `bun run verify`（最后一步会跑浏览器场景）。发布前必须本地通过，云端发布只构建不再重复检查 |
 | 单元测试 | 受影响模块的测试全部通过（有则必跑）；只测行为，不测实现细节 |
 | 浏览器场景 | `tests/browser-scenarios.mjs` 中覆盖本次改动行为的场景全过；新增行为同步补场景 |
 | 元数据 | 与 `legacy/` 对比，`@name`、`@match`、`@include`、`@grant` 无非预期变化 |

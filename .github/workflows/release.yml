@@ -43,13 +43,11 @@ jobs:
       - name: 安装依赖
         run: bun install --frozen-lockfile
 
+      # 发布只做构建与汇总：全部检查在 push 前本地跑完（bun run verify）。
       # 元数据变化（@name / @match / @include / @grant）默认拦下；维护者确认后
       # 在推送的提交信息里写 [allow-meta] 即随本次推送发布，未确认不要写。
-      # 本地复验同一开关：ALLOW_META_CHANGE=1 bun run verify。
-      - name: 检查与构建
-        env:
-          ALLOW_META_CHANGE: ${{ (inputs.allow_meta_change == true || contains(github.event.head_commit.message || '', '[allow-meta]')) && '1' || '0' }}
-        run: bun run verify
+      - name: 构建
+        run: bun run build
 
       - name: 准备 release 分支
         env:

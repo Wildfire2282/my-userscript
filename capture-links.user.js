@@ -2,7 +2,7 @@
 // @name         捕获链接
 // @name:en      Link Capture
 // @namespace    https://github.com/Wildfire2282
-// @version      1.3.2
+// @version      1.3.8
 // @description  捕获页面中的全部链接，支持关键词筛选与批量复制
 // @description:en Collect, filter, and copy all links on a page
 // @author       Wildfire2282 (https://github.com/Wildfire2282)
@@ -22,7 +22,7 @@
 // @updateURL    https://update.greasyfork.org/scripts/582371/%E6%8D%95%E8%8E%B7%E9%93%BE%E6%8E%A5.meta.js
 // ==/UserScript==
 (function() {
-	//#region packages/shared/src/gm.ts
+	//#region packages/shared/src/host/gm.ts
 	/**
 	* 把全局 GM 函数包成可注入的接口。
 	*
@@ -60,7 +60,32 @@
 		};
 	}
 	//#endregion
-	//#region packages/shared/src/clipboard.ts
+	//#region packages/shared/src/dom/editable.ts
+	/**
+	* 穿透 open shadow root 取真正的焦点元素。
+	*
+	* `document.activeElement` 在焦点落在 Shadow Root 内部时只给出宿主元素。
+	*
+	* @param doc 文档；默认当前文档
+	*/
+	function deepActiveElement(doc = document) {
+		let element = doc.activeElement;
+		while (element?.shadowRoot?.activeElement) element = element.shadowRoot.activeElement;
+		return element;
+	}
+	//#endregion
+	//#region packages/shared/src/host/clipboard.ts
+	/**
+	* 剪贴板写入。
+	*
+	* 三个通道按可靠性排序：
+	*
+	* 1. `GM_setClipboard`：不受安全上下文、iframe 权限策略与焦点限制，脚本管理器直接写入；
+	* 2. `navigator.clipboard`：没有管理器时用浏览器 API，需要安全上下文与用户手势；
+	* 3. 隐藏 textarea + `execCommand('copy')`：老浏览器与受限 iframe 的最后兜底。
+	*
+	* 全部失败返回 `false`，提示文案由调用方决定；这里不抛错，避免一次复制失败打断页面。
+	*/
 	function defaultScope() {
 		const globals = globalThis;
 		const browser = globalThis;
@@ -79,12 +104,16 @@
 	/** textarea 兜底：必须在用户手势的同一个任务里同步执行，跨 await 会失去写权限。 */
 	function copyWithTextarea(document, text) {
 		if (!document?.body) return false;
-		let active = document.activeElement;
-		while (active?.shadowRoot?.activeElement) active = active.shadowRoot.activeElement;
+		const active = deepActiveElement(document);
 		const control = active?.tagName === "INPUT" || active?.tagName === "TEXTAREA" ? active : null;
-		const controlStart = control?.selectionStart;
-		const controlEnd = control?.selectionEnd;
-		const controlDirection = control?.selectionDirection;
+		let controlStart = null;
+		let controlEnd = null;
+		let controlDirection = null;
+		try {
+			controlStart = control?.selectionStart ?? null;
+			controlEnd = control?.selectionEnd ?? null;
+			controlDirection = control?.selectionDirection ?? null;
+		} catch {}
 		const selection = document.getSelection();
 		const anchor = selection?.anchorNode;
 		const focus = selection?.focusNode;
@@ -96,15 +125,22 @@
 		area.style.cssText = "position:fixed;left:-9999px;top:0;opacity:0";
 		document.body.appendChild(area);
 		try {
+			area.focus();
 			area.select();
 			return document.execCommand("copy");
 		} catch {
 			return false;
 		} finally {
 			area.remove();
-			active?.focus?.();
-			if (anchor?.isConnected && focus?.isConnected) selection?.setBaseAndExtent(anchor, anchorOffset, focus, focusOffset);
-			if (controlStart != null && controlEnd != null) control?.setSelectionRange(controlStart, controlEnd, controlDirection ?? void 0);
+			try {
+				active?.focus?.();
+			} catch {}
+			try {
+				if (anchor?.isConnected && focus?.isConnected) selection?.setBaseAndExtent(anchor, anchorOffset, focus, focusOffset);
+			} catch {}
+			try {
+				if (controlStart != null && controlEnd != null) control?.setSelectionRange(controlStart, controlEnd, controlDirection ?? void 0);
+			} catch {}
 		}
 	}
 	/**
@@ -131,7 +167,7 @@
 		} };
 	}
 	//#endregion
-	//#region packages/shared/src/storage.ts
+	//#region packages/shared/src/host/storage.ts
 	/**
 	* 设置读写：默认值合并 + 异常兜底。
 	*
@@ -179,7 +215,7 @@
 		return mergeRecords(defaults, stored);
 	}
 	//#endregion
-	//#region packages/shared/src/settings-store.ts
+	//#region packages/shared/src/host/settings-store.ts
 	/**
 	* 写失败时的基线比较：存储值变了就说明别处写过，本页副本作废。
 	*
@@ -226,6 +262,110 @@
 				return next;
 			}
 		};
+	}
+	//#endregion
+	//#region packages/shared/src/runtime/logger.ts
+	/**
+	* 创建带 `[slug]` 前缀的日志器。
+	*
+	* @param slug 脚本标识，如 `super-drag`
+	*/
+	function createLogger(slug) {
+		return {
+			warn: (message) => console.warn(`[${slug}] ${message}`),
+			error: (message, detail) => detail === void 0 ? console.error(`[${slug}] ${message}`) : console.error(`[${slug}] ${message}`, detail)
+		};
+	}
+	/**
+	* 菜单 / 启动 / 面板打开三层错误边界的最小包装：失败只记日志，不抛给管理器与宿主页面。
+	*
+	* @param log 统一日志器
+	* @param message 失败时的中文说明
+	* @param run 实际回调
+	*/
+	function guard(log, message, run) {
+		try {
+			run();
+		} catch (error) {
+			log.error(message, error);
+		}
+	}
+	//#endregion
+	//#region packages/shared/src/runtime/boot.ts
+	/**
+	* 安装锁：同一文档只装一份。
+	*
+	* 不同管理器的沙箱之间 window 不一定共享，DOM 一定共享，所以用元素属性而不用
+	* window 标记。selection-copy 的 `data-selection-auto-copy-installed` 沿用此实现。
+	*/
+	function installOnce(attribute) {
+		const root = document.documentElement;
+		if (!root || root.hasAttribute(attribute)) return false;
+		root.setAttribute(attribute, "");
+		return true;
+	}
+	/**
+	* 脚本启动器：安装锁、frame 判断、菜单注册、DOM 就绪、pagehide 清理。
+	*
+	* - 顶层 `guard` 兜住同步启动异常（与各脚本原有顶层 try/catch 同语义）。
+	* - `onStart` 同步执行，不等 DOM；`onReady` 等 DOM 就绪。
+	* - 清理函数幂等；`pagehide` 且 `persisted === false` 时自动调用。
+	* - 菜单回调统一 `guard` 包裹；注册失败只告警，不阻断脚本主功能。
+	*
+	* @param gmApi GM 适配层；测试里传假实现
+	* @param options 启动参数
+	* @returns `destroy` 供页面卸载与测试调用
+	*/
+	function createUserscript(gmApi, options) {
+		const { slug, installLock = true, topFrameOnly = false, menus = [] } = options;
+		const log = createLogger(slug);
+		const cleanups = [];
+		let destroyed = false;
+		const destroy = () => {
+			if (destroyed) return;
+			destroyed = true;
+			for (const cleanup of [...cleanups].reverse()) try {
+				cleanup();
+			} catch {}
+			cleanups.length = 0;
+		};
+		const controller = new AbortController();
+		cleanups.push(() => controller.abort());
+		const onPageHide = (event) => {
+			if (!event.persisted) destroy();
+		};
+		window.addEventListener("pagehide", onPageHide);
+		cleanups.push(() => window.removeEventListener("pagehide", onPageHide));
+		const menu = (item) => {
+			if ((item.topFrameOnly ?? false) && window.top !== window.self) return;
+			const wrapped = () => guard(log, `打开${item.label}失败`, item.run);
+			if (!gmApi.registerMenuCommand(item.label, wrapped)) log.warn(`菜单命令不可用：${item.label}`);
+		};
+		guard(log, "启动失败", () => {
+			if (topFrameOnly && window.top !== window.self) return;
+			if (typeof installLock === "string" && !installOnce(installLock)) return;
+			const startCleanup = options.onStart?.();
+			if (typeof startCleanup === "function") cleanups.push(startCleanup);
+			for (const item of menus) menu(item);
+			const runReady = () => {
+				if (destroyed) return;
+				guard(log, "初始化失败", () => {
+					const readyCleanup = options.onReady?.({
+						gm: gmApi,
+						log,
+						signal: controller.signal,
+						menu
+					});
+					if (typeof readyCleanup === "function") cleanups.push(readyCleanup);
+				});
+			};
+			if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", runReady, {
+				once: true,
+				signal: controller.signal
+			});
+			else runReady();
+		});
+		return { destroy };
 	}
 	//#endregion
 	//#region scripts/capture-links/src/settings.ts
@@ -287,6 +427,22 @@
 		cancel: "Cancel",
 		confirm: "Confirm"
 	};
+	/**
+	* 中文文案预设：四个脚本的 `LABELS` 逐字相同且都缺 `operation`，
+	* 无标题操作面板的 aria 名会回落到英文 `Operations`。
+	* 脚本侧 `mountUI({ theme: 'system', labels: ZH_LABELS })` 即可，不再各写一份。
+	*/
+	var ZH_LABELS = {
+		close: "关闭",
+		settings: "设置",
+		operation: "操作",
+		notifications: "通知",
+		dismissNotification: "关闭通知",
+		closeSettings: "关闭设置",
+		scrollHint: "向下滚动查看更多内容",
+		cancel: "取消",
+		confirm: "确定"
+	};
 	function resolveLabels(overrides) {
 		return {
 			...DEFAULT_LABELS,
@@ -335,9 +491,22 @@
 	//#region packages/userscript-ui/src/core/mount.ts
 	var HOST_TAG = "userscript-ui-root";
 	var DEFAULT_Z_INDEX = 2147483e3;
+	var ROOT_ATTRIBUTE = "data-ds-root";
+	/**
+	* 节点是否来自本仓库脚本自己的界面。
+	*
+	* 脚本要判断鼠标、选区、扫描结果是否落在自己的面板里（否则会把自己的按钮
+	* 当页面内容处理），而宿主标记只由这里定义，所以判定也留在这里。
+	*/
+	function isOwnUiNode(node) {
+		if (!node) return false;
+		if ((node instanceof Element ? node : node.parentElement)?.closest(`[${ROOT_ATTRIBUTE}]`)) return true;
+		const root = node.getRootNode();
+		return root instanceof ShadowRoot && root.host?.hasAttribute(ROOT_ATTRIBUTE) === true;
+	}
 	function mountUI(options = {}) {
 		const host = document.createElement(HOST_TAG);
-		host.setAttribute("data-ds-root", "");
+		host.setAttribute(ROOT_ATTRIBUTE, "");
 		setImportant(host, "all", "initial");
 		setImportant(host, "position", "fixed");
 		setImportant(host, "inset", "0");
@@ -447,6 +616,78 @@
 	}
 	function setImportant(node, property, value) {
 		node.style.setProperty(property, value, "important");
+	}
+	//#endregion
+	//#region packages/userscript-ui/src/icons.ts
+	var SVG_NS = "http://www.w3.org/2000/svg";
+	function icon(paths, size = 16) {
+		const svg = document.createElementNS(SVG_NS, "svg");
+		svg.setAttribute("viewBox", "0 0 24 24");
+		svg.setAttribute("width", String(size));
+		svg.setAttribute("height", String(size));
+		svg.setAttribute("fill", "none");
+		svg.setAttribute("stroke", "currentColor");
+		svg.setAttribute("stroke-width", "2");
+		svg.setAttribute("stroke-linecap", "round");
+		svg.setAttribute("stroke-linejoin", "round");
+		svg.setAttribute("aria-hidden", "true");
+		svg.setAttribute("focusable", "false");
+		for (const definition of paths) {
+			const path = document.createElementNS(SVG_NS, "path");
+			path.setAttribute("d", definition);
+			svg.appendChild(path);
+		}
+		return svg;
+	}
+	var closeIcon = () => icon(["M18 6 6 18", "m6 6 12 12"]);
+	var chevronDownIcon = () => icon(["m6 9 6 6 6-6"]);
+	var slidersIcon = () => icon([
+		"M4 21v-7",
+		"M4 10V3",
+		"M12 21v-9",
+		"M12 8V3",
+		"M20 21v-5",
+		"M20 12V3",
+		"M1 14h6",
+		"M9 8h6",
+		"M17 16h6"
+	]);
+	var circle = "M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20";
+	var infoIcon = () => icon([
+		circle,
+		"M12 16v-4",
+		"M12 8h.01"
+	]);
+	var successIcon = () => icon([circle, "m8 12 3 3 5-6"]);
+	var warningIcon = () => icon([
+		"M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z",
+		"M12 9v4",
+		"M12 17h.01"
+	]);
+	var errorIcon = () => icon([
+		circle,
+		"m15 9-6 6",
+		"m9 9 6 6"
+	]);
+	//#endregion
+	//#region packages/userscript-ui/src/patterns/app-host.ts
+	/**
+	* 创建界面宿主。
+	*
+	* @param options 主题选项
+	*/
+	function createUiHost(options = {}) {
+		let ui = null;
+		return {
+			ensure: () => ui ??= mountUI({
+				theme: options.theme ?? "system",
+				labels: ZH_LABELS
+			}),
+			destroy: () => {
+				ui?.destroy();
+				ui = null;
+			}
+		};
 	}
 	//#endregion
 	//#region packages/userscript-ui/src/core/lifecycle.ts
@@ -564,6 +805,25 @@
 		else if (content) parent.appendChild(content);
 	}
 	//#endregion
+	//#region packages/userscript-ui/src/core/form.ts
+	/**
+	* Invalid state has two independent owners: the control (`data-ds-invalid`)
+	* and its Field (`data-ds-field-invalid`). `aria-invalid` is always the union,
+	* so either side can change state without erasing the other's decision.
+	*/
+	function applyInvalid(input, invalid) {
+		input.toggleAttribute("data-ds-invalid", invalid);
+		syncAriaInvalid(input);
+	}
+	function setFieldInvalid(input, invalid) {
+		input.toggleAttribute("data-ds-field-invalid", invalid);
+		syncAriaInvalid(input);
+	}
+	function syncAriaInvalid(input) {
+		if (input.hasAttribute("data-ds-invalid") || input.hasAttribute("data-ds-field-invalid")) input.setAttribute("aria-invalid", "true");
+		else input.removeAttribute("aria-invalid");
+	}
+	//#endregion
 	//#region packages/userscript-ui/src/core/dom.ts
 	function append(parent, ...items) {
 		for (const item of items) {
@@ -581,6 +841,152 @@
 		for (const id of active) ids.add(id);
 		if (ids.size > 0) element.setAttribute("aria-describedby", [...ids].join(" "));
 		else element.removeAttribute("aria-describedby");
+	}
+	//#endregion
+	//#region packages/userscript-ui/src/core/id.ts
+	/**
+	* Element ids are global to the page, not to a shadow root. A per-module random
+	* token keeps them unique when two copies of the library (two userscripts, or
+	* an upgrade window with both versions loaded) run in the same document.
+	*/
+	var PAGE_TOKEN = Math.random().toString(36).slice(2, 8);
+	var counter = 0;
+	function uid(prefix = "ds") {
+		counter += 1;
+		return `${prefix}-${PAGE_TOKEN}-${counter}`;
+	}
+	//#endregion
+	//#region packages/userscript-ui/src/components/field.css?inline
+	var field_default = ".ds-field {\n  display: flex;\n  flex-direction: column;\n  gap: var(--ds-space-1-5);\n  min-width: 0;\n}\n\n.ds-field-text {\n  display: flex;\n  flex-direction: column;\n  gap: var(--ds-space-0-5);\n  min-width: 0;\n}\n\n.ds-field-label {\n  color: var(--ds-foreground);\n  font-size: var(--ds-text-sm);\n  font-weight: var(--ds-weight-medium);\n  line-height: var(--ds-leading-snug);\n  cursor: pointer;\n}\n\n.ds-field-description {\n  margin: 0;\n  color: var(--ds-muted-foreground);\n  font-size: var(--ds-text-xs);\n  line-height: var(--ds-leading-snug);\n}\n\n.ds-field-control {\n  min-width: 0;\n}\n\n.ds-field-error {\n  margin: 0;\n  color: var(--ds-destructive);\n  font-size: var(--ds-text-xs);\n  line-height: var(--ds-leading-snug);\n}\n\n.ds-field--inline {\n  display: grid;\n  grid-template-columns: minmax(0, 1fr) auto;\n  align-items: center;\n  column-gap: var(--ds-space-4);\n  row-gap: var(--ds-space-1);\n}\n\n.ds-field--inline .ds-field-text {\n  grid-column: 1;\n}\n\n.ds-field--inline .ds-field-control {\n  grid-column: 2;\n  width: auto;\n}\n\n.ds-field--inline .ds-field-error {\n  grid-column: 1 / -1;\n}\n";
+	//#endregion
+	//#region packages/userscript-ui/src/components/field.ts
+	function createField(ui, options) {
+		assertAlive(ui, "field");
+		ui.useStyles(field_default);
+		const scope = createScope(ui);
+		const input = options.control.input;
+		if (!input.id) input.id = options.id ?? uid("ds-control");
+		const root = document.createElement("div");
+		root.className = options.inline ? "ds-field ds-field--inline" : "ds-field";
+		root.setAttribute("data-ds-field", "");
+		const text = document.createElement("div");
+		text.className = "ds-field-text";
+		const label = document.createElement("label");
+		label.className = "ds-field-label";
+		label.htmlFor = input.id;
+		label.textContent = options.label ?? "";
+		label.hidden = !options.label;
+		text.appendChild(label);
+		const descriptionId = uid("ds-field-description");
+		const description = document.createElement("p");
+		description.className = "ds-field-description";
+		description.id = descriptionId;
+		description.textContent = options.description ?? "";
+		description.hidden = !options.description;
+		text.appendChild(description);
+		text.hidden = !options.label && !options.description;
+		root.appendChild(text);
+		const control = document.createElement("div");
+		control.className = "ds-field-control";
+		control.appendChild(options.control.el);
+		root.appendChild(control);
+		const errorId = uid("ds-field-error");
+		const error = document.createElement("p");
+		error.className = "ds-field-error";
+		error.id = errorId;
+		error.setAttribute("role", "alert");
+		error.hidden = true;
+		root.appendChild(error);
+		const syncFieldDescribedBy = () => {
+			const active = [description, error].filter((node) => !node.hidden).map((node) => node.id);
+			syncDescribedBy(input, [descriptionId, errorId], active);
+		};
+		const syncInvalid = () => setFieldInvalid(input, !error.hidden);
+		const setError = (message) => {
+			if (scope.destroyed) return;
+			const hasError = Boolean(message);
+			error.textContent = message ?? "";
+			error.hidden = !hasError;
+			root.toggleAttribute("data-invalid", hasError);
+			syncInvalid();
+			syncFieldDescribedBy();
+		};
+		const setDescription = (message) => {
+			if (scope.destroyed) return;
+			description.textContent = message ?? "";
+			description.hidden = !message;
+			text.hidden = label.hidden && description.hidden;
+			syncFieldDescribedBy();
+		};
+		if (input.getAttribute("aria-invalid") === "true") input.setAttribute("data-ds-invalid", "");
+		if (options.error) setError(options.error);
+		else {
+			syncInvalid();
+			syncFieldDescribedBy();
+		}
+		scope.onDestroy(() => {
+			description.hidden = true;
+			error.hidden = true;
+			syncFieldDescribedBy();
+			setFieldInvalid(input, false);
+			root.remove();
+		});
+		return {
+			el: root,
+			control: options.control.el,
+			setError,
+			setDescription,
+			destroy: () => scope.destroy()
+		};
+	}
+	//#endregion
+	//#region packages/userscript-ui/src/components/input.css?inline
+	var input_default = ".ds-input,\n.ds-textarea {\n  width: 100%;\n  min-width: 0;\n  border: var(--ds-border-width) solid var(--ds-input);\n  border-radius: var(--ds-radius-md);\n  background: transparent;\n  color: var(--ds-foreground);\n  font-family: inherit;\n  font-size: var(--ds-text-sm);\n  transition:\n    border-color var(--ds-duration-fast) var(--ds-ease),\n    box-shadow var(--ds-duration-fast) var(--ds-ease);\n}\n\n.ds-input {\n  height: var(--ds-control-h);\n  padding: 0 var(--ds-space-2-5);\n  line-height: normal;\n}\n\n.ds-textarea {\n  min-height: var(--ds-textarea-min-h);\n  padding: var(--ds-space-2) var(--ds-space-2-5);\n  line-height: var(--ds-leading-normal);\n  resize: vertical;\n}\n\n.ds-input::placeholder,\n.ds-textarea::placeholder {\n  color: var(--ds-muted-foreground);\n  opacity: 1;\n}\n\n.ds-input:hover:not(:disabled),\n.ds-textarea:hover:not(:disabled) {\n  border-color: color-mix(in srgb, var(--ds-input) 65%, var(--ds-foreground));\n}\n\n.ds-input:focus-visible,\n.ds-textarea:focus-visible {\n  border-color: var(--ds-ring);\n  outline: none;\n  box-shadow: 0 0 0 var(--ds-ring-width) color-mix(in srgb, var(--ds-ring) 24%, transparent);\n}\n\n.ds-input[aria-invalid='true'],\n.ds-textarea[aria-invalid='true'] {\n  border-color: var(--ds-destructive);\n}\n\n.ds-input[aria-invalid='true']:focus-visible,\n.ds-textarea[aria-invalid='true']:focus-visible {\n  box-shadow: 0 0 0 var(--ds-ring-width) color-mix(in srgb, var(--ds-destructive) 24%, transparent);\n}\n\n.ds-input:disabled,\n.ds-textarea:disabled {\n  opacity: 0.55;\n  cursor: not-allowed;\n}\n";
+	//#endregion
+	//#region packages/userscript-ui/src/components/input.ts
+	/**
+	* `data-ds-invalid` mirrors the control's own invalid state so a Field can add
+	* a validation error without owning — or clearing — the control's state.
+	*/
+	function createInput(ui, options = {}) {
+		assertAlive(ui, "input");
+		ui.useStyles(input_default);
+		const scope = createScope(ui);
+		const input = document.createElement("input");
+		input.className = "ds-input";
+		input.type = options.type ?? "text";
+		if (options.value != null) input.value = options.value;
+		if (options.placeholder) input.placeholder = options.placeholder;
+		if (options.name) input.name = options.name;
+		if (options.id) input.id = options.id;
+		if (options.disabled) input.disabled = true;
+		if (options.readonly) input.readOnly = true;
+		if (options.required) input.required = true;
+		if (options.autocomplete) input.autocomplete = options.autocomplete;
+		if (options.inputMode) input.inputMode = options.inputMode;
+		if (options.min != null) input.min = String(options.min);
+		if (options.max != null) input.max = String(options.max);
+		if (options.step != null) input.step = String(options.step);
+		if (options.ariaLabel) input.setAttribute("aria-label", options.ariaLabel);
+		const setInvalid = (invalid) => applyInvalid(input, invalid);
+		if (options.invalid) setInvalid(true);
+		if (options.onInput) input.addEventListener("input", (event) => options.onInput?.(input.value, event), { signal: scope.signal });
+		if (options.onChange) input.addEventListener("change", (event) => options.onChange?.(input.value, event), { signal: scope.signal });
+		return {
+			el: input,
+			input,
+			setValue(value) {
+				input.value = value;
+			},
+			getValue() {
+				return input.value;
+			},
+			setInvalid,
+			destroy() {
+				scope.destroy();
+				input.remove();
+			}
+		};
 	}
 	//#endregion
 	//#region packages/userscript-ui/src/core/focus.ts
@@ -603,71 +1009,6 @@
 	function focusIfConnected(target) {
 		if (target?.isConnected) target.focus({ preventScroll: true });
 	}
-	//#endregion
-	//#region packages/userscript-ui/src/core/id.ts
-	/**
-	* Element ids are global to the page, not to a shadow root. A per-module random
-	* token keeps them unique when two copies of the library (two userscripts, or
-	* an upgrade window with both versions loaded) run in the same document.
-	*/
-	var PAGE_TOKEN = Math.random().toString(36).slice(2, 8);
-	var counter = 0;
-	function uid(prefix = "ds") {
-		counter += 1;
-		return `${prefix}-${PAGE_TOKEN}-${counter}`;
-	}
-	//#endregion
-	//#region packages/userscript-ui/src/icons.ts
-	var SVG_NS$1 = "http://www.w3.org/2000/svg";
-	function icon(paths, size = 16) {
-		const svg = document.createElementNS(SVG_NS$1, "svg");
-		svg.setAttribute("viewBox", "0 0 24 24");
-		svg.setAttribute("width", String(size));
-		svg.setAttribute("height", String(size));
-		svg.setAttribute("fill", "none");
-		svg.setAttribute("stroke", "currentColor");
-		svg.setAttribute("stroke-width", "2");
-		svg.setAttribute("stroke-linecap", "round");
-		svg.setAttribute("stroke-linejoin", "round");
-		svg.setAttribute("aria-hidden", "true");
-		svg.setAttribute("focusable", "false");
-		for (const definition of paths) {
-			const path = document.createElementNS(SVG_NS$1, "path");
-			path.setAttribute("d", definition);
-			svg.appendChild(path);
-		}
-		return svg;
-	}
-	var closeIcon = () => icon(["M18 6 6 18", "m6 6 12 12"]);
-	var chevronDownIcon = () => icon(["m6 9 6 6 6-6"]);
-	var slidersIcon = () => icon([
-		"M4 21v-7",
-		"M4 10V3",
-		"M12 21v-9",
-		"M12 8V3",
-		"M20 21v-5",
-		"M20 12V3",
-		"M1 14h6",
-		"M9 8h6",
-		"M17 16h6"
-	]);
-	var circle = "M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20";
-	var infoIcon = () => icon([
-		circle,
-		"M12 16v-4",
-		"M12 8h.01"
-	]);
-	var successIcon = () => icon([circle, "m8 12 3 3 5-6"]);
-	var warningIcon = () => icon([
-		"M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z",
-		"M12 9v4",
-		"M12 17h.01"
-	]);
-	var errorIcon = () => icon([
-		circle,
-		"m15 9-6 6",
-		"m9 9 6 6"
-	]);
 	//#endregion
 	//#region packages/userscript-ui/src/styles/scroll-hint.css?inline
 	var scroll_hint_default = ".ds-scroll-hint {\n  position: absolute;\n  inset-inline: 0;\n  bottom: 0;\n  display: flex;\n  align-items: flex-end;\n  justify-content: center;\n  height: var(--ds-scroll-hint-height);\n  padding-bottom: var(--ds-space-1-5);\n  background: linear-gradient(to top, var(--ds-card) 30%, transparent);\n  color: var(--ds-muted-foreground);\n  font-size: var(--ds-text-xs);\n  pointer-events: none;\n  opacity: 1;\n  visibility: visible;\n  transition: opacity var(--ds-duration-fast) var(--ds-ease);\n}\n\n.ds-scroll-hint[data-state='hidden'] {\n  opacity: 0;\n  visibility: hidden;\n}\n\n.ds-scroll-hint-label {\n  display: inline-flex;\n  align-items: center;\n  gap: var(--ds-space-1);\n  padding: var(--ds-space-0-5) var(--ds-space-2);\n  border-radius: var(--ds-radius-full);\n  background: var(--ds-muted);\n  white-space: nowrap;\n}\n\n.ds-scroll-hint-label svg {\n  width: var(--ds-icon-xs);\n  height: var(--ds-icon-xs);\n  flex: none;\n}\n";
@@ -1000,158 +1341,6 @@
 		};
 	}
 	//#endregion
-	//#region packages/userscript-ui/src/core/form.ts
-	/**
-	* Invalid state has two independent owners: the control (`data-ds-invalid`)
-	* and its Field (`data-ds-field-invalid`). `aria-invalid` is always the union,
-	* so either side can change state without erasing the other's decision.
-	*/
-	function applyInvalid(input, invalid) {
-		input.toggleAttribute("data-ds-invalid", invalid);
-		syncAriaInvalid(input);
-	}
-	function setFieldInvalid(input, invalid) {
-		input.toggleAttribute("data-ds-field-invalid", invalid);
-		syncAriaInvalid(input);
-	}
-	function syncAriaInvalid(input) {
-		if (input.hasAttribute("data-ds-invalid") || input.hasAttribute("data-ds-field-invalid")) input.setAttribute("aria-invalid", "true");
-		else input.removeAttribute("aria-invalid");
-	}
-	//#endregion
-	//#region packages/userscript-ui/src/components/field.css?inline
-	var field_default = ".ds-field {\n  display: flex;\n  flex-direction: column;\n  gap: var(--ds-space-1-5);\n  min-width: 0;\n}\n\n.ds-field-text {\n  display: flex;\n  flex-direction: column;\n  gap: var(--ds-space-0-5);\n  min-width: 0;\n}\n\n.ds-field-label {\n  color: var(--ds-foreground);\n  font-size: var(--ds-text-sm);\n  font-weight: var(--ds-weight-medium);\n  line-height: var(--ds-leading-snug);\n  cursor: pointer;\n}\n\n.ds-field-description {\n  margin: 0;\n  color: var(--ds-muted-foreground);\n  font-size: var(--ds-text-xs);\n  line-height: var(--ds-leading-snug);\n}\n\n.ds-field-control {\n  min-width: 0;\n}\n\n.ds-field-error {\n  margin: 0;\n  color: var(--ds-destructive);\n  font-size: var(--ds-text-xs);\n  line-height: var(--ds-leading-snug);\n}\n\n.ds-field--inline {\n  display: grid;\n  grid-template-columns: minmax(0, 1fr) auto;\n  align-items: center;\n  column-gap: var(--ds-space-4);\n  row-gap: var(--ds-space-1);\n}\n\n.ds-field--inline .ds-field-text {\n  grid-column: 1;\n}\n\n.ds-field--inline .ds-field-control {\n  grid-column: 2;\n  width: auto;\n}\n\n.ds-field--inline .ds-field-error {\n  grid-column: 1 / -1;\n}\n";
-	//#endregion
-	//#region packages/userscript-ui/src/components/field.ts
-	function createField(ui, options) {
-		assertAlive(ui, "field");
-		ui.useStyles(field_default);
-		const scope = createScope(ui);
-		const input = options.control.input;
-		if (!input.id) input.id = options.id ?? uid("ds-control");
-		const root = document.createElement("div");
-		root.className = options.inline ? "ds-field ds-field--inline" : "ds-field";
-		root.setAttribute("data-ds-field", "");
-		const text = document.createElement("div");
-		text.className = "ds-field-text";
-		const label = document.createElement("label");
-		label.className = "ds-field-label";
-		label.htmlFor = input.id;
-		label.textContent = options.label ?? "";
-		label.hidden = !options.label;
-		text.appendChild(label);
-		const descriptionId = uid("ds-field-description");
-		const description = document.createElement("p");
-		description.className = "ds-field-description";
-		description.id = descriptionId;
-		description.textContent = options.description ?? "";
-		description.hidden = !options.description;
-		text.appendChild(description);
-		text.hidden = !options.label && !options.description;
-		root.appendChild(text);
-		const control = document.createElement("div");
-		control.className = "ds-field-control";
-		control.appendChild(options.control.el);
-		root.appendChild(control);
-		const errorId = uid("ds-field-error");
-		const error = document.createElement("p");
-		error.className = "ds-field-error";
-		error.id = errorId;
-		error.setAttribute("role", "alert");
-		error.hidden = true;
-		root.appendChild(error);
-		const syncFieldDescribedBy = () => {
-			const active = [description, error].filter((node) => !node.hidden).map((node) => node.id);
-			syncDescribedBy(input, [descriptionId, errorId], active);
-		};
-		const syncInvalid = () => setFieldInvalid(input, !error.hidden);
-		const setError = (message) => {
-			if (scope.destroyed) return;
-			const hasError = Boolean(message);
-			error.textContent = message ?? "";
-			error.hidden = !hasError;
-			root.toggleAttribute("data-invalid", hasError);
-			syncInvalid();
-			syncFieldDescribedBy();
-		};
-		const setDescription = (message) => {
-			if (scope.destroyed) return;
-			description.textContent = message ?? "";
-			description.hidden = !message;
-			text.hidden = label.hidden && description.hidden;
-			syncFieldDescribedBy();
-		};
-		if (input.getAttribute("aria-invalid") === "true") input.setAttribute("data-ds-invalid", "");
-		if (options.error) setError(options.error);
-		else {
-			syncInvalid();
-			syncFieldDescribedBy();
-		}
-		scope.onDestroy(() => {
-			description.hidden = true;
-			error.hidden = true;
-			syncFieldDescribedBy();
-			setFieldInvalid(input, false);
-			root.remove();
-		});
-		return {
-			el: root,
-			control: options.control.el,
-			setError,
-			setDescription,
-			destroy: () => scope.destroy()
-		};
-	}
-	//#endregion
-	//#region packages/userscript-ui/src/components/input.css?inline
-	var input_default = ".ds-input,\n.ds-textarea {\n  width: 100%;\n  min-width: 0;\n  border: var(--ds-border-width) solid var(--ds-input);\n  border-radius: var(--ds-radius-md);\n  background: transparent;\n  color: var(--ds-foreground);\n  font-family: inherit;\n  font-size: var(--ds-text-sm);\n  transition:\n    border-color var(--ds-duration-fast) var(--ds-ease),\n    box-shadow var(--ds-duration-fast) var(--ds-ease);\n}\n\n.ds-input {\n  height: var(--ds-control-h);\n  padding: 0 var(--ds-space-2-5);\n  line-height: normal;\n}\n\n.ds-textarea {\n  min-height: var(--ds-textarea-min-h);\n  padding: var(--ds-space-2) var(--ds-space-2-5);\n  line-height: var(--ds-leading-normal);\n  resize: vertical;\n}\n\n.ds-input::placeholder,\n.ds-textarea::placeholder {\n  color: var(--ds-muted-foreground);\n  opacity: 1;\n}\n\n.ds-input:hover:not(:disabled),\n.ds-textarea:hover:not(:disabled) {\n  border-color: color-mix(in srgb, var(--ds-input) 65%, var(--ds-foreground));\n}\n\n.ds-input:focus-visible,\n.ds-textarea:focus-visible {\n  border-color: var(--ds-ring);\n  outline: none;\n  box-shadow: 0 0 0 var(--ds-ring-width) color-mix(in srgb, var(--ds-ring) 24%, transparent);\n}\n\n.ds-input[aria-invalid='true'],\n.ds-textarea[aria-invalid='true'] {\n  border-color: var(--ds-destructive);\n}\n\n.ds-input[aria-invalid='true']:focus-visible,\n.ds-textarea[aria-invalid='true']:focus-visible {\n  box-shadow: 0 0 0 var(--ds-ring-width) color-mix(in srgb, var(--ds-destructive) 24%, transparent);\n}\n\n.ds-input:disabled,\n.ds-textarea:disabled {\n  opacity: 0.55;\n  cursor: not-allowed;\n}\n";
-	//#endregion
-	//#region packages/userscript-ui/src/components/input.ts
-	/**
-	* `data-ds-invalid` mirrors the control's own invalid state so a Field can add
-	* a validation error without owning — or clearing — the control's state.
-	*/
-	function createInput(ui, options = {}) {
-		assertAlive(ui, "input");
-		ui.useStyles(input_default);
-		const scope = createScope(ui);
-		const input = document.createElement("input");
-		input.className = "ds-input";
-		input.type = options.type ?? "text";
-		if (options.value != null) input.value = options.value;
-		if (options.placeholder) input.placeholder = options.placeholder;
-		if (options.name) input.name = options.name;
-		if (options.id) input.id = options.id;
-		if (options.disabled) input.disabled = true;
-		if (options.readonly) input.readOnly = true;
-		if (options.required) input.required = true;
-		if (options.autocomplete) input.autocomplete = options.autocomplete;
-		if (options.inputMode) input.inputMode = options.inputMode;
-		if (options.min != null) input.min = String(options.min);
-		if (options.max != null) input.max = String(options.max);
-		if (options.step != null) input.step = String(options.step);
-		if (options.ariaLabel) input.setAttribute("aria-label", options.ariaLabel);
-		const setInvalid = (invalid) => applyInvalid(input, invalid);
-		if (options.invalid) setInvalid(true);
-		if (options.onInput) input.addEventListener("input", (event) => options.onInput?.(input.value, event), { signal: scope.signal });
-		if (options.onChange) input.addEventListener("change", (event) => options.onChange?.(input.value, event), { signal: scope.signal });
-		return {
-			el: input,
-			input,
-			setValue(value) {
-				input.value = value;
-			},
-			getValue() {
-				return input.value;
-			},
-			setInvalid,
-			destroy() {
-				scope.destroy();
-				input.remove();
-			}
-		};
-	}
-	//#endregion
 	//#region packages/userscript-ui/src/components/select.css?inline
 	var select_default = ".ds-select-wrap {\n  position: relative;\n  width: 100%;\n  min-width: 0;\n}\n\n.ds-select {\n  width: 100%;\n  height: var(--ds-control-h);\n  padding: 0 var(--ds-space-8) 0 var(--ds-space-2-5);\n  border: var(--ds-border-width) solid var(--ds-input);\n  border-radius: var(--ds-radius-md);\n  background: transparent;\n  color: var(--ds-foreground);\n  font-family: inherit;\n  font-size: var(--ds-text-sm);\n  line-height: normal;\n  appearance: none;\n  cursor: pointer;\n  transition:\n    border-color var(--ds-duration-fast) var(--ds-ease),\n    box-shadow var(--ds-duration-fast) var(--ds-ease);\n}\n\n.ds-select:hover:not(:disabled) {\n  border-color: color-mix(in srgb, var(--ds-input) 65%, var(--ds-foreground));\n}\n\n.ds-select:focus-visible {\n  border-color: var(--ds-ring);\n  outline: none;\n  box-shadow: 0 0 0 var(--ds-ring-width) color-mix(in srgb, var(--ds-ring) 24%, transparent);\n}\n\n.ds-select[aria-invalid='true'] {\n  border-color: var(--ds-destructive);\n}\n\n.ds-select[aria-invalid='true']:focus-visible {\n  box-shadow: 0 0 0 var(--ds-ring-width) color-mix(in srgb, var(--ds-destructive) 24%, transparent);\n}\n\n.ds-select:disabled {\n  opacity: 0.55;\n  cursor: not-allowed;\n}\n\n.ds-select option {\n  background: var(--ds-card);\n  color: var(--ds-card-foreground);\n}\n\n.ds-select-chevron {\n  position: absolute;\n  inset-block-start: 50%;\n  inset-inline-end: var(--ds-space-2);\n  width: var(--ds-icon-sm);\n  height: var(--ds-icon-sm);\n  color: var(--ds-muted-foreground);\n  pointer-events: none;\n  transform: translateY(-50%);\n}\n\n.ds-select:focus-visible + .ds-select-chevron {\n  color: var(--ds-foreground);\n}\n";
 	//#endregion
@@ -1273,6 +1462,170 @@
 			destroy() {
 				scope.destroy();
 				root.remove();
+			}
+		};
+	}
+	//#endregion
+	//#region packages/userscript-ui/src/patterns/settings-form.ts
+	function isSwitch(control) {
+		return "setChecked" in control;
+	}
+	function isValued(control) {
+		return "setValue" in control;
+	}
+	function isInvalid(control) {
+		return "setInvalid" in control;
+	}
+	/**
+	* 创建声明式设置表单面板。
+	*
+	* @param ui 共享界面宿主
+	* @param schema 面板结构
+	* @param options 取值、显隐、校验与提交
+	*/
+	function createSettingsForm(ui, schema, options) {
+		const panel = createPanel(ui, {
+			title: schema.title,
+			description: schema.description,
+			open: false,
+			position: "center",
+			closeLabel: `关闭${schema.title}`
+		});
+		const scope = createScope(ui);
+		const fields = {};
+		const footerButtons = [];
+		const shownBefore = {};
+		for (const sectionSchema of schema.sections) {
+			const section = createSection(ui, {
+				title: sectionSchema.title,
+				description: sectionSchema.description
+			});
+			for (const fieldSchema of sectionSchema.fields) {
+				const initial = options.get()[fieldSchema.key];
+				const control = fieldSchema.type === "switch" ? createSwitch(ui, { checked: initial === true }) : fieldSchema.type === "select" ? createSelect(ui, {
+					options: fieldSchema.options ?? [],
+					value: typeof initial === "string" ? initial : ""
+				}) : createInput(ui, {
+					type: fieldSchema.inputType ?? "text",
+					placeholder: fieldSchema.placeholder
+				});
+				if (!isSwitch(control) && typeof initial === "string") control.setValue(initial);
+				const field = createField(ui, {
+					label: fieldSchema.label,
+					description: fieldSchema.description,
+					control,
+					inline: (fieldSchema.layout ?? (fieldSchema.type === "switch" ? "inline" : "stacked")) === "inline"
+				});
+				fields[fieldSchema.key] = {
+					control,
+					field
+				};
+				section.body.append(field.el);
+			}
+			panel.body.append(section.el);
+		}
+		const readValues = () => {
+			const base = { ...options.get() };
+			for (const [key, { control }] of Object.entries(fields)) {
+				const input = control.input;
+				base[key] = input instanceof HTMLInputElement && input.type === "checkbox" ? input.checked : input.value;
+			}
+			return base;
+		};
+		/** 重跑显隐；切回显示的字段清掉隐藏期间的旧错误。 */
+		const refresh = () => {
+			if (!options.visible) return;
+			const values = readValues();
+			for (const [key, { field }] of Object.entries(fields)) {
+				const shown = options.visible(key, values);
+				field.el.hidden = !shown;
+				if (shown && shownBefore[key] === false) setError(key, void 0);
+				shownBefore[key] = shown;
+			}
+		};
+		for (const [key, { control }] of Object.entries(fields)) {
+			control.input.addEventListener("change", () => {
+				if (options.mode === "immediate") options.onChange?.({ [key]: readValues()[key] });
+				refresh();
+			}, { signal: scope.signal });
+			if (control.input instanceof HTMLInputElement && control.input.type !== "checkbox") control.input.addEventListener("input", () => refresh(), { signal: scope.signal });
+		}
+		const setError = (key, problem) => {
+			const entry = fields[key];
+			if (!entry) return;
+			const { control, field } = entry;
+			if (isInvalid(control)) control.setInvalid(problem !== void 0);
+			field.setError(problem);
+		};
+		const fill = (next) => {
+			const record = next;
+			for (const [key, { control }] of Object.entries(fields)) {
+				const value = record[key];
+				if (isSwitch(control) && typeof value === "boolean") control.setChecked(value);
+				else if (isValued(control) && typeof value === "string") control.setValue(value);
+				setError(key, void 0);
+			}
+			refresh();
+		};
+		if (options.mode === "draft") {
+			const save = createButton(ui, {
+				label: "保存",
+				variant: "primary",
+				onClick: () => {
+					const values = readValues();
+					let ok = true;
+					if (options.validate) for (const key of Object.keys(fields)) {
+						if (fields[key]?.field.el.hidden) continue;
+						const problem = options.validate(key, values[key], values);
+						setError(key, problem);
+						if (problem) ok = false;
+					}
+					if (!ok) return;
+					if (options.onSubmit?.(values) === false) return;
+					panel.close();
+				}
+			});
+			const cancel = createButton(ui, {
+				label: "取消",
+				variant: "secondary",
+				onClick: () => {
+					fill(options.get());
+					panel.close();
+				}
+			});
+			footerButtons.push(cancel, save);
+			panel.setFooter([cancel.el, save.el]);
+		} else {
+			const closeButton = createButton(ui, {
+				label: "关闭",
+				variant: "secondary",
+				onClick: () => panel.close()
+			});
+			footerButtons.push(closeButton);
+			panel.setFooter([closeButton.el]);
+		}
+		const teardown = () => {
+			for (const { control, field } of Object.values(fields)) {
+				field.destroy();
+				control.destroy?.();
+			}
+			for (const button of footerButtons) button.destroy();
+		};
+		scope.onDestroy(teardown);
+		return {
+			panel,
+			fields,
+			values: readValues,
+			fill,
+			open: () => {
+				fill(options.get());
+				panel.open();
+			},
+			close: () => panel.close(),
+			isOpen: () => panel.isOpen(),
+			destroy: () => {
+				panel.destroy();
+				scope.destroy();
 			}
 		};
 	}
@@ -1652,34 +2005,6 @@
 		};
 	}
 	//#endregion
-	//#region scripts/capture-links/src/ui/icons.ts
-	var SVG_NS = "http://www.w3.org/2000/svg";
-	/**
-	* 悬浮按钮用的链接图标。
-	*
-	* `@ui` 只导出了设计体系里已有的图标，没有链接图标，而这里又需要与面板入口
-	* 一致的语义，所以在脚本内用同一套线条规则画一个（颜色继承按钮的 `currentColor`）。
-	*/
-	function linkIcon(size = 18) {
-		const svg = document.createElementNS(SVG_NS, "svg");
-		svg.setAttribute("viewBox", "0 0 24 24");
-		svg.setAttribute("width", String(size));
-		svg.setAttribute("height", String(size));
-		svg.setAttribute("fill", "none");
-		svg.setAttribute("stroke", "currentColor");
-		svg.setAttribute("stroke-width", "2");
-		svg.setAttribute("stroke-linecap", "round");
-		svg.setAttribute("stroke-linejoin", "round");
-		svg.setAttribute("aria-hidden", "true");
-		svg.setAttribute("focusable", "false");
-		for (const definition of ["M10 13a5 5 0 0 0 7.07 0l2.12-2.12a5 5 0 0 0-7.07-7.07L11 4", "M14 11a5 5 0 0 0-7.07 0L4.81 13.12a5 5 0 0 0 7.07 7.07L13 20"]) {
-			const path = document.createElementNS(SVG_NS, "path");
-			path.setAttribute("d", definition);
-			svg.appendChild(path);
-		}
-		return svg;
-	}
-	//#endregion
 	//#region scripts/capture-links/src/ui/link-list.css?inline
 	var link_list_default = "/**\n * 面板列表的样式。\n *\n * 列表行是可能上千条的数据行，用原生 checkbox + DOM 节点逐行拼，而不是为每一行\n * 创建一套 `@ui` 组件：组件带来的无障碍包装在数据行里没有增量，反而会让每次筛选\n * 都重建大量句柄。颜色与间距全部取自 `--ds-*` Token，不写死取值。\n */\n\n.cl-toolbar {\n  display: flex;\n  flex-wrap: wrap;\n  align-items: center;\n  gap: var(--ds-space-2);\n}\n\n.cl-search {\n  flex: 1 1 220px;\n  min-width: 0;\n}\n\n.cl-toggle {\n  display: inline-flex;\n  align-items: center;\n  gap: var(--ds-space-1-5);\n  color: var(--ds-muted-foreground);\n  font-size: var(--ds-text-xs);\n  white-space: nowrap;\n  cursor: pointer;\n}\n\n.cl-stats {\n  margin-inline-start: auto;\n  color: var(--ds-muted-foreground);\n  font-size: var(--ds-text-xs);\n  font-variant-numeric: tabular-nums;\n  white-space: nowrap;\n}\n\n.cl-list {\n  display: flex;\n  flex-direction: column;\n}\n\n.cl-row {\n  display: flex;\n  align-items: center;\n  gap: var(--ds-space-3);\n  min-width: 0;\n  padding: var(--ds-space-2) var(--ds-space-1);\n  border-radius: var(--ds-radius-md);\n  cursor: pointer;\n}\n\n.cl-row:hover {\n  background: var(--ds-muted);\n}\n\n.cl-check {\n  flex: none;\n  width: var(--ds-checkbox-size);\n  height: var(--ds-checkbox-size);\n  margin: 0;\n  accent-color: var(--ds-primary);\n  cursor: pointer;\n}\n\n.cl-index {\n  flex: none;\n  width: 28px;\n  color: var(--ds-muted-foreground);\n  font-size: var(--ds-text-xs);\n  font-variant-numeric: tabular-nums;\n  text-align: end;\n}\n\n.cl-info {\n  display: flex;\n  flex-direction: column;\n  gap: var(--ds-space-0-5);\n  min-width: 0;\n}\n\n.cl-title {\n  overflow: hidden;\n  color: var(--ds-foreground);\n  font-size: var(--ds-text-sm);\n  font-weight: var(--ds-weight-medium);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n}\n\n.cl-url {\n  overflow: hidden;\n  color: var(--ds-muted-foreground);\n  font-size: var(--ds-text-xs);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n}\n\n.cl-empty {\n  padding: var(--ds-space-6);\n  color: var(--ds-muted-foreground);\n  font-size: var(--ds-text-sm);\n  text-align: center;\n}\n\n/* \"显示更多\"按钮：现在和空状态长一样，但类名分开，改空状态样式时不会误伤按钮。\n * button 自带的边框底色也一起清掉，只留一行可点的灰字。 */\n.cl-more {\n  width: 100%;\n  padding: var(--ds-space-6);\n  border: none;\n  background: none;\n  color: var(--ds-muted-foreground);\n  font-size: var(--ds-text-sm);\n  text-align: center;\n  cursor: pointer;\n}\n";
 	//#endregion
@@ -1721,11 +2046,17 @@
 		const seen = /* @__PURE__ */ new Map();
 		for (const candidate of candidates) {
 			const url = resolveUrl(candidate.rawHref, baseHref, candidate.absoluteHref);
-			if (url === null || seen.has(url)) continue;
+			if (url === null) continue;
+			const title = candidate.title.trim() || url;
+			const existing = seen.get(url);
+			if (existing) {
+				if (existing.title === url && title !== url) existing.title = title;
+				continue;
+			}
 			seen.set(url, {
 				id: url,
 				url,
-				title: candidate.title.trim() || url
+				title
 			});
 		}
 		return [...seen.values()];
@@ -1757,7 +2088,7 @@
 	*/
 	var MAX_TITLE_LENGTH = 200;
 	function usableTitle(value) {
-		const text = value?.trim() ?? "";
+		const text = value?.replace(/\s+/g, " ").trim() ?? "";
 		return text.length > 0 && text.length < MAX_TITLE_LENGTH ? text : null;
 	}
 	/**
@@ -1784,8 +2115,6 @@
 	}
 	//#endregion
 	//#region scripts/capture-links/src/features/scan-page.ts
-	/** 本脚本自己的界面宿主：扫进去只会把面板里的按钮和目标当链接。 */
-	var OWN_UI_SELECTOR = "userscript-ui-root, [data-ds-root]";
 	/**
 	* 递归收 `open` 影子节点里的链接：组件化页面常把弹窗、播放器里的 `<a>` 藏在这里。
 	* `closed` 影子节点浏览器不让进，只能放弃。
@@ -1797,9 +2126,12 @@
 		const scope = root;
 		if (typeof scope.querySelectorAll !== "function") return found;
 		for (const element of scope.querySelectorAll("*")) {
-			if (element.matches(OWN_UI_SELECTOR)) continue;
-			if (element.tagName === "A" && element.hasAttribute("href")) found.push(element);
-			if (element.shadowRoot) collectAnchors(element.shadowRoot, found);
+			const isAnchor = element.localName === "a" && element.hasAttribute("href");
+			const shadow = element.shadowRoot;
+			if (!isAnchor && !shadow) continue;
+			if (isOwnUiNode(element)) continue;
+			if (isAnchor) found.push(element);
+			if (shadow) collectAnchors(shadow, found);
 		}
 		return found;
 	}
@@ -1927,6 +2259,7 @@
 			if (!(target instanceof Element) || !target.closest(".cl-more")) return;
 			shownCount += PAGE_SIZE;
 			render();
+			list.querySelector(".cl-more")?.focus();
 		}, { signal: ui.signal });
 		function updateStats() {
 			const chosen = filteredItems.filter((item) => selectedIds.has(item.id)).length;
@@ -2065,89 +2398,68 @@
 	//#endregion
 	//#region scripts/capture-links/src/ui/settings-panel.ts
 	function createSettingsPanel(options) {
-		const { ui } = options;
-		const panel = createPanel(ui, {
+		const form = createSettingsForm(options.ui, {
 			title: "功能设置",
-			open: false,
-			position: "center",
-			closeLabel: "关闭设置"
-		});
-		const generalSection = createSection(ui, { title: "常规" });
-		const floatSwitch = createSwitch(ui, {
-			checked: options.getSettings().showFloatButton,
-			onChange: (checked) => {
-				options.updateSettings({ showFloatButton: checked });
-				options.onFloatButtonChange();
+			sections: [{
+				title: "常规",
+				fields: [{
+					key: "showFloatButton",
+					type: "switch",
+					label: "显示浮动按钮",
+					description: "关掉后仍可从油猴菜单打开链接面板"
+				}]
+			}, {
+				title: "复制格式",
+				fields: [{
+					key: "copyFormat",
+					type: "select",
+					label: "复制格式",
+					description: "纯链接最省事；Markdown 与 HTML 适合直接贴进笔记",
+					options: [
+						{
+							value: "url",
+							label: "纯链接"
+						},
+						{
+							value: "markdown",
+							label: "Markdown"
+						},
+						{
+							value: "html",
+							label: "HTML"
+						}
+					]
+				}]
+			}]
+		}, {
+			mode: "immediate",
+			get: options.getSettings,
+			onChange: (patch) => {
+				const next = { ...patch };
+				if (next.copyFormat !== void 0) next.copyFormat = toCopyFormat(next.copyFormat);
+				options.updateSettings(next);
+				if (next.showFloatButton !== void 0) options.onFloatButtonChange();
 			}
 		});
-		generalSection.body.append(createField(ui, {
-			label: "显示浮动按钮",
-			description: "关掉后仍可从油猴菜单打开链接面板",
-			control: floatSwitch,
-			inline: true
-		}).el);
-		const copySection = createSection(ui, { title: "复制格式" });
-		const formatSelect = createSelect(ui, {
-			options: [
-				{
-					value: "url",
-					label: "纯链接"
-				},
-				{
-					value: "markdown",
-					label: "Markdown"
-				},
-				{
-					value: "html",
-					label: "HTML"
-				}
-			],
-			value: options.getSettings().copyFormat,
-			onChange: (value) => {
-				options.updateSettings({ copyFormat: toCopyFormat(value) });
-			}
-		});
-		copySection.body.append(createField(ui, {
-			label: "复制格式",
-			description: "纯链接最省事；Markdown 与 HTML 适合直接贴进笔记",
-			control: formatSelect
-		}).el);
-		panel.body.append(generalSection.el, copySection.el);
-		const closeButton = createButton(ui, {
-			label: "关闭",
-			variant: "secondary",
-			onClick: () => panel.close()
-		});
-		panel.setFooter([closeButton.el]);
 		return {
-			panel,
-			open() {
-				const settings = options.getSettings();
-				floatSwitch.setChecked(settings.showFloatButton);
-				formatSelect.setValue(settings.copyFormat);
-				panel.open();
-			},
-			close: () => panel.close(),
-			isOpen: () => panel.isOpen()
+			panel: form.panel,
+			open: () => form.open(),
+			close: () => form.close(),
+			isOpen: () => form.isOpen()
 		};
 	}
 	//#endregion
 	//#region scripts/capture-links/src/ui/app.ts
-	var LABELS = {
-		close: "关闭",
-		settings: "设置",
-		notifications: "通知",
-		dismissNotification: "关闭通知",
-		closeSettings: "关闭设置",
-		scrollHint: "向下滚动查看更多内容",
-		cancel: "取消",
-		confirm: "确定"
-	};
+	/** 悬浮按钮的链接图标；线条规则与 `@ui` 内置图标一致。 */
+	var LINK_ICON_PATHS = ["M10 13a5 5 0 0 0 7.07 0l2.12-2.12a5 5 0 0 0-7.07-7.07L11 4", "M14 11a5 5 0 0 0-7.07 0L4.81 13.12a5 5 0 0 0 7.07 7.07L13 20"];
 	function createApp(options) {
+		const host = createUiHost();
+		let toast = null;
 		let session = null;
 		let settingsPanel = null;
 		const notify = (message, variant) => {
-			session?.toast[variant](message);
+			toast ??= createToast(host.ensure());
+			toast[variant](message);
 		};
 		const syncLauncher = () => {
 			if (!options.getSettings().showFloatButton) {
@@ -2165,19 +2477,15 @@
 				label: "打开链接面板",
 				closeLabel: "关闭链接面板",
 				panel: launcherPanel,
-				icon: linkIcon()
+				icon: icon(LINK_ICON_PATHS, 18)
 			});
 			current.linkPanel.panel.setPosition("center");
 		};
 		const ensure = () => {
 			if (session) return session;
-			const ui = mountUI({
-				theme: "system",
-				labels: LABELS
-			});
+			const ui = host.ensure();
 			session = {
 				ui,
-				toast: createToast(ui),
 				linkPanel: createLinkPanel({
 					ui,
 					getCopyFormat: () => options.getSettings().copyFormat,
@@ -2203,7 +2511,8 @@
 			openLinks: () => ensure().linkPanel.open(),
 			openSettings: () => ensureSettings().open(),
 			destroy() {
-				session?.ui.destroy();
+				host.destroy();
+				toast = null;
 				session = null;
 				settingsPanel = null;
 			}
@@ -2217,42 +2526,28 @@
 	* 页面本体不放任何 DOM：UI 全部在 `@ui` 的 Shadow Root 里，关掉悬浮按钮后
 	* 只有菜单入口，普通页面零节点零样式。
 	*/
-	var MENU_LINKS = "操作面板";
-	var MENU_SETTINGS = "功能设置";
-	function start() {
-		const gm = createGmApi();
-		const store = createSettingsStore(gm);
-		const clipboard = createClipboard();
-		const app = createApp({
-			getSettings: store.get,
-			updateSettings: (patch) => void store.update(patch),
-			copy: clipboard.copy
-		});
-		app.syncLauncher();
-		const register = (label, run) => {
-			if (!gm.registerMenuCommand(label, run)) console.warn(`[capture-links] 菜单命令不可用：${label}`);
-		};
-		const openLinks = () => {
-			try {
-				app.openLinks();
-			} catch (error) {
-				console.error("[capture-links] 打开链接面板失败", error);
-			}
-		};
-		const openSettings = () => {
-			try {
-				app.openSettings();
-			} catch (error) {
-				console.error("[capture-links] 打开设置面板失败", error);
-			}
-		};
-		register(MENU_LINKS, openLinks);
-		register(MENU_SETTINGS, openSettings);
-	}
-	try {
-		start();
-	} catch (error) {
-		console.error("[capture-links] 启动失败", error);
-	}
+	createUserscript(createGmApi(), {
+		slug: "capture-links",
+		installLock: false,
+		onReady: (kit) => {
+			const store = createSettingsStore(kit.gm);
+			const clipboard = createClipboard();
+			const app = createApp({
+				getSettings: store.get,
+				updateSettings: (patch) => void store.update(patch),
+				copy: clipboard.copy
+			});
+			app.syncLauncher();
+			kit.menu({
+				label: "操作面板",
+				run: () => app.openLinks()
+			});
+			kit.menu({
+				label: "功能设置",
+				run: () => app.openSettings()
+			});
+			return () => app.destroy();
+		}
+	});
 	//#endregion
 })();

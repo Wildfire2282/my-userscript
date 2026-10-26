@@ -2,7 +2,7 @@
 // @name         拖拽打开
 // @name:en      Drag to Open
 // @namespace    https://github.com/Wildfire2282
-// @version      2.9.4
+// @version      2.9.11
 // @description  拖拽文本搜索，拖拽链接在新标签页打开，拖拽图片查看
 // @description:en Drag text to search, links to open, and images to view
 // @author       Wildfire2282 (https://github.com/Wildfire2282)
@@ -22,7 +22,7 @@
 // @updateURL    https://update.greasyfork.org/scripts/580630/%E8%B6%85%E7%BA%A7%E6%8B%96%E6%8B%BD.meta.js
 // ==/UserScript==
 (function() {
-	//#region packages/shared/src/gm.ts
+	//#region packages/shared/src/host/gm.ts
 	/**
 	* 把全局 GM 函数包成可注入的接口。
 	*
@@ -60,7 +60,28 @@
 		};
 	}
 	//#endregion
-	//#region packages/shared/src/storage.ts
+	//#region packages/shared/src/dom/editable.ts
+	/**
+	* 可编辑判定：super-drag 的单元素判定 + selection-copy 的祖先链判定。
+	*
+	* 两套语义不同，不能互相替代：
+	* - `isEditableField`：元素本身是不是表单控件或可编辑区（拖拽是否该让路）。
+	* - `isInsideEditable`：元素或其祖先是不是可编辑区（含 `designMode` 整页编辑、
+	*   `contenteditable="plaintext-only"` 与 `"false"` 继续上溯）。
+	*/
+	/** 元素本身是否是表单控件或可编辑区域。 */
+	function isEditableField(node) {
+		if (!node || node.nodeType !== Node.ELEMENT_NODE) return false;
+		const tag = node.tagName.toLowerCase();
+		if (tag === "input" || tag === "textarea" || tag === "select") return true;
+		if (node.isContentEditable) return true;
+		const editable = node.getAttribute("contenteditable");
+		if (editable === "" || editable === "true" || editable === "plaintext-only") return true;
+		if (node.getAttribute("role") === "textbox") return true;
+		return false;
+	}
+	//#endregion
+	//#region packages/shared/src/host/storage.ts
 	/**
 	* 设置读写：默认值合并 + 异常兜底。
 	*
@@ -108,7 +129,7 @@
 		return mergeRecords(defaults, stored);
 	}
 	//#endregion
-	//#region packages/shared/src/settings-store.ts
+	//#region packages/shared/src/host/settings-store.ts
 	/**
 	* 写失败时的基线比较：存储值变了就说明别处写过，本页副本作废。
 	*
@@ -157,718 +178,108 @@
 		};
 	}
 	//#endregion
-	//#region scripts/super-drag/src/settings.ts
-	/** 「自定义」引擎在 `defaultEngine` 里的取值；`engines` 里不会有这个键。 */
-	var CUSTOM_ENGINE_ID = "custom";
-	/** 线上旧键，按 AGENTS.md 6.4 不改名，否则老用户设置会丢。 */
-	var SETTINGS_KEY = "settings";
-	/** 没有存量设置时使用的值。 */
-	var DEFAULT_SETTINGS = {
-		defaultEngine: "google",
-		customEngineUrl: "",
-		engines: {
-			"cn.bing": "https://cn.bing.com/search?q={keyword}",
-			bing: "https://www.bing.com/search?q={keyword}",
-			google: "https://www.google.com/search?q={keyword}",
-			baidu: "https://www.baidu.com/s?wd={keyword}"
-		},
-		linkOpenMode: "background",
-		urlTextAction: "open",
-		imageAction: "viewer",
-		dragKinds: {
-			text: true,
-			link: true,
-			image: true
-		}
-	};
-	function sanitizeEngines(value) {
-		if (typeof value !== "object" || value === null) return { ...DEFAULT_SETTINGS.engines };
-		const engines = {};
-		for (const [id, template] of Object.entries(value)) {
-			if (id === "custom") continue;
-			if (typeof template === "string" && template.includes("{keyword}")) engines[id] = template;
-		}
-		return Object.keys(engines).length > 0 ? engines : { ...DEFAULT_SETTINGS.engines };
-	}
+	//#region packages/shared/src/runtime/logger.ts
 	/**
-	* 归一化三类拖拽开关。
+	* 创建带 `[slug]` 前缀的日志器。
 	*
-	* 只认显式的 `false`：存储里多出来的键、字符串、缺字段都按“开启”处理，
-	* 避免坏值把用户唯一能用的拖拽也关掉。
+	* @param slug 脚本标识，如 `super-drag`
 	*/
-	function sanitizeDragKinds(value) {
-		const stored = typeof value === "object" && value !== null ? value : {};
+	function createLogger(slug) {
 		return {
-			text: stored.text !== false,
-			link: stored.link !== false,
-			image: stored.image !== false
+			warn: (message) => console.warn(`[${slug}] ${message}`),
+			error: (message, detail) => detail === void 0 ? console.error(`[${slug}] ${message}`) : console.error(`[${slug}] ${message}`, detail)
 		};
 	}
 	/**
-	* 把存储里读到的任意值收敛成可用设置。
+	* 菜单 / 启动 / 面板打开三层错误边界的最小包装：失败只记日志，不抛给管理器与宿主页面。
 	*
-	* 存储可能被旧版本、手改或别的脚本写坏；单个字段坏掉只回退该字段，不让整页拖拽失效。
-	* 旧版的 `enabled` 总开关不再读取：整体停用交给脚本管理器的开关。
+	* @param log 统一日志器
+	* @param message 失败时的中文说明
+	* @param run 实际回调
 	*/
-	function normalizeSettings(stored) {
-		const merged = mergeDefaults(DEFAULT_SETTINGS, stored);
-		const engines = sanitizeEngines(merged.engines);
-		const engine = typeof merged.defaultEngine === "string" && merged.defaultEngine !== "" ? merged.defaultEngine : DEFAULT_SETTINGS.defaultEngine;
-		return {
-			defaultEngine: engine === "custom" || Object.hasOwn(engines, engine) ? engine : Object.keys(engines)[0] ?? DEFAULT_SETTINGS.defaultEngine,
-			customEngineUrl: typeof merged.customEngineUrl === "string" ? merged.customEngineUrl : "",
-			engines,
-			linkOpenMode: merged.linkOpenMode === "foreground" ? "foreground" : "background",
-			urlTextAction: merged.urlTextAction === "search" ? "search" : "open",
-			imageAction: merged.imageAction === "original" ? "original" : "viewer",
-			dragKinds: sanitizeDragKinds(merged.dragKinds)
-		};
-	}
-	/**
-	* 创建设置仓库；读取与写回的通用逻辑在 `@shared`。
-	*
-	* @param api GM 适配层；测试里可以传入假实现
-	*/
-	function createSettingsStore(api = createGmApi()) {
-		return createSettingsStore$1({
-			api,
-			key: SETTINGS_KEY,
-			normalize: normalizeSettings
-		});
+	function guard(log, message, run) {
+		try {
+			run();
+		} catch (error) {
+			log.error(message, error);
+		}
 	}
 	//#endregion
-	//#region scripts/super-drag/src/search.ts
-	/** 设置面板里“效果预览”使用的示例关键词。 */
-	var PREVIEW_KEYWORD = "hello";
-	/** 内置引擎的显示名；存储里新增的引擎直接用 ID 当名字。 */
-	var ENGINE_LABELS = {
-		"cn.bing": "Bing (CN)",
-		bing: "Bing",
-		google: "Google",
-		baidu: "Baidu"
-	};
-	var GOOGLE_FALLBACK = "https://www.google.com/search?q={keyword}";
-	/** 未知引擎 ID 的显示名：把 `my-engine` 转成 `My Engine`，而不是直接甩出原始 ID。 */
-	function humanizeEngineId(id) {
-		return id.split(/[-_]/).map((part) => part === "" ? part : part.charAt(0).toUpperCase() + part.slice(1)).join(" ");
-	}
-	/** 下拉选项：存储里的引擎 + 自定义。顺序沿用存储顺序，保证旧用户看到的顺序不变。 */
-	function engineOptions(settings) {
-		const options = Object.keys(settings.engines).map((id) => ({
-			value: id,
-			label: Object.hasOwn(ENGINE_LABELS, id) ? ENGINE_LABELS[id] : humanizeEngineId(id)
-		}));
-		options.push({
-			value: CUSTOM_ENGINE_ID,
-			label: "自定义"
-		});
-		return options;
-	}
-	/** 解析当前引擎的地址模板；配置无效时回退 Google，而不是打开一个坏地址。 */
-	function resolveSearchTemplate(settings) {
-		const template = settings.defaultEngine === "custom" ? settings.customEngineUrl : settings.engines[settings.defaultEngine];
-		if (typeof template !== "string" || !template.includes("{keyword}")) return GOOGLE_FALLBACK;
-		return template;
-	}
-	/** 把关键词编码后填进模板，得到最终搜索地址。 */
-	function buildSearchUrl(settings, keyword) {
-		return resolveSearchTemplate(settings).replaceAll("{keyword}", encodeURIComponent(keyword));
+	//#region packages/shared/src/runtime/boot.ts
+	/**
+	* 安装锁：同一文档只装一份。
+	*
+	* 不同管理器的沙箱之间 window 不一定共享，DOM 一定共享，所以用元素属性而不用
+	* window 标记。selection-copy 的 `data-selection-auto-copy-installed` 沿用此实现。
+	*/
+	function installOnce(attribute) {
+		const root = document.documentElement;
+		if (!root || root.hasAttribute(attribute)) return false;
+		root.setAttribute(attribute, "");
+		return true;
 	}
 	/**
-	* 校验自定义搜索地址。
+	* 脚本启动器：安装锁、frame 判断、菜单注册、DOM 就绪、pagehide 清理。
 	*
-	* @returns 错误文案；`null` 表示可用
+	* - 顶层 `guard` 兜住同步启动异常（与各脚本原有顶层 try/catch 同语义）。
+	* - `onStart` 同步执行，不等 DOM；`onReady` 等 DOM 就绪。
+	* - 清理函数幂等；`pagehide` 且 `persisted === false` 时自动调用。
+	* - 菜单回调统一 `guard` 包裹；注册失败只告警，不阻断脚本主功能。
+	*
+	* @param gmApi GM 适配层；测试里传假实现
+	* @param options 启动参数
+	* @returns `destroy` 供页面卸载与测试调用
 	*/
-	function validateCustomEngineUrl(url) {
-		const value = url.trim();
-		if (value === "") return "请填写自定义搜索 URL";
-		if (!value.includes("{keyword}")) return "自定义搜索 URL 必须包含 {keyword} 占位符";
-		if (!/^https?:\/\//i.test(value)) return "自定义搜索 URL 必须以 http:// 或 https:// 开头";
-		let parsed;
-		try {
-			parsed = new URL(value.replaceAll("{keyword}", "x"));
-		} catch {
-			return "自定义搜索 URL 不是有效地址";
-		}
-		if (parsed.hostname === "") return "自定义搜索 URL 缺少域名";
-		if (/\s/.test(value)) return "自定义搜索 URL 不能包含空格";
-		return null;
-	}
-	/** 默认设置的深拷贝，供“恢复默认”按钮使用。 */
-	function defaultSettings() {
-		return {
-			...DEFAULT_SETTINGS,
-			engines: { ...DEFAULT_SETTINGS.engines },
-			dragKinds: { ...DEFAULT_SETTINGS.dragKinds }
+	function createUserscript(gmApi, options) {
+		const { slug, installLock = true, topFrameOnly = false, menus = [] } = options;
+		const log = createLogger(slug);
+		const cleanups = [];
+		let destroyed = false;
+		const destroy = () => {
+			if (destroyed) return;
+			destroyed = true;
+			for (const cleanup of [...cleanups].reverse()) try {
+				cleanup();
+			} catch {}
+			cleanups.length = 0;
 		};
-	}
-	var URL_PATTERN = /(ftp|http|https):\/\/(\w+:{0,1}\w*@)?(\S+)(:[0-9]+)?(\/|\/([\w#!:.?+=&%@!-/]))?/i;
-	/** @param text 任意文本 */
-	function looksLikeUrl(text) {
-		return URL_PATTERN.test(text);
-	}
-	/** 中文标点不可能出现在地址里：第一次出现就截断（`https://a。这是说明` → `https://a`）。 */
-	var CJK_PUNCT = /[。、，．・…？！；：『』「」《》（）【】\u3000]/u;
-	/** 地址结尾不可能是这些符号（句尾的 `。，;!?` 和全角引号括号）；半角 `)]}` 不在这里剥，
-	* Wikipedia 的 `..._(film)` 就是右括号结尾，见 `balanceTrailingParen`。 */
-	var TRAILING_PUNCT = /[。.，,;；:：!！?？'"'""…、〉》」』〕）]+$/u;
-	/** 括号配平：右括号比左括号多时，多出来的只能是句尾混进来的，剥掉一个。
-	*
-	* `（见https://a)` → `https://a`；`..._(film)` 配平，保留。 */
-	function balanceTrailingParen(url) {
-		if (!url.endsWith(")")) return url;
-		let depth = 0;
-		for (const char of url) if (char === "(") depth += 1;
-		else if (char === ")") depth -= 1;
-		return depth < 0 ? url.slice(0, -1) : url;
-	}
-	/**
-	* 从一段无空格的文字里切出地址：从协议头开始，到中文标点结束。
-	*
-	* `见https://example.com/a好` 这种粘在一起的也能切出中间的地址；
-	* 纯 IDN（`https://例子.测试`，半角点）不受影响，只有全角标点会截断。
-	*/
-	function extractUrlCandidate(keyword) {
-		const start = keyword.search(/(ftp|https?):\/\//i);
-		const fromStart = start >= 0 ? keyword.slice(start) : keyword;
-		const cut = fromStart.search(CJK_PUNCT);
-		return balanceTrailingParen((cut >= 0 ? fromStart.slice(0, cut) : fromStart).replace(TRAILING_PUNCT, ""));
-	}
-	/**
-	* 把拖拽的文本转成“直接打开”的地址。
-	*
-	* @returns 可直接打开的地址；`''` 表示应当走搜索
-	*/
-	function asDirectUrl(text) {
-		const keyword = typeof text === "string" ? text.trim() : "";
-		if (keyword === "" || keyword.length > 2048 || /\s/.test(keyword)) return "";
-		const stripped = extractUrlCandidate(keyword);
-		if (stripped === "") return "";
-		return looksLikeUrl(stripped) ? stripped : "";
-	}
-	//#endregion
-	//#region scripts/super-drag/src/features/drop-action.ts
-	/**
-	* 决定这次拖拽归不归脚本处理。
-	*
-	* 规则与线上原版一致：选区优先（按在选区里拖连接也是搜索），其次链接，再次图片，
-	* 最后才是“可拖拽元素上带着一段选区”的兜底。
-	*
-	* 按在选区里但文字拖拽被关掉时直接不接管：用户此刻想拖的是文字，交还给网页原生拖拽，
-	* 而不是突然打开压在下面的链接。
-	*
-	* @param kinds 三类拖拽各自的开关
-	* @returns 要接管的内容；`null` 表示交给浏览器原生拖拽
-	*/
-	function decideDrag(candidate, kinds) {
-		if (candidate.selection !== "" && candidate.selectionHit) return kinds.text ? {
-			kind: "text",
-			data: candidate.selection
-		} : null;
-		if (kinds.link && candidate.link !== "") return {
-			kind: "link",
-			data: candidate.link
-		};
-		if (kinds.image && candidate.image !== "") return {
-			kind: "image",
-			data: candidate.image
-		};
-		if (candidate.link !== "" || candidate.image !== "") return null;
-		if (kinds.text && candidate.selection !== "") return {
-			kind: "text",
-			data: candidate.selection
-		};
-		return null;
-	}
-	/** 本次打开是否切到前台：按住 Shift，或设置里选了前台打开。 */
-	function shouldOpenInForeground(shiftKey, linkOpenMode) {
-		return shiftKey || linkOpenMode === "foreground";
-	}
-	/**
-	* 把拖拽内容转成“打开什么”。
-	*
-	* 文本：网址且设置为直接打开时打开它，否则拼搜索地址；链接：打开链接；
-	* 图片：交给图片打开流程（可能是查看器页面）。
-	*/
-	function resolveDropAction(kind, data, settings) {
-		if (data === "") return null;
-		if (kind === "link") return {
-			kind: "url",
-			url: data
-		};
-		if (kind === "image") return {
-			kind: "image",
-			url: data
-		};
-		if (settings.urlTextAction === "open") {
-			const direct = asDirectUrl(data);
-			if (direct !== "") return {
-				kind: "url",
-				url: direct
-			};
-		}
-		return {
-			kind: "search",
-			url: buildSearchUrl(settings, data)
-		};
-	}
-	//#endregion
-	//#region scripts/super-drag/src/features/editable.ts
-	/**
-	* 判断事件发生在可编辑控件上。
-	*
-	* 输入框里的拖拽是浏览器原生的“移动文字 / 拖入粘贴”，脚本不能抢；
-	* 但 contenteditable 祖先（例如评论富文本容器）不能一层层往上否决，否则静态评论文字也会失效。
-	*/
-	/** 元素本身是否是表单控件或可编辑区域。 */
-	function isEditableField(node) {
-		if (!node || node.nodeType !== Node.ELEMENT_NODE) return false;
-		const tag = node.tagName.toLowerCase();
-		if (tag === "input" || tag === "textarea" || tag === "select") return true;
-		if (node.isContentEditable) return true;
-		if (node.getAttribute("contenteditable") === "true") return true;
-		if (node.getAttribute("role") === "textbox") return true;
-		return false;
-	}
-	/**
-	* 事件发生处最近的可拖动祖先（`draggable="true"`）。
-	*
-	* 卡片排序、上传区、看板列都用它实现原生拖拽；页面上只要存在一段文字选区，
-	* 脚本的文字兜底就会把这类拖拽抢过来，用户原本的拖拽动作变成“搜索选中文字”。
-	*
-	* 是否豁免由调用方结合「宿主是不是真的有链接 / 图片地址」判断，见
-	* `hit-test.ts` 的 `hasNativeDragContent`：没有地址的链接、图片只是页面自己的控件。
-	*/
-	function draggableHostOf(node) {
-		return node?.closest("[draggable=\"true\"]") ?? null;
-	}
-	/**
-	* 取真实的事件目标。
-	*
-	* 在 window 捕获阶段监听时，Shadow DOM 内的事件会被重定向到宿主；
-	* `composedPath()` 能拿回真正的内部节点（例如组件里的 `<input>`）。
-	*/
-	function realTarget(event) {
-		try {
-			if (typeof event.composedPath === "function") {
-				const path = event.composedPath();
-				if (path.length > 0) return path[0] ?? null;
-			}
-		} catch {}
-		return event.target;
-	}
-	/**
-	* 事件是否发生在输入框里（含 label 包着 input 这类结构）。
-	*/
-	function isInputElement(event) {
-		const raw = realTarget(event);
-		const target = raw instanceof Element ? raw : null;
-		if (isEditableField(target)) return true;
-		let node = target?.parentElement ?? null;
-		while (node) {
-			const tag = node.tagName.toLowerCase();
-			if (tag === "input" || tag === "textarea" || tag === "select") return true;
-			if (node.isContentEditable) break;
-			node = node.parentElement;
-		}
-		return false;
-	}
-	//#endregion
-	//#region scripts/super-drag/src/features/hit-test.ts
-	var XLINK_NS = "http://www.w3.org/1999/xlink";
-	/** 跨 Shadow 边界找父元素：先看 parentElement，再回到宿主。 */
-	function parentAcrossShadow(node) {
-		if (node.parentElement) return node.parentElement;
-		const root = node.getRootNode();
-		return root instanceof ShadowRoot ? root.host : null;
-	}
-	function isIgnorableHref(href) {
-		return !href || href === "#" || href.toLowerCase().startsWith("javascript:");
-	}
-	/** 链接的原始地址；SVG 的 `<a>` 往往只有 xlink:href。 */
-	function rawLinkHref(node) {
-		return node.getAttribute("href") ?? node.getAttributeNS(XLINK_NS, "href") ?? "";
-	}
-	/**
-	* 解析链接地址。
-	*
-	* HTML 的 `a.href` 已是绝对地址，但 SVG 的 `<a>` 返回 SVGAnimatedString，
-	* 所以统一读原始属性并用 `document.baseURI` 补全，顺带支持 `xlink:href`。
-	*/
-	function resolveLinkHref(node) {
-		const raw = rawLinkHref(node);
-		if (raw === "") return "";
-		try {
-			return new URL(raw, document.baseURI).href;
-		} catch {
-			return "";
-		}
-	}
-	/** 图片地址；空 `src` 属性会被 `img.src` 解析成当前页面地址，不能当图片打开。 */
-	function imageUrl(img) {
-		if (img.currentSrc !== "") return img.currentSrc;
-		const raw = img.getAttribute("src");
-		return raw === null || raw.trim() === "" ? "" : img.src;
-	}
-	/**
-	* 页面显式标成 `draggable="true"` 的宿主，是否携带脚本该接管的链接 / 图片内容。
-	*
-	* 站点常给本来就默认可拖拽的链接、图片补上该属性；但 `<a>` 没有可用地址、`<img>`
-	* 没有地址时，它只是页面自己的拖拽控件，交还页面。
-	*/
-	function hasNativeDragContent(node) {
-		const tag = node.tagName.toUpperCase();
-		if (tag === "A") return !isIgnorableHref(rawLinkHref(node)) && resolveLinkHref(node) !== "";
-		if (tag === "IMG") return imageUrl(node) !== "";
-		return false;
-	}
-	/** 逐层穿透 open Shadow Root 取真实元素。 */
-	function deepElementFromPoint(x, y) {
-		let root = document;
-		let element = null;
-		for (;;) {
-			let next;
-			try {
-				next = root.elementFromPoint(x, y);
-			} catch {
-				next = null;
-			}
-			if (!next) break;
-			element = next;
-			if (next.shadowRoot && next.shadowRoot.mode === "open") root = next.shadowRoot;
-			else break;
-		}
-		return element;
-	}
-	/** 快路径：事件目标本身或其祖先就是链接 / 图片。 */
-	function hitTestFast(target) {
-		if (!target || target.nodeType !== Node.ELEMENT_NODE || typeof target.closest !== "function") return null;
-		const tag = target.tagName.toUpperCase();
-		let link = "";
-		const linkEl = tag === "A" ? target : target.closest("a");
-		if (linkEl && !isIgnorableHref(rawLinkHref(linkEl))) link = resolveLinkHref(linkEl);
-		let image = "";
-		if (tag === "IMG") image = imageUrl(target);
-		return link || image ? {
-			link,
-			image
-		} : null;
-	}
-	/** 慢路径：一次命中测试后往上爬，收集最近的链接 / 图片。 */
-	function hitTestSlow(x, y) {
-		const found = {
-			link: "",
-			image: ""
-		};
-		let node = deepElementFromPoint(x, y);
-		while (node) {
-			const tag = node.tagName.toUpperCase();
-			if (found.link === "" && tag === "A") {
-				if (!isIgnorableHref(rawLinkHref(node))) {
-					found.link = resolveLinkHref(node);
-					if (found.link !== "") break;
-				}
-			} else if (found.image === "" && tag === "IMG") found.image = imageUrl(node);
-			node = parentAcrossShadow(node);
-		}
-		return found;
-	}
-	function hitTest(x, y, target) {
-		return hitTestFast(target) ?? hitTestSlow(x, y);
-	}
-	/** 当前选中文本；没有选区时返回空字符串。 */
-	function getSelectionText() {
-		const selection = window.getSelection();
-		return selection ? selection.toString().trim() : "";
-	}
-	function pointInRect(x, y, rect) {
-		return x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
-	}
-	function pointNearRect(x, y, rect, slop) {
-		return x >= rect.left - slop && x <= rect.right + slop && y >= rect.top - slop && y <= rect.bottom + slop;
-	}
-	function caretRangeFromPoint(x, y) {
-		try {
-			if (typeof document.caretRangeFromPoint === "function") return document.caretRangeFromPoint(x, y);
-		} catch {}
-		return null;
-	}
-	/**
-	* 判断按下点上的字符是否在选区内部。
-	*
-	* 不用 `selection.containsNode(node, true)`：它只要求节点与选区有交集，同一段文字里
-	* 选区之外的按下点也算命中；`comparePoint` 比的是具体偏移，才对得上“按下的字符”。
-	*/
-	function isCaretInsideRange(range, container, offset) {
-		if (typeof range.comparePoint === "function") try {
-			return range.comparePoint(container, offset) === 0;
-		} catch {}
-		const selection = window.getSelection();
-		if (selection && typeof selection.containsNode === "function") try {
-			return selection.containsNode(container, true);
-		} catch {
-			return false;
-		}
-		return false;
-	}
-	/**
-	* @param path 按下点途经的事件路径（内 → 外）；文档级选区被折叠时依次问带 `getSelection` 的节点
-	*/
-	function isPointInSelection(x, y, path = []) {
-		const selection = window.getSelection();
-		const active = selection && !selection.isCollapsed ? selection : path.map((node) => node.getSelection?.() ?? null).find((s) => s && !s.isCollapsed) ?? null;
-		if (!active) return false;
-		const range = active.getRangeAt(0);
-		let rects = [];
-		try {
-			rects = Array.from(range.getClientRects());
-		} catch {}
-		for (const rect of rects) if (pointNearRect(x, y, rect, 4)) return true;
-		const caret = caretRangeFromPoint(x, y);
-		if (caret && isCaretInsideRange(range, caret.startContainer, caret.startOffset)) return true;
-		if (rects.length > 0) return false;
-		const anchor = range.commonAncestorContainer;
-		const host = anchor.nodeType === Node.ELEMENT_NODE ? anchor : anchor.parentElement;
-		return !!host && pointInRect(x, y, host.getBoundingClientRect());
-	}
-	//#endregion
-	//#region scripts/super-drag/src/features/dnd.ts
-	var CLICK_SWALLOW_MS = 400;
-	/** 事件发生处最里层的元素；Shadow DOM 内的拖拽要拿到内部节点而不是宿主。 */
-	function targetOf(event) {
-		const target = realTarget(event);
-		return target instanceof Element ? target : null;
-	}
-	/**
-	* 是否来自脚本自己的界面（@ui 挂在 shadow root 里）。
-	*
-	* 在设置面板里拖选说明文字只是想复制，不该变成搜索；输入框另有 `isInputElement` 拦。
-	*/
-	function isOwnUi(node) {
-		const root = node?.getRootNode();
-		return root instanceof ShadowRoot && root.host.matches("userscript-ui-root[data-ds-root]");
-	}
-	function installDragSensor(deps) {
 		const controller = new AbortController();
-		const { signal } = controller;
-		const listenerOptions = {
-			capture: true,
-			signal
+		cleanups.push(() => controller.abort());
+		const onPageHide = (event) => {
+			if (!event.persisted) destroy();
 		};
-		let dragStart = null;
-		let kind = "text";
-		let data = "";
-		let swallowClickUntil = 0;
-		let dragSource = null;
-		const ghost = document.createElement("canvas");
-		ghost.width = 16;
-		ghost.height = 16;
-		ghost.setAttribute("aria-hidden", "true");
-		ghost.style.cssText = "position:fixed;top:0;left:0;width:16px;height:16px;margin:0;padding:0;border:0;opacity:0;pointer-events:none;";
-		/** 拖拽开始前把残影元素挂进文档并布局；浏览器在 dragstart 结束时才快照。 */
-		const mountGhost = () => {
-			if (!ghost.isConnected) document.documentElement.appendChild(ghost);
-			ghost.getBoundingClientRect();
+		window.addEventListener("pagehide", onPageHide);
+		cleanups.push(() => window.removeEventListener("pagehide", onPageHide));
+		const menu = (item) => {
+			if ((item.topFrameOnly ?? false) && window.top !== window.self) return;
+			const wrapped = () => guard(log, `打开${item.label}失败`, item.run);
+			if (!gmApi.registerMenuCommand(item.label, wrapped)) log.warn(`菜单命令不可用：${item.label}`);
 		};
-		const reset = () => {
-			dragStart = null;
-			kind = "text";
-			data = "";
-			if (ghost.isConnected) ghost.remove();
-		};
-		const claim = (transfer, text) => {
-			try {
-				transfer.setData("text/plain", text);
-				return true;
-			} catch {
-				return false;
-			}
-		};
-		/** 事件发生处的链接 / 图片。 */
-		const hitTestAt = (event) => {
-			const target = realTarget(event);
-			return hitTest(event.clientX, event.clientY, target instanceof Element ? target : null);
-		};
-		const handleDragStart = (event) => {
-			reset();
-			if (event.defaultPrevented) return;
-			if (isOwnUi(targetOf(event))) return;
-			if (event.ctrlKey || event.metaKey || event.altKey) return;
-			if (isInputElement(event)) return;
-			const transfer = event.dataTransfer;
-			if (!transfer) return;
-			const settings = deps.getSettings();
-			const selected = getSelectionText();
-			const selectionHit = selected !== "" && isPointInSelection(event.clientX, event.clientY, event.composedPath());
-			const draggableHost = draggableHostOf(targetOf(event));
-			if (!selectionHit && draggableHost && !hasNativeDragContent(draggableHost)) return;
-			const hit = selectionHit ? {
-				link: "",
-				image: ""
-			} : hitTestAt(event);
-			const payload = decideDrag({
-				link: hit.link,
-				image: hit.image,
-				selection: selected,
-				selectionHit
-			}, settings.dragKinds);
-			if (!payload || !claim(transfer, payload.data)) return;
-			try {
-				transfer.effectAllowed = "copy";
-				mountGhost();
-				transfer.setDragImage(ghost, 0, 0);
-			} catch {}
-			dragStart = event;
-			kind = payload.kind;
-			data = payload.data;
-			dragSource = targetOf(event);
-		};
-		const isActiveDrag = (event) => {
-			if (!dragStart) return false;
-			if (dragStart.defaultPrevented || event.dataTransfer?.types.includes("Files")) {
-				reset();
-				return false;
-			}
-			return true;
-		};
-		const handleDragOver = (event) => {
-			if (!isActiveDrag(event)) return;
-			event.preventDefault();
-			event.stopPropagation();
-			try {
-				if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
-			} catch {}
-		};
-		const handleDrop = (event) => {
-			if (!isActiveDrag(event)) return;
-			if (isInputElement(event)) {
-				reset();
-				return;
-			}
-			event.preventDefault();
-			event.stopPropagation();
-			swallowClickUntil = performance.now() + CLICK_SWALLOW_MS;
-			const settings = deps.getSettings();
-			const foreground = shouldOpenInForeground(event.shiftKey === true, settings.linkOpenMode);
-			const action = resolveDropAction(kind, data, settings);
-			try {
-				if (action?.kind === "image") {
-					if (settings.imageAction === "original") deps.openUrl(action.url, foreground);
-					else deps.openImage(action.url, foreground);
-				} else if (action) deps.openUrl(action.url, foreground);
-			} finally {
-				reset();
-			}
-		};
-		const handleDragEnd = () => {
-			reset();
-		};
-		const handleClickCapture = (event) => {
-			if (swallowClickUntil !== 0 && performance.now() <= swallowClickUntil) {
-				if (dragSource !== null && event.composedPath().includes(dragSource)) {
-					swallowClickUntil = 0;
-					dragSource = null;
-					event.preventDefault();
-					event.stopPropagation();
-					event.stopImmediatePropagation();
-					return;
-				}
-			}
-			swallowClickUntil = 0;
-			dragSource = null;
-			reset();
-		};
-		const handleKeyDown = (event) => {
-			if (event.key === "Escape") reset();
-		};
-		const handlePressStart = () => {
-			swallowClickUntil = 0;
-			dragSource = null;
-			reset();
-		};
-		window.addEventListener("dragstart", handleDragStart, listenerOptions);
-		window.addEventListener("dragover", handleDragOver, listenerOptions);
-		window.addEventListener("drop", handleDrop, listenerOptions);
-		window.addEventListener("dragend", handleDragEnd, listenerOptions);
-		window.addEventListener("blur", reset, { signal });
-		document.addEventListener("click", handleClickCapture, listenerOptions);
-		document.addEventListener("keydown", handleKeyDown, listenerOptions);
-		document.addEventListener("mousedown", handlePressStart, listenerOptions);
-		return { destroy() {
-			controller.abort();
-			reset();
-			swallowClickUntil = 0;
-		} };
-	}
-	//#endregion
-	//#region scripts/super-drag/src/features/openers.ts
-	/**
-	* 打开新标签页：链接直接打开；图片包一层深色查看器；后台打开时把焦点还给当前页。
-	*
-	* GM_openInTab 优先（脚本管理器能正确处理后台标签页），没有时退回 window.open。
-	* 查看器 blob 只在 5 分钟后回收：提前回收会让刚打开、还没加载完的标签页变成空白页。
-	*/
-	var BLOB_REVOKE_DELAY_MS = 3e5;
-	var VIEWER_CSS = "*{margin:0;padding:0}body{display:flex;align-items:center;justify-content:center;min-height:100vh;background:#000}img{max-width:100%;max-height:100vh;object-fit:contain}";
-	/**
-	* 生成图片查看器页面。
-	*
-	* 用 `createHTMLDocument` 建 DOM 再序列化，而不是拼 HTML 字符串：图片地址里的引号、
-	* `&`、`<` 由浏览器负责转义，不会把地址拼成标签。
-	*/
-	function buildImageViewerHtml(imageUrl) {
-		const doc = document.implementation.createHTMLDocument("Image");
-		const meta = doc.createElement("meta");
-		meta.setAttribute("charset", "utf-8");
-		doc.head.prepend(meta);
-		const style = doc.createElement("style");
-		style.textContent = VIEWER_CSS;
-		doc.head.appendChild(style);
-		const img = doc.createElement("img");
-		img.setAttribute("src", imageUrl);
-		img.setAttribute("alt", "image");
-		doc.body.appendChild(img);
-		return `<!DOCTYPE html>${new XMLSerializer().serializeToString(doc.documentElement)}`;
-	}
-	function defaultScope() {
-		const globals = globalThis;
-		return {
-			GM_openInTab: typeof globals.GM_openInTab === "function" ? globals.GM_openInTab.bind(globals) : void 0,
-			open: window.open.bind(window),
-			focus: () => window.focus()
-		};
-	}
-	function createOpeners(scope = defaultScope()) {
-		const openUrl = (url, active) => {
-			if (typeof scope.GM_openInTab === "function") try {
-				scope.GM_openInTab(url, {
-					active,
-					insert: true
+		guard(log, "启动失败", () => {
+			if (topFrameOnly && window.top !== window.self) return;
+			if (typeof installLock === "string" && !installOnce(installLock)) return;
+			const startCleanup = options.onStart?.();
+			if (typeof startCleanup === "function") cleanups.push(startCleanup);
+			for (const item of menus) menu(item);
+			const runReady = () => {
+				if (destroyed) return;
+				guard(log, "初始化失败", () => {
+					const readyCleanup = options.onReady?.({
+						gm: gmApi,
+						log,
+						signal: controller.signal,
+						menu
+					});
+					if (typeof readyCleanup === "function") cleanups.push(readyCleanup);
 				});
-				return;
-			} catch {}
-			scope.open?.(url, "_blank", "noopener");
-			if (!active) scope.focus?.();
-		};
-		const openImage = (imageUrl, active) => {
-			if (/^(blob:|data:)/i.test(imageUrl)) {
-				openUrl(imageUrl, active);
-				return;
-			}
-			let url;
-			try {
-				url = URL.createObjectURL(new Blob([buildImageViewerHtml(imageUrl)], { type: "text/html" }));
-			} catch {
-				openUrl(imageUrl, active);
-				return;
-			}
-			setTimeout(() => URL.revokeObjectURL(url), BLOB_REVOKE_DELAY_MS);
-			openUrl(url, active);
-		};
-		return {
-			openUrl,
-			openImage
-		};
+			};
+			if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", runReady, {
+				once: true,
+				signal: controller.signal
+			});
+			else runReady();
+		});
+		return { destroy };
 	}
 	//#endregion
 	//#region packages/userscript-ui/src/styles/base.css?inline
@@ -891,6 +302,22 @@
 		scrollHint: "Scroll for more",
 		cancel: "Cancel",
 		confirm: "Confirm"
+	};
+	/**
+	* 中文文案预设：四个脚本的 `LABELS` 逐字相同且都缺 `operation`，
+	* 无标题操作面板的 aria 名会回落到英文 `Operations`。
+	* 脚本侧 `mountUI({ theme: 'system', labels: ZH_LABELS })` 即可，不再各写一份。
+	*/
+	var ZH_LABELS = {
+		close: "关闭",
+		settings: "设置",
+		operation: "操作",
+		notifications: "通知",
+		dismissNotification: "关闭通知",
+		closeSettings: "关闭设置",
+		scrollHint: "向下滚动查看更多内容",
+		cancel: "取消",
+		confirm: "确定"
 	};
 	function resolveLabels(overrides) {
 		return {
@@ -940,9 +367,22 @@
 	//#region packages/userscript-ui/src/core/mount.ts
 	var HOST_TAG = "userscript-ui-root";
 	var DEFAULT_Z_INDEX = 2147483e3;
+	var ROOT_ATTRIBUTE = "data-ds-root";
+	/**
+	* 节点是否来自本仓库脚本自己的界面。
+	*
+	* 脚本要判断鼠标、选区、扫描结果是否落在自己的面板里（否则会把自己的按钮
+	* 当页面内容处理），而宿主标记只由这里定义，所以判定也留在这里。
+	*/
+	function isOwnUiNode(node) {
+		if (!node) return false;
+		if ((node instanceof Element ? node : node.parentElement)?.closest(`[${ROOT_ATTRIBUTE}]`)) return true;
+		const root = node.getRootNode();
+		return root instanceof ShadowRoot && root.host?.hasAttribute(ROOT_ATTRIBUTE) === true;
+	}
 	function mountUI(options = {}) {
 		const host = document.createElement(HOST_TAG);
-		host.setAttribute("data-ds-root", "");
+		host.setAttribute(ROOT_ATTRIBUTE, "");
 		setImportant(host, "all", "initial");
 		setImportant(host, "position", "fixed");
 		setImportant(host, "inset", "0");
@@ -1052,6 +492,50 @@
 	}
 	function setImportant(node, property, value) {
 		node.style.setProperty(property, value, "important");
+	}
+	//#endregion
+	//#region packages/userscript-ui/src/icons.ts
+	var SVG_NS = "http://www.w3.org/2000/svg";
+	function icon(paths, size = 16) {
+		const svg = document.createElementNS(SVG_NS, "svg");
+		svg.setAttribute("viewBox", "0 0 24 24");
+		svg.setAttribute("width", String(size));
+		svg.setAttribute("height", String(size));
+		svg.setAttribute("fill", "none");
+		svg.setAttribute("stroke", "currentColor");
+		svg.setAttribute("stroke-width", "2");
+		svg.setAttribute("stroke-linecap", "round");
+		svg.setAttribute("stroke-linejoin", "round");
+		svg.setAttribute("aria-hidden", "true");
+		svg.setAttribute("focusable", "false");
+		for (const definition of paths) {
+			const path = document.createElementNS(SVG_NS, "path");
+			path.setAttribute("d", definition);
+			svg.appendChild(path);
+		}
+		return svg;
+	}
+	var closeIcon = () => icon(["M18 6 6 18", "m6 6 12 12"]);
+	var chevronDownIcon = () => icon(["m6 9 6 6 6-6"]);
+	//#endregion
+	//#region packages/userscript-ui/src/patterns/app-host.ts
+	/**
+	* 创建界面宿主。
+	*
+	* @param options 主题选项
+	*/
+	function createUiHost(options = {}) {
+		let ui = null;
+		return {
+			ensure: () => ui ??= mountUI({
+				theme: options.theme ?? "system",
+				labels: ZH_LABELS
+			}),
+			destroy: () => {
+				ui?.destroy();
+				ui = null;
+			}
+		};
 	}
 	//#endregion
 	//#region packages/userscript-ui/src/core/lifecycle.ts
@@ -1169,6 +653,25 @@
 		else if (content) parent.appendChild(content);
 	}
 	//#endregion
+	//#region packages/userscript-ui/src/core/form.ts
+	/**
+	* Invalid state has two independent owners: the control (`data-ds-invalid`)
+	* and its Field (`data-ds-field-invalid`). `aria-invalid` is always the union,
+	* so either side can change state without erasing the other's decision.
+	*/
+	function applyInvalid(input, invalid) {
+		input.toggleAttribute("data-ds-invalid", invalid);
+		syncAriaInvalid(input);
+	}
+	function setFieldInvalid(input, invalid) {
+		input.toggleAttribute("data-ds-field-invalid", invalid);
+		syncAriaInvalid(input);
+	}
+	function syncAriaInvalid(input) {
+		if (input.hasAttribute("data-ds-invalid") || input.hasAttribute("data-ds-field-invalid")) input.setAttribute("aria-invalid", "true");
+		else input.removeAttribute("aria-invalid");
+	}
+	//#endregion
 	//#region packages/userscript-ui/src/core/dom.ts
 	function append(parent, ...items) {
 		for (const item of items) {
@@ -1186,6 +689,152 @@
 		for (const id of active) ids.add(id);
 		if (ids.size > 0) element.setAttribute("aria-describedby", [...ids].join(" "));
 		else element.removeAttribute("aria-describedby");
+	}
+	//#endregion
+	//#region packages/userscript-ui/src/core/id.ts
+	/**
+	* Element ids are global to the page, not to a shadow root. A per-module random
+	* token keeps them unique when two copies of the library (two userscripts, or
+	* an upgrade window with both versions loaded) run in the same document.
+	*/
+	var PAGE_TOKEN = Math.random().toString(36).slice(2, 8);
+	var counter = 0;
+	function uid(prefix = "ds") {
+		counter += 1;
+		return `${prefix}-${PAGE_TOKEN}-${counter}`;
+	}
+	//#endregion
+	//#region packages/userscript-ui/src/components/field.css?inline
+	var field_default = ".ds-field {\n  display: flex;\n  flex-direction: column;\n  gap: var(--ds-space-1-5);\n  min-width: 0;\n}\n\n.ds-field-text {\n  display: flex;\n  flex-direction: column;\n  gap: var(--ds-space-0-5);\n  min-width: 0;\n}\n\n.ds-field-label {\n  color: var(--ds-foreground);\n  font-size: var(--ds-text-sm);\n  font-weight: var(--ds-weight-medium);\n  line-height: var(--ds-leading-snug);\n  cursor: pointer;\n}\n\n.ds-field-description {\n  margin: 0;\n  color: var(--ds-muted-foreground);\n  font-size: var(--ds-text-xs);\n  line-height: var(--ds-leading-snug);\n}\n\n.ds-field-control {\n  min-width: 0;\n}\n\n.ds-field-error {\n  margin: 0;\n  color: var(--ds-destructive);\n  font-size: var(--ds-text-xs);\n  line-height: var(--ds-leading-snug);\n}\n\n.ds-field--inline {\n  display: grid;\n  grid-template-columns: minmax(0, 1fr) auto;\n  align-items: center;\n  column-gap: var(--ds-space-4);\n  row-gap: var(--ds-space-1);\n}\n\n.ds-field--inline .ds-field-text {\n  grid-column: 1;\n}\n\n.ds-field--inline .ds-field-control {\n  grid-column: 2;\n  width: auto;\n}\n\n.ds-field--inline .ds-field-error {\n  grid-column: 1 / -1;\n}\n";
+	//#endregion
+	//#region packages/userscript-ui/src/components/field.ts
+	function createField(ui, options) {
+		assertAlive(ui, "field");
+		ui.useStyles(field_default);
+		const scope = createScope(ui);
+		const input = options.control.input;
+		if (!input.id) input.id = options.id ?? uid("ds-control");
+		const root = document.createElement("div");
+		root.className = options.inline ? "ds-field ds-field--inline" : "ds-field";
+		root.setAttribute("data-ds-field", "");
+		const text = document.createElement("div");
+		text.className = "ds-field-text";
+		const label = document.createElement("label");
+		label.className = "ds-field-label";
+		label.htmlFor = input.id;
+		label.textContent = options.label ?? "";
+		label.hidden = !options.label;
+		text.appendChild(label);
+		const descriptionId = uid("ds-field-description");
+		const description = document.createElement("p");
+		description.className = "ds-field-description";
+		description.id = descriptionId;
+		description.textContent = options.description ?? "";
+		description.hidden = !options.description;
+		text.appendChild(description);
+		text.hidden = !options.label && !options.description;
+		root.appendChild(text);
+		const control = document.createElement("div");
+		control.className = "ds-field-control";
+		control.appendChild(options.control.el);
+		root.appendChild(control);
+		const errorId = uid("ds-field-error");
+		const error = document.createElement("p");
+		error.className = "ds-field-error";
+		error.id = errorId;
+		error.setAttribute("role", "alert");
+		error.hidden = true;
+		root.appendChild(error);
+		const syncFieldDescribedBy = () => {
+			const active = [description, error].filter((node) => !node.hidden).map((node) => node.id);
+			syncDescribedBy(input, [descriptionId, errorId], active);
+		};
+		const syncInvalid = () => setFieldInvalid(input, !error.hidden);
+		const setError = (message) => {
+			if (scope.destroyed) return;
+			const hasError = Boolean(message);
+			error.textContent = message ?? "";
+			error.hidden = !hasError;
+			root.toggleAttribute("data-invalid", hasError);
+			syncInvalid();
+			syncFieldDescribedBy();
+		};
+		const setDescription = (message) => {
+			if (scope.destroyed) return;
+			description.textContent = message ?? "";
+			description.hidden = !message;
+			text.hidden = label.hidden && description.hidden;
+			syncFieldDescribedBy();
+		};
+		if (input.getAttribute("aria-invalid") === "true") input.setAttribute("data-ds-invalid", "");
+		if (options.error) setError(options.error);
+		else {
+			syncInvalid();
+			syncFieldDescribedBy();
+		}
+		scope.onDestroy(() => {
+			description.hidden = true;
+			error.hidden = true;
+			syncFieldDescribedBy();
+			setFieldInvalid(input, false);
+			root.remove();
+		});
+		return {
+			el: root,
+			control: options.control.el,
+			setError,
+			setDescription,
+			destroy: () => scope.destroy()
+		};
+	}
+	//#endregion
+	//#region packages/userscript-ui/src/components/input.css?inline
+	var input_default = ".ds-input,\n.ds-textarea {\n  width: 100%;\n  min-width: 0;\n  border: var(--ds-border-width) solid var(--ds-input);\n  border-radius: var(--ds-radius-md);\n  background: transparent;\n  color: var(--ds-foreground);\n  font-family: inherit;\n  font-size: var(--ds-text-sm);\n  transition:\n    border-color var(--ds-duration-fast) var(--ds-ease),\n    box-shadow var(--ds-duration-fast) var(--ds-ease);\n}\n\n.ds-input {\n  height: var(--ds-control-h);\n  padding: 0 var(--ds-space-2-5);\n  line-height: normal;\n}\n\n.ds-textarea {\n  min-height: var(--ds-textarea-min-h);\n  padding: var(--ds-space-2) var(--ds-space-2-5);\n  line-height: var(--ds-leading-normal);\n  resize: vertical;\n}\n\n.ds-input::placeholder,\n.ds-textarea::placeholder {\n  color: var(--ds-muted-foreground);\n  opacity: 1;\n}\n\n.ds-input:hover:not(:disabled),\n.ds-textarea:hover:not(:disabled) {\n  border-color: color-mix(in srgb, var(--ds-input) 65%, var(--ds-foreground));\n}\n\n.ds-input:focus-visible,\n.ds-textarea:focus-visible {\n  border-color: var(--ds-ring);\n  outline: none;\n  box-shadow: 0 0 0 var(--ds-ring-width) color-mix(in srgb, var(--ds-ring) 24%, transparent);\n}\n\n.ds-input[aria-invalid='true'],\n.ds-textarea[aria-invalid='true'] {\n  border-color: var(--ds-destructive);\n}\n\n.ds-input[aria-invalid='true']:focus-visible,\n.ds-textarea[aria-invalid='true']:focus-visible {\n  box-shadow: 0 0 0 var(--ds-ring-width) color-mix(in srgb, var(--ds-destructive) 24%, transparent);\n}\n\n.ds-input:disabled,\n.ds-textarea:disabled {\n  opacity: 0.55;\n  cursor: not-allowed;\n}\n";
+	//#endregion
+	//#region packages/userscript-ui/src/components/input.ts
+	/**
+	* `data-ds-invalid` mirrors the control's own invalid state so a Field can add
+	* a validation error without owning — or clearing — the control's state.
+	*/
+	function createInput(ui, options = {}) {
+		assertAlive(ui, "input");
+		ui.useStyles(input_default);
+		const scope = createScope(ui);
+		const input = document.createElement("input");
+		input.className = "ds-input";
+		input.type = options.type ?? "text";
+		if (options.value != null) input.value = options.value;
+		if (options.placeholder) input.placeholder = options.placeholder;
+		if (options.name) input.name = options.name;
+		if (options.id) input.id = options.id;
+		if (options.disabled) input.disabled = true;
+		if (options.readonly) input.readOnly = true;
+		if (options.required) input.required = true;
+		if (options.autocomplete) input.autocomplete = options.autocomplete;
+		if (options.inputMode) input.inputMode = options.inputMode;
+		if (options.min != null) input.min = String(options.min);
+		if (options.max != null) input.max = String(options.max);
+		if (options.step != null) input.step = String(options.step);
+		if (options.ariaLabel) input.setAttribute("aria-label", options.ariaLabel);
+		const setInvalid = (invalid) => applyInvalid(input, invalid);
+		if (options.invalid) setInvalid(true);
+		if (options.onInput) input.addEventListener("input", (event) => options.onInput?.(input.value, event), { signal: scope.signal });
+		if (options.onChange) input.addEventListener("change", (event) => options.onChange?.(input.value, event), { signal: scope.signal });
+		return {
+			el: input,
+			input,
+			setValue(value) {
+				input.value = value;
+			},
+			getValue() {
+				return input.value;
+			},
+			setInvalid,
+			destroy() {
+				scope.destroy();
+				input.remove();
+			}
+		};
 	}
 	//#endregion
 	//#region packages/userscript-ui/src/core/focus.ts
@@ -1208,43 +857,6 @@
 	function focusIfConnected(target) {
 		if (target?.isConnected) target.focus({ preventScroll: true });
 	}
-	//#endregion
-	//#region packages/userscript-ui/src/core/id.ts
-	/**
-	* Element ids are global to the page, not to a shadow root. A per-module random
-	* token keeps them unique when two copies of the library (two userscripts, or
-	* an upgrade window with both versions loaded) run in the same document.
-	*/
-	var PAGE_TOKEN = Math.random().toString(36).slice(2, 8);
-	var counter = 0;
-	function uid(prefix = "ds") {
-		counter += 1;
-		return `${prefix}-${PAGE_TOKEN}-${counter}`;
-	}
-	//#endregion
-	//#region packages/userscript-ui/src/icons.ts
-	var SVG_NS = "http://www.w3.org/2000/svg";
-	function icon(paths, size = 16) {
-		const svg = document.createElementNS(SVG_NS, "svg");
-		svg.setAttribute("viewBox", "0 0 24 24");
-		svg.setAttribute("width", String(size));
-		svg.setAttribute("height", String(size));
-		svg.setAttribute("fill", "none");
-		svg.setAttribute("stroke", "currentColor");
-		svg.setAttribute("stroke-width", "2");
-		svg.setAttribute("stroke-linecap", "round");
-		svg.setAttribute("stroke-linejoin", "round");
-		svg.setAttribute("aria-hidden", "true");
-		svg.setAttribute("focusable", "false");
-		for (const definition of paths) {
-			const path = document.createElementNS(SVG_NS, "path");
-			path.setAttribute("d", definition);
-			svg.appendChild(path);
-		}
-		return svg;
-	}
-	var closeIcon = () => icon(["M18 6 6 18", "m6 6 12 12"]);
-	var chevronDownIcon = () => icon(["m6 9 6 6 6-6"]);
 	//#endregion
 	//#region packages/userscript-ui/src/styles/scroll-hint.css?inline
 	var scroll_hint_default = ".ds-scroll-hint {\n  position: absolute;\n  inset-inline: 0;\n  bottom: 0;\n  display: flex;\n  align-items: flex-end;\n  justify-content: center;\n  height: var(--ds-scroll-hint-height);\n  padding-bottom: var(--ds-space-1-5);\n  background: linear-gradient(to top, var(--ds-card) 30%, transparent);\n  color: var(--ds-muted-foreground);\n  font-size: var(--ds-text-xs);\n  pointer-events: none;\n  opacity: 1;\n  visibility: visible;\n  transition: opacity var(--ds-duration-fast) var(--ds-ease);\n}\n\n.ds-scroll-hint[data-state='hidden'] {\n  opacity: 0;\n  visibility: hidden;\n}\n\n.ds-scroll-hint-label {\n  display: inline-flex;\n  align-items: center;\n  gap: var(--ds-space-1);\n  padding: var(--ds-space-0-5) var(--ds-space-2);\n  border-radius: var(--ds-radius-full);\n  background: var(--ds-muted);\n  white-space: nowrap;\n}\n\n.ds-scroll-hint-label svg {\n  width: var(--ds-icon-xs);\n  height: var(--ds-icon-xs);\n  flex: none;\n}\n";
@@ -1577,158 +1189,6 @@
 		};
 	}
 	//#endregion
-	//#region packages/userscript-ui/src/core/form.ts
-	/**
-	* Invalid state has two independent owners: the control (`data-ds-invalid`)
-	* and its Field (`data-ds-field-invalid`). `aria-invalid` is always the union,
-	* so either side can change state without erasing the other's decision.
-	*/
-	function applyInvalid(input, invalid) {
-		input.toggleAttribute("data-ds-invalid", invalid);
-		syncAriaInvalid(input);
-	}
-	function setFieldInvalid(input, invalid) {
-		input.toggleAttribute("data-ds-field-invalid", invalid);
-		syncAriaInvalid(input);
-	}
-	function syncAriaInvalid(input) {
-		if (input.hasAttribute("data-ds-invalid") || input.hasAttribute("data-ds-field-invalid")) input.setAttribute("aria-invalid", "true");
-		else input.removeAttribute("aria-invalid");
-	}
-	//#endregion
-	//#region packages/userscript-ui/src/components/field.css?inline
-	var field_default = ".ds-field {\n  display: flex;\n  flex-direction: column;\n  gap: var(--ds-space-1-5);\n  min-width: 0;\n}\n\n.ds-field-text {\n  display: flex;\n  flex-direction: column;\n  gap: var(--ds-space-0-5);\n  min-width: 0;\n}\n\n.ds-field-label {\n  color: var(--ds-foreground);\n  font-size: var(--ds-text-sm);\n  font-weight: var(--ds-weight-medium);\n  line-height: var(--ds-leading-snug);\n  cursor: pointer;\n}\n\n.ds-field-description {\n  margin: 0;\n  color: var(--ds-muted-foreground);\n  font-size: var(--ds-text-xs);\n  line-height: var(--ds-leading-snug);\n}\n\n.ds-field-control {\n  min-width: 0;\n}\n\n.ds-field-error {\n  margin: 0;\n  color: var(--ds-destructive);\n  font-size: var(--ds-text-xs);\n  line-height: var(--ds-leading-snug);\n}\n\n.ds-field--inline {\n  display: grid;\n  grid-template-columns: minmax(0, 1fr) auto;\n  align-items: center;\n  column-gap: var(--ds-space-4);\n  row-gap: var(--ds-space-1);\n}\n\n.ds-field--inline .ds-field-text {\n  grid-column: 1;\n}\n\n.ds-field--inline .ds-field-control {\n  grid-column: 2;\n  width: auto;\n}\n\n.ds-field--inline .ds-field-error {\n  grid-column: 1 / -1;\n}\n";
-	//#endregion
-	//#region packages/userscript-ui/src/components/field.ts
-	function createField(ui, options) {
-		assertAlive(ui, "field");
-		ui.useStyles(field_default);
-		const scope = createScope(ui);
-		const input = options.control.input;
-		if (!input.id) input.id = options.id ?? uid("ds-control");
-		const root = document.createElement("div");
-		root.className = options.inline ? "ds-field ds-field--inline" : "ds-field";
-		root.setAttribute("data-ds-field", "");
-		const text = document.createElement("div");
-		text.className = "ds-field-text";
-		const label = document.createElement("label");
-		label.className = "ds-field-label";
-		label.htmlFor = input.id;
-		label.textContent = options.label ?? "";
-		label.hidden = !options.label;
-		text.appendChild(label);
-		const descriptionId = uid("ds-field-description");
-		const description = document.createElement("p");
-		description.className = "ds-field-description";
-		description.id = descriptionId;
-		description.textContent = options.description ?? "";
-		description.hidden = !options.description;
-		text.appendChild(description);
-		text.hidden = !options.label && !options.description;
-		root.appendChild(text);
-		const control = document.createElement("div");
-		control.className = "ds-field-control";
-		control.appendChild(options.control.el);
-		root.appendChild(control);
-		const errorId = uid("ds-field-error");
-		const error = document.createElement("p");
-		error.className = "ds-field-error";
-		error.id = errorId;
-		error.setAttribute("role", "alert");
-		error.hidden = true;
-		root.appendChild(error);
-		const syncFieldDescribedBy = () => {
-			const active = [description, error].filter((node) => !node.hidden).map((node) => node.id);
-			syncDescribedBy(input, [descriptionId, errorId], active);
-		};
-		const syncInvalid = () => setFieldInvalid(input, !error.hidden);
-		const setError = (message) => {
-			if (scope.destroyed) return;
-			const hasError = Boolean(message);
-			error.textContent = message ?? "";
-			error.hidden = !hasError;
-			root.toggleAttribute("data-invalid", hasError);
-			syncInvalid();
-			syncFieldDescribedBy();
-		};
-		const setDescription = (message) => {
-			if (scope.destroyed) return;
-			description.textContent = message ?? "";
-			description.hidden = !message;
-			text.hidden = label.hidden && description.hidden;
-			syncFieldDescribedBy();
-		};
-		if (input.getAttribute("aria-invalid") === "true") input.setAttribute("data-ds-invalid", "");
-		if (options.error) setError(options.error);
-		else {
-			syncInvalid();
-			syncFieldDescribedBy();
-		}
-		scope.onDestroy(() => {
-			description.hidden = true;
-			error.hidden = true;
-			syncFieldDescribedBy();
-			setFieldInvalid(input, false);
-			root.remove();
-		});
-		return {
-			el: root,
-			control: options.control.el,
-			setError,
-			setDescription,
-			destroy: () => scope.destroy()
-		};
-	}
-	//#endregion
-	//#region packages/userscript-ui/src/components/input.css?inline
-	var input_default = ".ds-input,\n.ds-textarea {\n  width: 100%;\n  min-width: 0;\n  border: var(--ds-border-width) solid var(--ds-input);\n  border-radius: var(--ds-radius-md);\n  background: transparent;\n  color: var(--ds-foreground);\n  font-family: inherit;\n  font-size: var(--ds-text-sm);\n  transition:\n    border-color var(--ds-duration-fast) var(--ds-ease),\n    box-shadow var(--ds-duration-fast) var(--ds-ease);\n}\n\n.ds-input {\n  height: var(--ds-control-h);\n  padding: 0 var(--ds-space-2-5);\n  line-height: normal;\n}\n\n.ds-textarea {\n  min-height: var(--ds-textarea-min-h);\n  padding: var(--ds-space-2) var(--ds-space-2-5);\n  line-height: var(--ds-leading-normal);\n  resize: vertical;\n}\n\n.ds-input::placeholder,\n.ds-textarea::placeholder {\n  color: var(--ds-muted-foreground);\n  opacity: 1;\n}\n\n.ds-input:hover:not(:disabled),\n.ds-textarea:hover:not(:disabled) {\n  border-color: color-mix(in srgb, var(--ds-input) 65%, var(--ds-foreground));\n}\n\n.ds-input:focus-visible,\n.ds-textarea:focus-visible {\n  border-color: var(--ds-ring);\n  outline: none;\n  box-shadow: 0 0 0 var(--ds-ring-width) color-mix(in srgb, var(--ds-ring) 24%, transparent);\n}\n\n.ds-input[aria-invalid='true'],\n.ds-textarea[aria-invalid='true'] {\n  border-color: var(--ds-destructive);\n}\n\n.ds-input[aria-invalid='true']:focus-visible,\n.ds-textarea[aria-invalid='true']:focus-visible {\n  box-shadow: 0 0 0 var(--ds-ring-width) color-mix(in srgb, var(--ds-destructive) 24%, transparent);\n}\n\n.ds-input:disabled,\n.ds-textarea:disabled {\n  opacity: 0.55;\n  cursor: not-allowed;\n}\n";
-	//#endregion
-	//#region packages/userscript-ui/src/components/input.ts
-	/**
-	* `data-ds-invalid` mirrors the control's own invalid state so a Field can add
-	* a validation error without owning — or clearing — the control's state.
-	*/
-	function createInput(ui, options = {}) {
-		assertAlive(ui, "input");
-		ui.useStyles(input_default);
-		const scope = createScope(ui);
-		const input = document.createElement("input");
-		input.className = "ds-input";
-		input.type = options.type ?? "text";
-		if (options.value != null) input.value = options.value;
-		if (options.placeholder) input.placeholder = options.placeholder;
-		if (options.name) input.name = options.name;
-		if (options.id) input.id = options.id;
-		if (options.disabled) input.disabled = true;
-		if (options.readonly) input.readOnly = true;
-		if (options.required) input.required = true;
-		if (options.autocomplete) input.autocomplete = options.autocomplete;
-		if (options.inputMode) input.inputMode = options.inputMode;
-		if (options.min != null) input.min = String(options.min);
-		if (options.max != null) input.max = String(options.max);
-		if (options.step != null) input.step = String(options.step);
-		if (options.ariaLabel) input.setAttribute("aria-label", options.ariaLabel);
-		const setInvalid = (invalid) => applyInvalid(input, invalid);
-		if (options.invalid) setInvalid(true);
-		if (options.onInput) input.addEventListener("input", (event) => options.onInput?.(input.value, event), { signal: scope.signal });
-		if (options.onChange) input.addEventListener("change", (event) => options.onChange?.(input.value, event), { signal: scope.signal });
-		return {
-			el: input,
-			input,
-			setValue(value) {
-				input.value = value;
-			},
-			getValue() {
-				return input.value;
-			},
-			setInvalid,
-			destroy() {
-				scope.destroy();
-				input.remove();
-			}
-		};
-	}
-	//#endregion
 	//#region packages/userscript-ui/src/components/select.css?inline
 	var select_default = ".ds-select-wrap {\n  position: relative;\n  width: 100%;\n  min-width: 0;\n}\n\n.ds-select {\n  width: 100%;\n  height: var(--ds-control-h);\n  padding: 0 var(--ds-space-8) 0 var(--ds-space-2-5);\n  border: var(--ds-border-width) solid var(--ds-input);\n  border-radius: var(--ds-radius-md);\n  background: transparent;\n  color: var(--ds-foreground);\n  font-family: inherit;\n  font-size: var(--ds-text-sm);\n  line-height: normal;\n  appearance: none;\n  cursor: pointer;\n  transition:\n    border-color var(--ds-duration-fast) var(--ds-ease),\n    box-shadow var(--ds-duration-fast) var(--ds-ease);\n}\n\n.ds-select:hover:not(:disabled) {\n  border-color: color-mix(in srgb, var(--ds-input) 65%, var(--ds-foreground));\n}\n\n.ds-select:focus-visible {\n  border-color: var(--ds-ring);\n  outline: none;\n  box-shadow: 0 0 0 var(--ds-ring-width) color-mix(in srgb, var(--ds-ring) 24%, transparent);\n}\n\n.ds-select[aria-invalid='true'] {\n  border-color: var(--ds-destructive);\n}\n\n.ds-select[aria-invalid='true']:focus-visible {\n  box-shadow: 0 0 0 var(--ds-ring-width) color-mix(in srgb, var(--ds-destructive) 24%, transparent);\n}\n\n.ds-select:disabled {\n  opacity: 0.55;\n  cursor: not-allowed;\n}\n\n.ds-select option {\n  background: var(--ds-card);\n  color: var(--ds-card-foreground);\n}\n\n.ds-select-chevron {\n  position: absolute;\n  inset-block-start: 50%;\n  inset-inline-end: var(--ds-space-2);\n  width: var(--ds-icon-sm);\n  height: var(--ds-icon-sm);\n  color: var(--ds-muted-foreground);\n  pointer-events: none;\n  transform: translateY(-50%);\n}\n\n.ds-select:focus-visible + .ds-select-chevron {\n  color: var(--ds-foreground);\n}\n";
 	//#endregion
@@ -1854,206 +1314,1073 @@
 		};
 	}
 	//#endregion
-	//#region scripts/super-drag/src/ui/settings-panel.ts
-	var LABELS = {
-		close: "关闭",
-		settings: "设置",
-		notifications: "通知",
-		dismissNotification: "关闭通知",
-		closeSettings: "关闭设置",
-		scrollHint: "向下滚动查看更多内容",
-		cancel: "取消",
-		confirm: "确定"
-	};
-	function createSettingsPanel(options) {
-		const ui = mountUI({
-			theme: "system",
-			labels: LABELS
-		});
-		const initial = options.getSettings();
+	//#region packages/userscript-ui/src/patterns/settings-form.ts
+	function isSwitch(control) {
+		return "setChecked" in control;
+	}
+	function isValued(control) {
+		return "setValue" in control;
+	}
+	function isInvalid(control) {
+		return "setInvalid" in control;
+	}
+	/**
+	* 创建声明式设置表单面板。
+	*
+	* @param ui 共享界面宿主
+	* @param schema 面板结构
+	* @param options 取值、显隐、校验与提交
+	*/
+	function createSettingsForm(ui, schema, options) {
 		const panel = createPanel(ui, {
-			title: "功能设置",
-			description: "拖拽选中文字搜索，拖拽链接或图片在新标签页打开；按住 Shift 这一次前台打开，按 Esc 取消。",
+			title: schema.title,
+			description: schema.description,
 			open: false,
 			position: "center",
-			closeLabel: "关闭设置"
+			closeLabel: `关闭${schema.title}`
 		});
-		const kindsSection = createSection(ui, {
-			title: "拖拽类型",
-			description: "关掉某一类后，这类拖拽交还网页的原生行为"
-		});
-		const textSwitch = createSwitch(ui, { checked: initial.dragKinds.text });
-		const linkSwitch = createSwitch(ui, { checked: initial.dragKinds.link });
-		const imageSwitch = createSwitch(ui, { checked: initial.dragKinds.image });
-		kindsSection.body.append(createField(ui, {
-			label: "文字",
-			description: "选中文字后拖动即搜索",
-			control: textSwitch,
-			inline: true
-		}).el, createField(ui, {
-			label: "链接",
-			description: "拖动链接在新标签页打开",
-			control: linkSwitch,
-			inline: true
-		}).el, createField(ui, {
-			label: "图片",
-			description: "拖动图片在新标签页查看",
-			control: imageSwitch,
-			inline: true
-		}).el);
-		const textSection = createSection(ui, { title: "文字拖拽" });
-		const engine = createSelect(ui, {
-			options: engineOptions(initial),
-			value: initial.defaultEngine,
-			onChange: () => refresh()
-		});
-		const engineField = createField(ui, {
-			label: "搜索引擎",
-			description: "拖动选中的文字即用它搜索",
-			control: engine
-		});
-		const customInput = createInput(ui, {
-			type: "url",
-			placeholder: "https://www.google.com/search?q={keyword}",
-			autocomplete: "off",
-			onInput: () => refresh()
-		});
-		const customField = createField(ui, {
-			label: "自定义搜索地址",
-			description: "用 {keyword} 占位，需以 http:// 或 https:// 开头",
-			control: customInput
-		});
-		const urlTextAction = createSelect(ui, {
-			options: [{
-				value: "open",
-				label: "直接打开"
-			}, {
-				value: "search",
-				label: "仍然搜索"
-			}],
-			value: initial.urlTextAction,
-			onChange: () => refresh()
-		});
-		const urlTextActionField = createField(ui, {
-			label: "拖动的文字是网址时",
-			description: "选「直接打开」时不再经过搜索引擎",
-			control: urlTextAction
-		});
-		textSection.body.append(engineField.el, customField.el, urlTextActionField.el);
-		const linkSection = createSection(ui, { title: "链接与图片" });
-		const openMode = createSelect(ui, {
-			options: [{
-				value: "background",
-				label: "后台打开（停留在当前页）"
-			}, {
-				value: "foreground",
-				label: "前台打开（立即切换过去）"
-			}],
-			value: initial.linkOpenMode,
-			onChange: () => refresh()
-		});
-		const openModeField = createField(ui, {
-			label: "新标签页打开方式",
-			description: "链接、图片和搜索结果都按这里的方式打开；按住 Shift 时这一次总是前台打开",
-			control: openMode
-		});
-		const imageAction = createSelect(ui, {
-			options: [{
-				value: "viewer",
-				label: "打开深色查看器"
-			}, {
-				value: "original",
-				label: "直接打开原图"
-			}],
-			value: initial.imageAction,
-			onChange: () => refresh()
-		});
-		const imageActionField = createField(ui, {
-			label: "拖拽图片时",
-			description: "查看器适合专注看图；原图适合保存或交给浏览器自带的图片页",
-			control: imageAction
-		});
-		linkSection.body.append(openModeField.el, imageActionField.el);
-		panel.body.append(kindsSection.el, textSection.el, linkSection.el);
-		/** 表单当前值；不改动已保存的设置。 */
-		const draft = () => ({
-			...options.getSettings(),
-			dragKinds: {
-				text: textSwitch.isChecked(),
-				link: linkSwitch.isChecked(),
-				image: imageSwitch.isChecked()
-			},
-			defaultEngine: engine.getValue(),
-			customEngineUrl: customInput.getValue().trim(),
-			urlTextAction: urlTextAction.getValue() === "search" ? "search" : "open",
-			imageAction: imageAction.getValue() === "original" ? "original" : "viewer",
-			linkOpenMode: openMode.getValue() === "foreground" ? "foreground" : "background"
-		});
-		/** 只刷新派生显示：自定义行的显隐、示例地址、错误提示。 */
-		function refresh() {
-			const current = draft();
-			const isCustom = current.defaultEngine === CUSTOM_ENGINE_ID;
-			customField.el.hidden = !isCustom;
-			engineField.setDescription(`示例：${buildSearchUrl(current, PREVIEW_KEYWORD)}`);
-			if (isCustom && current.customEngineUrl !== "") customField.setError(validateCustomEngineUrl(current.customEngineUrl) ?? void 0);
-			else customField.setError(void 0);
+		const scope = createScope(ui);
+		const fields = {};
+		const footerButtons = [];
+		const shownBefore = {};
+		for (const sectionSchema of schema.sections) {
+			const section = createSection(ui, {
+				title: sectionSchema.title,
+				description: sectionSchema.description
+			});
+			for (const fieldSchema of sectionSchema.fields) {
+				const initial = options.get()[fieldSchema.key];
+				const control = fieldSchema.type === "switch" ? createSwitch(ui, { checked: initial === true }) : fieldSchema.type === "select" ? createSelect(ui, {
+					options: fieldSchema.options ?? [],
+					value: typeof initial === "string" ? initial : ""
+				}) : createInput(ui, {
+					type: fieldSchema.inputType ?? "text",
+					placeholder: fieldSchema.placeholder
+				});
+				if (!isSwitch(control) && typeof initial === "string") control.setValue(initial);
+				const field = createField(ui, {
+					label: fieldSchema.label,
+					description: fieldSchema.description,
+					control,
+					inline: (fieldSchema.layout ?? (fieldSchema.type === "switch" ? "inline" : "stacked")) === "inline"
+				});
+				fields[fieldSchema.key] = {
+					control,
+					field
+				};
+				section.body.append(field.el);
+			}
+			panel.body.append(section.el);
 		}
-		/** 用给定设置回填表单（打开、取消、恢复默认都走这里）。 */
-		function fillForm(next) {
-			textSwitch.setChecked(next.dragKinds.text);
-			linkSwitch.setChecked(next.dragKinds.link);
-			imageSwitch.setChecked(next.dragKinds.image);
-			engine.setOptions(engineOptions(next));
-			engine.setValue(next.defaultEngine);
-			customInput.setValue(next.customEngineUrl);
-			urlTextAction.setValue(next.urlTextAction);
-			imageAction.setValue(next.imageAction);
-			openMode.setValue(next.linkOpenMode);
+		const readValues = () => {
+			const base = { ...options.get() };
+			for (const [key, { control }] of Object.entries(fields)) {
+				const input = control.input;
+				base[key] = input instanceof HTMLInputElement && input.type === "checkbox" ? input.checked : input.value;
+			}
+			return base;
+		};
+		/** 重跑显隐；切回显示的字段清掉隐藏期间的旧错误。 */
+		const refresh = () => {
+			if (!options.visible) return;
+			const values = readValues();
+			for (const [key, { field }] of Object.entries(fields)) {
+				const shown = options.visible(key, values);
+				field.el.hidden = !shown;
+				if (shown && shownBefore[key] === false) setError(key, void 0);
+				shownBefore[key] = shown;
+			}
+		};
+		for (const [key, { control }] of Object.entries(fields)) {
+			control.input.addEventListener("change", () => {
+				if (options.mode === "immediate") options.onChange?.({ [key]: readValues()[key] });
+				refresh();
+			}, { signal: scope.signal });
+			if (control.input instanceof HTMLInputElement && control.input.type !== "checkbox") control.input.addEventListener("input", () => refresh(), { signal: scope.signal });
+		}
+		const setError = (key, problem) => {
+			const entry = fields[key];
+			if (!entry) return;
+			const { control, field } = entry;
+			if (isInvalid(control)) control.setInvalid(problem !== void 0);
+			field.setError(problem);
+		};
+		const fill = (next) => {
+			const record = next;
+			for (const [key, { control }] of Object.entries(fields)) {
+				const value = record[key];
+				if (isSwitch(control) && typeof value === "boolean") control.setChecked(value);
+				else if (isValued(control) && typeof value === "string") control.setValue(value);
+				setError(key, void 0);
+			}
 			refresh();
-		}
-		const reset = createButton(ui, {
-			label: "恢复默认",
-			variant: "ghost",
-			onClick: () => fillForm(defaultSettings())
-		});
-		const cancel = createButton(ui, {
-			label: "取消",
-			variant: "secondary",
-			onClick: () => {
-				fillForm(options.getSettings());
-				panel.close();
-			}
-		});
-		const save = createButton(ui, {
-			label: "保存",
-			variant: "primary",
-			onClick: () => {
-				const next = draft();
-				if (next.defaultEngine === "custom") {
-					const problem = validateCustomEngineUrl(next.customEngineUrl);
-					if (problem) {
-						customField.setError(problem);
-						customInput.input.focus();
-						return;
+		};
+		if (options.mode === "draft") {
+			const save = createButton(ui, {
+				label: "保存",
+				variant: "primary",
+				onClick: () => {
+					const values = readValues();
+					let ok = true;
+					if (options.validate) for (const key of Object.keys(fields)) {
+						if (fields[key]?.field.el.hidden) continue;
+						const problem = options.validate(key, values[key], values);
+						setError(key, problem);
+						if (problem) ok = false;
 					}
+					if (!ok) return;
+					if (options.onSubmit?.(values) === false) return;
+					panel.close();
 				}
-				options.save(next);
-				panel.close();
+			});
+			const cancel = createButton(ui, {
+				label: "取消",
+				variant: "secondary",
+				onClick: () => {
+					fill(options.get());
+					panel.close();
+				}
+			});
+			footerButtons.push(cancel, save);
+			panel.setFooter([cancel.el, save.el]);
+		} else {
+			const closeButton = createButton(ui, {
+				label: "关闭",
+				variant: "secondary",
+				onClick: () => panel.close()
+			});
+			footerButtons.push(closeButton);
+			panel.setFooter([closeButton.el]);
+		}
+		const teardown = () => {
+			for (const { control, field } of Object.values(fields)) {
+				field.destroy();
+				control.destroy?.();
 			}
-		});
-		panel.setFooter([
-			reset.el,
-			cancel.el,
-			save.el
-		]);
+			for (const button of footerButtons) button.destroy();
+		};
+		scope.onDestroy(teardown);
 		return {
-			open() {
-				fillForm(options.getSettings());
+			panel,
+			fields,
+			values: readValues,
+			fill,
+			open: () => {
+				fill(options.get());
 				panel.open();
 			},
 			close: () => panel.close(),
 			isOpen: () => panel.isOpen(),
-			destroy: () => ui.destroy()
+			destroy: () => {
+				panel.destroy();
+				scope.destroy();
+			}
+		};
+	}
+	//#endregion
+	//#region scripts/super-drag/src/settings.ts
+	/** 「自定义」引擎在 `defaultEngine` 里的取值；`engines` 里不会有这个键。 */
+	var CUSTOM_ENGINE_ID = "custom";
+	/** 线上旧键，按 AGENTS.md 6.4 不改名，否则老用户设置会丢。 */
+	var SETTINGS_KEY = "settings";
+	/** 没有存量设置时使用的值。 */
+	var DEFAULT_SETTINGS = {
+		defaultEngine: "google",
+		customEngineUrl: "",
+		engines: {
+			"cn.bing": "https://cn.bing.com/search?q={keyword}",
+			bing: "https://www.bing.com/search?q={keyword}",
+			google: "https://www.google.com/search?q={keyword}",
+			baidu: "https://www.baidu.com/s?wd={keyword}"
+		},
+		linkOpenMode: "background",
+		urlTextAction: "open",
+		imageAction: "viewer",
+		dragKinds: {
+			text: true,
+			link: true,
+			image: true
+		}
+	};
+	function sanitizeEngines(value) {
+		if (typeof value !== "object" || value === null) return { ...DEFAULT_SETTINGS.engines };
+		const engines = {};
+		for (const [id, template] of Object.entries(value)) {
+			if (id === "custom") continue;
+			if (typeof template === "string" && template.includes("{keyword}")) engines[id] = template;
+		}
+		return Object.keys(engines).length > 0 ? engines : { ...DEFAULT_SETTINGS.engines };
+	}
+	/**
+	* 归一化三类拖拽开关。
+	*
+	* 只认显式的 `false`：存储里多出来的键、字符串、缺字段都按“开启”处理，
+	* 避免坏值把用户唯一能用的拖拽也关掉。
+	*/
+	function sanitizeDragKinds(value) {
+		const stored = typeof value === "object" && value !== null ? value : {};
+		return {
+			text: stored.text !== false,
+			link: stored.link !== false,
+			image: stored.image !== false
+		};
+	}
+	/**
+	* 把存储里读到的任意值收敛成可用设置。
+	*
+	* 存储可能被旧版本、手改或别的脚本写坏；单个字段坏掉只回退该字段，不让整页拖拽失效。
+	* 旧版的 `enabled` 总开关不再读取：整体停用交给脚本管理器的开关。
+	*/
+	function normalizeSettings(stored) {
+		const merged = mergeDefaults(DEFAULT_SETTINGS, stored);
+		const engines = sanitizeEngines(merged.engines);
+		const engine = typeof merged.defaultEngine === "string" && merged.defaultEngine !== "" ? merged.defaultEngine : DEFAULT_SETTINGS.defaultEngine;
+		return {
+			defaultEngine: engine === "custom" || Object.hasOwn(engines, engine) ? engine : Object.keys(engines)[0] ?? DEFAULT_SETTINGS.defaultEngine,
+			customEngineUrl: typeof merged.customEngineUrl === "string" ? merged.customEngineUrl : "",
+			engines,
+			linkOpenMode: merged.linkOpenMode === "foreground" ? "foreground" : "background",
+			urlTextAction: merged.urlTextAction === "search" ? "search" : "open",
+			imageAction: merged.imageAction === "original" ? "original" : "viewer",
+			dragKinds: sanitizeDragKinds(merged.dragKinds)
+		};
+	}
+	/**
+	* 创建设置仓库；读取与写回的通用逻辑在 `@shared`。
+	*
+	* @param api GM 适配层；测试里可以传入假实现
+	*/
+	function createSettingsStore(api = createGmApi()) {
+		return createSettingsStore$1({
+			api,
+			key: SETTINGS_KEY,
+			normalize: normalizeSettings
+		});
+	}
+	//#endregion
+	//#region scripts/super-drag/src/search.ts
+	/** 设置面板里“效果预览”使用的示例关键词。 */
+	var PREVIEW_KEYWORD = "hello";
+	/** 内置引擎的显示名；存储里新增的引擎直接用 ID 当名字。 */
+	var ENGINE_LABELS = {
+		"cn.bing": "Bing (CN)",
+		bing: "Bing",
+		google: "Google",
+		baidu: "Baidu"
+	};
+	var GOOGLE_FALLBACK = "https://www.google.com/search?q={keyword}";
+	/** 未知引擎 ID 的显示名：把 `my-engine` 转成 `My Engine`，而不是直接甩出原始 ID。 */
+	function humanizeEngineId(id) {
+		return id.split(/[-_]/).map((part) => part === "" ? part : part.charAt(0).toUpperCase() + part.slice(1)).join(" ");
+	}
+	/** 下拉选项：存储里的引擎 + 自定义。顺序沿用存储顺序，保证旧用户看到的顺序不变。 */
+	function engineOptions(settings) {
+		const options = Object.keys(settings.engines).map((id) => ({
+			value: id,
+			label: Object.hasOwn(ENGINE_LABELS, id) ? ENGINE_LABELS[id] : humanizeEngineId(id)
+		}));
+		options.push({
+			value: CUSTOM_ENGINE_ID,
+			label: "自定义"
+		});
+		return options;
+	}
+	/** 解析当前引擎的地址模板；配置无效时回退 Google，而不是打开一个坏地址。 */
+	function resolveSearchTemplate(settings) {
+		const template = settings.defaultEngine === "custom" ? settings.customEngineUrl : settings.engines[settings.defaultEngine];
+		if (typeof template !== "string" || !template.includes("{keyword}")) return GOOGLE_FALLBACK;
+		return template;
+	}
+	/** 把关键词编码后填进模板，得到最终搜索地址。 */
+	function buildSearchUrl(settings, keyword) {
+		return resolveSearchTemplate(settings).replaceAll("{keyword}", encodeURIComponent(keyword));
+	}
+	/**
+	* 校验自定义搜索地址。
+	*
+	* @returns 错误文案；`null` 表示可用
+	*/
+	function validateCustomEngineUrl(url) {
+		const value = url.trim();
+		if (value === "") return "请填写自定义搜索 URL";
+		if (!value.includes("{keyword}")) return "自定义搜索 URL 必须包含 {keyword} 占位符";
+		if (!/^https?:\/\//i.test(value)) return "自定义搜索 URL 必须以 http:// 或 https:// 开头";
+		let parsed;
+		try {
+			parsed = new URL(value.replaceAll("{keyword}", "x"));
+		} catch {
+			return "自定义搜索 URL 不是有效地址";
+		}
+		if (parsed.hostname === "") return "自定义搜索 URL 缺少域名";
+		if (/\s/.test(value)) return "自定义搜索 URL 不能包含空格";
+		return null;
+	}
+	/** 默认设置的深拷贝，供“恢复默认”按钮使用。 */
+	function defaultSettings() {
+		return {
+			...DEFAULT_SETTINGS,
+			engines: { ...DEFAULT_SETTINGS.engines },
+			dragKinds: { ...DEFAULT_SETTINGS.dragKinds }
+		};
+	}
+	var URL_PATTERN = /(ftp|http|https):\/\/(\w+:{0,1}\w*@)?(\S+)(:[0-9]+)?(\/|\/([\w#!:.?+=&%@!-/]))?/i;
+	/** @param text 任意文本 */
+	function looksLikeUrl(text) {
+		return URL_PATTERN.test(text);
+	}
+	/** 中文标点不可能出现在地址里：第一次出现就截断（`https://a。这是说明` → `https://a`）。 */
+	var CJK_PUNCT = /[。、，．・…？！；：『』「」《》（）【】\u3000]/u;
+	/** 地址结尾不可能是这些符号（句尾的 `。，;!?` 和全角引号括号）；半角 `)]}` 不在这里剥，
+	* Wikipedia 的 `..._(film)` 就是右括号结尾，见 `balanceTrailingParen`。 */
+	var TRAILING_PUNCT = /[。.，,;；:：!！?？'"'""…、〉》」』〕）]+$/u;
+	/** 括号配平：右括号比左括号多时，多出来的只能是句尾混进来的，剥掉一个。
+	*
+	* `（见https://a)` → `https://a`；`..._(film)` 配平，保留。 */
+	function balanceTrailingParen(url) {
+		if (!url.endsWith(")")) return url;
+		let depth = 0;
+		for (const char of url) if (char === "(") depth += 1;
+		else if (char === ")") depth -= 1;
+		return depth < 0 ? url.slice(0, -1) : url;
+	}
+	/**
+	* 从一段无空格的文字里切出地址：从协议头开始，到中文标点结束。
+	*
+	* `见https://example.com/a好` 这种粘在一起的也能切出中间的地址；
+	* 纯 IDN（`https://例子.测试`，半角点）不受影响，只有全角标点会截断。
+	*/
+	function extractUrlCandidate(keyword) {
+		const start = keyword.search(/(ftp|https?):\/\//i);
+		const fromStart = start >= 0 ? keyword.slice(start) : keyword;
+		const cut = fromStart.search(CJK_PUNCT);
+		return balanceTrailingParen((cut >= 0 ? fromStart.slice(0, cut) : fromStart).replace(TRAILING_PUNCT, ""));
+	}
+	/**
+	* 把拖拽的文本转成“直接打开”的地址。
+	*
+	* @returns 可直接打开的地址；`''` 表示应当走搜索
+	*/
+	function asDirectUrl(text) {
+		const keyword = typeof text === "string" ? text.trim() : "";
+		if (keyword === "" || keyword.length > 2048 || /\s/.test(keyword)) return "";
+		const stripped = extractUrlCandidate(keyword);
+		if (stripped === "") return "";
+		if (!looksLikeUrl(stripped)) return "";
+		try {
+			new URL(stripped);
+			return stripped;
+		} catch {
+			return "";
+		}
+	}
+	//#endregion
+	//#region scripts/super-drag/src/features/drop-action.ts
+	/**
+	* 决定这次拖拽归不归脚本处理。
+	*
+	* 规则与线上原版一致：选区优先（按在选区里拖连接也是搜索），其次链接，再次图片，
+	* 最后才是“可拖拽元素上带着一段选区”的兜底。
+	*
+	* 按在选区里但文字拖拽被关掉时直接不接管：用户此刻想拖的是文字，交还给网页原生拖拽，
+	* 而不是突然打开压在下面的链接。
+	*
+	* @param kinds 三类拖拽各自的开关
+	* @returns 要接管的内容；`null` 表示交给浏览器原生拖拽
+	*/
+	function decideDrag(candidate, kinds) {
+		if (candidate.selection !== "" && candidate.selectionHit) return kinds.text ? {
+			kind: "text",
+			data: candidate.selection
+		} : null;
+		if (kinds.link && candidate.link !== "") return {
+			kind: "link",
+			data: candidate.link
+		};
+		if (kinds.image && candidate.image !== "") return {
+			kind: "image",
+			data: candidate.image
+		};
+		if (candidate.link !== "" || candidate.image !== "") return null;
+		if (kinds.text && candidate.selection !== "") return {
+			kind: "text",
+			data: candidate.selection
+		};
+		return null;
+	}
+	/** 本次打开是否切到前台：按住 Shift，或设置里选了前台打开。 */
+	function shouldOpenInForeground(shiftKey, linkOpenMode) {
+		return shiftKey || linkOpenMode === "foreground";
+	}
+	/**
+	* 把拖拽内容转成“打开什么”。
+	*
+	* 文本：网址且设置为直接打开时打开它，否则拼搜索地址；链接：打开链接；
+	* 图片：交给图片打开流程（可能是查看器页面）。
+	*/
+	function resolveDropAction(kind, data, settings) {
+		if (data === "") return null;
+		if (kind === "link") return {
+			kind: "url",
+			url: data
+		};
+		if (kind === "image") return {
+			kind: "image",
+			url: data
+		};
+		if (settings.urlTextAction === "open") {
+			const direct = asDirectUrl(data);
+			if (direct !== "") return {
+				kind: "url",
+				url: direct
+			};
+		}
+		return {
+			kind: "search",
+			url: buildSearchUrl(settings, data)
+		};
+	}
+	//#endregion
+	//#region scripts/super-drag/src/features/hit-test.ts
+	var XLINK_NS = "http://www.w3.org/1999/xlink";
+	/** 跨 Shadow 边界找父元素：先看 parentElement，再回到宿主。 */
+	function parentAcrossShadow(node) {
+		if (node.parentElement) return node.parentElement;
+		const root = node.getRootNode();
+		return root instanceof ShadowRoot ? root.host : null;
+	}
+	function isIgnorableHref(href) {
+		const value = normalizeHref(href ?? "");
+		return value === "" || value === "#" || /^(?:javascript|vbscript|data):/.test(value);
+	}
+	/** 去掉空白与 C0/DEL 控制字符；URL 解析器会忽略它们。 */
+	function normalizeHref(value) {
+		let text = "";
+		for (const char of value) {
+			const code = char.charCodeAt(0);
+			if (code > 32 && code !== 127) text += char;
+		}
+		return text.toLowerCase();
+	}
+	/** 链接的原始地址；SVG 的 `<a>` 往往只有 xlink:href。 */
+	function rawLinkHref(node) {
+		return node.getAttribute("href") ?? node.getAttributeNS(XLINK_NS, "href") ?? "";
+	}
+	/**
+	* 解析链接地址。
+	*
+	* HTML 的 `a.href` 已是绝对地址，但 SVG 的 `<a>` 返回 SVGAnimatedString，
+	* 所以统一读原始属性并用 `document.baseURI` 补全，顺带支持 `xlink:href`。
+	*/
+	function resolveLinkHref(node) {
+		const raw = rawLinkHref(node);
+		if (raw === "") return "";
+		try {
+			return new URL(raw, document.baseURI).href;
+		} catch {
+			return "";
+		}
+	}
+	var UNSAFE_IMAGE_SCHEME = /^(?:javascript|vbscript):/i;
+	/** 图片地址；空 `src` 属性会被 `img.src` 解析成当前页面地址，不能当图片打开。 */
+	function imageUrl(img) {
+		const raw = img.getAttribute("src");
+		const pictureSource = img.parentElement?.localName === "picture" && img.parentElement.querySelector("source[srcset]") !== null;
+		if (raw !== null && normalizeHref(raw) === "" && !img.getAttribute("srcset") && !pictureSource) return "";
+		if (img.currentSrc !== "") return UNSAFE_IMAGE_SCHEME.test(img.currentSrc.trim()) ? "" : img.currentSrc;
+		const candidate = raw !== null && normalizeHref(raw) !== "" ? img.src : "";
+		return UNSAFE_IMAGE_SCHEME.test(candidate.trim()) ? "" : candidate;
+	}
+	/**
+	* 页面显式标成 `draggable="true"` 的宿主，是否携带脚本该接管的链接 / 图片内容。
+	*
+	* 站点常给本来就默认可拖拽的链接、图片补上该属性；但 `<a>` 没有可用地址、`<img>`
+	* 没有地址时，它只是页面自己的拖拽控件，交还页面。
+	*/
+	function hasNativeDragContent(node) {
+		const tag = node.tagName.toUpperCase();
+		if (tag === "A") return !isIgnorableHref(rawLinkHref(node)) && resolveLinkHref(node) !== "";
+		if (tag === "IMG") return imageUrl(node) !== "";
+		return false;
+	}
+	/**
+	* 这次拖拽是否归页面：选区、祖先、地址三条规则在这里一次回答。
+	*
+	* 有选区且按在选区里时是用户明确要拖的文字，不归页面；最近的 `draggable="true"`
+	* 祖先没有可用链接 / 图片地址时，它只是页面自己的控件（卡片排序、上传区），交还页面。
+	*/
+	function pageOwnsDrag(target, selectionHit) {
+		if (selectionHit) return false;
+		for (let node = target; node; node = parentAcrossShadow(node)) {
+			if (node.getAttribute("draggable") === "true" && !hasNativeDragContent(node)) return true;
+			if (hasNativeDragContent(node)) return false;
+		}
+		return false;
+	}
+	/** 逐层穿透 open Shadow Root 取真实元素。 */
+	function deepElementFromPoint(x, y) {
+		let root = document;
+		let element = null;
+		for (;;) {
+			let next;
+			try {
+				next = root.elementFromPoint(x, y);
+			} catch {
+				next = null;
+			}
+			if (!next) break;
+			element = next;
+			if (next.shadowRoot && next.shadowRoot.mode === "open") root = next.shadowRoot;
+			else break;
+		}
+		return element;
+	}
+	/** 从节点向上找最近的链接，跨过 open shadow 边界。 */
+	function closestLinkAcrossShadow(target) {
+		for (let node = target; node; node = parentAcrossShadow(node)) if (node.tagName.toUpperCase() === "A") return node;
+		return null;
+	}
+	/** 快路径：事件目标本身或其祖先就是链接 / 图片。 */
+	function hitTestFast(target) {
+		if (!target || target.nodeType !== Node.ELEMENT_NODE || typeof target.closest !== "function") return null;
+		const tag = target.tagName.toUpperCase();
+		let link = "";
+		const linkEl = tag === "A" ? target : target.closest("a") ?? closestLinkAcrossShadow(target);
+		if (linkEl && !isIgnorableHref(rawLinkHref(linkEl))) link = resolveLinkHref(linkEl);
+		let image = "";
+		if (tag === "IMG") image = imageUrl(target);
+		return link || image ? {
+			link,
+			image
+		} : null;
+	}
+	/** 慢路径：一次命中测试后往上爬，收集最近的链接 / 图片。 */
+	function hitTestSlow(x, y) {
+		const found = {
+			link: "",
+			image: ""
+		};
+		let node = deepElementFromPoint(x, y);
+		while (node) {
+			const tag = node.tagName.toUpperCase();
+			if (found.link === "" && tag === "A") {
+				if (!isIgnorableHref(rawLinkHref(node))) {
+					found.link = resolveLinkHref(node);
+					if (found.link !== "") break;
+				}
+			} else if (found.image === "" && tag === "IMG") found.image = imageUrl(node);
+			node = parentAcrossShadow(node);
+		}
+		return found;
+	}
+	function hitTest(x, y, target) {
+		return hitTestFast(target) ?? hitTestSlow(x, y);
+	}
+	//#endregion
+	//#region scripts/super-drag/src/features/editable.ts
+	/**
+	* 取真实的事件目标。
+	*
+	* 在 window 捕获阶段监听时，Shadow DOM 内的事件会被重定向到宿主；
+	* `composedPath()` 能拿回真正的内部节点（例如组件里的 `<input>`）。
+	*/
+	function realTarget(event) {
+		try {
+			if (typeof event.composedPath === "function") {
+				const path = event.composedPath();
+				if (path.length > 0) return path[0] ?? null;
+			}
+		} catch {}
+		return event.target;
+	}
+	/**
+	* 事件是否发生在输入框里（含 label 包着 input 这类结构）。
+	*/
+	function isInputElement(event) {
+		const raw = realTarget(event);
+		const target = raw instanceof Element ? raw : null;
+		if (isEditableField(target)) return true;
+		if (!target) return false;
+		if (target.getAttribute("contenteditable") === "false") return false;
+		for (let node = parentAcrossShadow(target); node; node = parentAcrossShadow(node)) {
+			const tag = node.tagName.toLowerCase();
+			if (tag === "input" || tag === "textarea" || tag === "select") return true;
+			if (node.getAttribute("contenteditable") === "false") return false;
+			if (node instanceof HTMLElement && node.isContentEditable) return true;
+		}
+		return false;
+	}
+	/** 当前选中文本；没有选区时返回空字符串。 */
+	function getSelectionText() {
+		const selection = window.getSelection();
+		return selection ? selection.toString().trim() : "";
+	}
+	function pointInRect(x, y, rect) {
+		return x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
+	}
+	function pointNearRect(x, y, rect, slop) {
+		return x >= rect.left - slop && x <= rect.right + slop && y >= rect.top - slop && y <= rect.bottom + slop;
+	}
+	function caretRangeFromPoint(x, y) {
+		try {
+			if (typeof document.caretRangeFromPoint === "function") return document.caretRangeFromPoint(x, y);
+		} catch {}
+		return null;
+	}
+	/**
+	* 判断按下点上的字符是否在选区内部。
+	*
+	* 不用 `selection.containsNode(node, true)`：它只要求节点与选区有交集，同一段文字里
+	* 选区之外的按下点也算命中；`comparePoint` 比的是具体偏移，才对得上“按下的字符”。
+	*/
+	function isCaretInsideRange(range, container, offset) {
+		if (typeof range.comparePoint === "function") try {
+			return range.comparePoint(container, offset) === 0;
+		} catch {}
+		const selection = window.getSelection();
+		if (selection && typeof selection.containsNode === "function") try {
+			return selection.containsNode(container, true);
+		} catch {
+			return false;
+		}
+		return false;
+	}
+	/**
+	* @param path 按下点途经的事件路径（内 → 外）；文档级选区被折叠时依次问带 `getSelection` 的节点
+	*/
+	function isPointInSelection(x, y, path = []) {
+		const selection = window.getSelection();
+		const active = selection && !selection.isCollapsed ? selection : path.map((node) => node.getSelection?.() ?? null).find((s) => s && !s.isCollapsed) ?? null;
+		if (!active) return false;
+		const range = active.getRangeAt(0);
+		let rects = [];
+		try {
+			rects = Array.from(range.getClientRects());
+		} catch {}
+		for (const rect of rects) if (pointNearRect(x, y, rect, 4)) return true;
+		const caret = caretRangeFromPoint(x, y);
+		if (caret && isCaretInsideRange(range, caret.startContainer, caret.startOffset)) return true;
+		if (rects.length > 0) return false;
+		const anchor = range.commonAncestorContainer;
+		const host = anchor.nodeType === Node.ELEMENT_NODE ? anchor : anchor.parentElement;
+		return !!host && pointInRect(x, y, host.getBoundingClientRect());
+	}
+	//#endregion
+	//#region scripts/super-drag/src/features/dnd.ts
+	var CLICK_SWALLOW_MS = 400;
+	/** 事件发生处最里层的元素；Shadow DOM 内的拖拽要拿到内部节点而不是宿主。 */
+	function targetOf(event) {
+		const target = realTarget(event);
+		return target instanceof Element ? target : null;
+	}
+	function installDragSensor(deps) {
+		const controller = new AbortController();
+		const { signal } = controller;
+		const listenerOptions = {
+			capture: true,
+			signal
+		};
+		let dragStart = null;
+		let kind = "text";
+		let data = "";
+		let swallowClickUntil = 0;
+		let dragSource = null;
+		const DRAG_MARKER = "application/x-super-drag";
+		const ghost = document.createElement("canvas");
+		ghost.width = 16;
+		ghost.height = 16;
+		ghost.setAttribute("aria-hidden", "true");
+		ghost.style.cssText = "position:fixed;top:0;left:0;width:16px;height:16px;margin:0;padding:0;border:0;opacity:0;pointer-events:none;";
+		/** 拖拽开始前把残影元素挂进文档并布局；浏览器在 dragstart 结束时才快照。 */
+		const mountGhost = () => {
+			if (!ghost.isConnected) document.documentElement.appendChild(ghost);
+			ghost.getBoundingClientRect();
+		};
+		const reset = () => {
+			dragStart = null;
+			kind = "text";
+			data = "";
+			if (ghost.isConnected) ghost.remove();
+		};
+		const claim = (transfer, text) => {
+			try {
+				transfer.setData("text/plain", text);
+				transfer.setData(DRAG_MARKER, "1");
+				return true;
+			} catch {
+				return false;
+			}
+		};
+		/** 事件发生处的链接 / 图片。 */
+		const hitTestAt = (event) => {
+			const target = realTarget(event);
+			return hitTest(event.clientX, event.clientY, target instanceof Element ? target : null);
+		};
+		const handleDragStart = (event) => {
+			reset();
+			if (event.defaultPrevented) return;
+			if (isOwnUiNode(targetOf(event))) return;
+			if (event.ctrlKey || event.metaKey || event.altKey) return;
+			if (isInputElement(event)) return;
+			const transfer = event.dataTransfer;
+			if (!transfer) return;
+			const settings = deps.getSettings();
+			const selected = getSelectionText();
+			const selectionHit = selected !== "" && isPointInSelection(event.clientX, event.clientY, event.composedPath());
+			if (pageOwnsDrag(targetOf(event), selectionHit)) return;
+			const hit = selectionHit ? {
+				link: "",
+				image: ""
+			} : hitTestAt(event);
+			const payload = decideDrag({
+				link: hit.link,
+				image: hit.image,
+				selection: selected,
+				selectionHit
+			}, settings.dragKinds);
+			if (!payload || !claim(transfer, payload.data)) return;
+			try {
+				transfer.effectAllowed = "copy";
+				mountGhost();
+				transfer.setDragImage(ghost, 0, 0);
+			} catch {}
+			dragStart = event;
+			kind = payload.kind;
+			data = payload.data;
+			dragSource = targetOf(event);
+		};
+		const isActiveDrag = (event) => {
+			if (!dragStart) return false;
+			if (dragStart.defaultPrevented || !event.dataTransfer?.types.includes(DRAG_MARKER)) {
+				reset();
+				return false;
+			}
+			return true;
+		};
+		const handleDragOver = (event) => {
+			if (!isActiveDrag(event)) return;
+			event.preventDefault();
+			event.stopPropagation();
+			try {
+				if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
+			} catch {}
+		};
+		const handleDrop = (event) => {
+			if (!isActiveDrag(event)) return;
+			if (isInputElement(event)) {
+				reset();
+				return;
+			}
+			event.preventDefault();
+			event.stopPropagation();
+			swallowClickUntil = performance.now() + CLICK_SWALLOW_MS;
+			const settings = deps.getSettings();
+			const foreground = shouldOpenInForeground(event.shiftKey === true, settings.linkOpenMode);
+			const action = resolveDropAction(kind, data, settings);
+			try {
+				if (action?.kind === "image") {
+					if (settings.imageAction === "original") deps.openUrl(action.url, foreground);
+					else deps.openImage(action.url, foreground);
+				} else if (action) deps.openUrl(action.url, foreground);
+			} finally {
+				reset();
+			}
+		};
+		const handleDragEnd = () => {
+			reset();
+		};
+		const handleClickCapture = (event) => {
+			if (swallowClickUntil !== 0 && performance.now() <= swallowClickUntil) {
+				const target = event.composedPath()[0];
+				const clicked = target instanceof Element ? target : target instanceof Node ? target.parentElement : null;
+				if (dragSource !== null && clicked === dragSource) {
+					swallowClickUntil = 0;
+					dragSource = null;
+					event.preventDefault();
+					event.stopPropagation();
+					event.stopImmediatePropagation();
+					return;
+				}
+			}
+			swallowClickUntil = 0;
+			dragSource = null;
+			reset();
+		};
+		const handleKeyDown = (event) => {
+			if (event.key === "Escape") reset();
+		};
+		const handlePressStart = () => {
+			swallowClickUntil = 0;
+			dragSource = null;
+			reset();
+		};
+		window.addEventListener("dragstart", handleDragStart, listenerOptions);
+		window.addEventListener("dragover", handleDragOver, listenerOptions);
+		window.addEventListener("drop", handleDrop, listenerOptions);
+		window.addEventListener("dragend", handleDragEnd, listenerOptions);
+		window.addEventListener("blur", reset, { signal });
+		document.addEventListener("click", handleClickCapture, listenerOptions);
+		document.addEventListener("keydown", handleKeyDown, listenerOptions);
+		document.addEventListener("mousedown", handlePressStart, listenerOptions);
+		return { destroy() {
+			controller.abort();
+			reset();
+			swallowClickUntil = 0;
+		} };
+	}
+	//#endregion
+	//#region scripts/super-drag/src/features/openers.ts
+	/**
+	* 打开新标签页：链接直接打开；图片包一层深色查看器；后台打开时把焦点还给当前页。
+	*
+	* GM_openInTab 优先（脚本管理器能正确处理后台标签页），没有时退回 window.open。
+	* 查看器 blob 只在 5 分钟后回收：提前回收会让刚打开、还没加载完的标签页变成空白页。
+	*/
+	var BLOB_REVOKE_DELAY_MS = 3e5;
+	var VIEWER_CSS = "*{margin:0;padding:0}body{display:flex;align-items:center;justify-content:center;min-height:100vh;background:#000}img{max-width:100%;max-height:100vh;object-fit:contain}";
+	/**
+	* 生成图片查看器页面。
+	*
+	* 用 `createHTMLDocument` 建 DOM 再序列化，而不是拼 HTML 字符串：图片地址里的引号、
+	* `&`、`<` 由浏览器负责转义，不会把地址拼成标签。
+	*/
+	function buildImageViewerHtml(imageUrl) {
+		const doc = document.implementation.createHTMLDocument("Image");
+		const meta = doc.createElement("meta");
+		meta.setAttribute("charset", "utf-8");
+		doc.head.prepend(meta);
+		const style = doc.createElement("style");
+		style.textContent = VIEWER_CSS;
+		doc.head.appendChild(style);
+		const img = doc.createElement("img");
+		img.setAttribute("src", imageUrl);
+		img.setAttribute("alt", "image");
+		doc.body.appendChild(img);
+		return `<!DOCTYPE html>${new XMLSerializer().serializeToString(doc.documentElement)}`;
+	}
+	function defaultScope() {
+		const globals = globalThis;
+		return {
+			GM_openInTab: typeof globals.GM_openInTab === "function" ? globals.GM_openInTab.bind(globals) : void 0,
+			open: window.open.bind(window),
+			focus: () => window.focus()
+		};
+	}
+	function createOpeners(scope = defaultScope()) {
+		const openUrl = (url, active) => {
+			if (typeof scope.GM_openInTab === "function") try {
+				scope.GM_openInTab(url, {
+					active,
+					insert: true
+				});
+				return;
+			} catch {}
+			scope.open?.(url, "_blank", "noopener");
+			if (!active) scope.focus?.();
+		};
+		const openImage = (imageUrl, active) => {
+			if (/^(blob:|data:)/i.test(imageUrl)) {
+				openUrl(imageUrl, active);
+				return;
+			}
+			let url;
+			try {
+				url = URL.createObjectURL(new Blob([buildImageViewerHtml(imageUrl)], { type: "text/html" }));
+			} catch {
+				openUrl(imageUrl, active);
+				return;
+			}
+			setTimeout(() => URL.revokeObjectURL(url), BLOB_REVOKE_DELAY_MS);
+			openUrl(url, active);
+		};
+		return {
+			openUrl,
+			openImage
+		};
+	}
+	//#endregion
+	//#region scripts/super-drag/src/ui/settings-panel.ts
+	function flatten(settings) {
+		return {
+			text: settings.dragKinds.text,
+			link: settings.dragKinds.link,
+			image: settings.dragKinds.image,
+			defaultEngine: settings.defaultEngine,
+			customEngineUrl: settings.customEngineUrl,
+			urlTextAction: settings.urlTextAction,
+			linkOpenMode: settings.linkOpenMode,
+			imageAction: settings.imageAction
+		};
+	}
+	function isInvalidControl(control) {
+		return !!control && typeof control === "object" && "setInvalid" in control && typeof control.setInvalid === "function";
+	}
+	function isOptionsControl(control) {
+		return !!control && typeof control === "object" && "setOptions" in control && typeof control.setOptions === "function";
+	}
+	function createSettingsPanel(options) {
+		const form = createSettingsForm(options.ui, {
+			title: "功能设置",
+			description: "拖拽选中文字搜索，拖拽链接或图片在新标签页打开；按住 Shift 这一次前台打开，按 Esc 取消。",
+			sections: [
+				{
+					title: "拖拽类型",
+					description: "关掉某一类后，这类拖拽交还网页的原生行为",
+					fields: [
+						{
+							key: "text",
+							type: "switch",
+							label: "文字",
+							description: "选中文字后拖动即搜索"
+						},
+						{
+							key: "link",
+							type: "switch",
+							label: "链接",
+							description: "拖动链接在新标签页打开"
+						},
+						{
+							key: "image",
+							type: "switch",
+							label: "图片",
+							description: "拖动图片在新标签页查看"
+						}
+					]
+				},
+				{
+					title: "文字拖拽",
+					fields: [
+						{
+							key: "defaultEngine",
+							type: "select",
+							label: "搜索引擎",
+							description: "拖动选中的文字即用它搜索",
+							options: engineOptions(options.getSettings())
+						},
+						{
+							key: "customEngineUrl",
+							type: "input",
+							label: "自定义搜索地址",
+							description: "用 {keyword} 占位，需以 http:// 或 https:// 开头"
+						},
+						{
+							key: "urlTextAction",
+							type: "select",
+							label: "拖动的文字是网址时",
+							description: "选「直接打开」时不再经过搜索引擎",
+							options: [{
+								value: "open",
+								label: "直接打开"
+							}, {
+								value: "search",
+								label: "仍然搜索"
+							}]
+						}
+					]
+				},
+				{
+					title: "链接与图片",
+					fields: [{
+						key: "linkOpenMode",
+						type: "select",
+						label: "新标签页打开方式",
+						description: "链接、图片和搜索结果都按这里的方式打开；按住 Shift 时这一次总是前台打开",
+						options: [{
+							value: "background",
+							label: "后台打开（停留在当前页）"
+						}, {
+							value: "foreground",
+							label: "前台打开（立即切换过去）"
+						}]
+					}, {
+						key: "imageAction",
+						type: "select",
+						label: "拖拽图片时",
+						description: "查看器适合专注看图；原图适合保存或交给浏览器自带的图片页",
+						options: [{
+							value: "viewer",
+							label: "打开深色查看器"
+						}, {
+							value: "original",
+							label: "直接打开原图"
+						}]
+					}]
+				}
+			]
+		}, {
+			mode: "draft",
+			get: () => flatten(options.getSettings()),
+			visible: (key, values) => key !== "customEngineUrl" || values.defaultEngine === "custom",
+			validate: (key, value, values) => key === "customEngineUrl" && values.defaultEngine === "custom" && value !== "" ? validateCustomEngineUrl(String(value)) ?? void 0 : void 0,
+			onSubmit: (values) => {
+				const customEngineUrl = values.customEngineUrl.trim();
+				if (values.defaultEngine === "custom") {
+					const problem = validateCustomEngineUrl(customEngineUrl);
+					if (problem) {
+						const custom = form.fields["customEngineUrl"];
+						const control = custom?.control;
+						if (isInvalidControl(control)) control.setInvalid(true);
+						custom?.field.setError(problem);
+						return false;
+					}
+				}
+				options.save({
+					dragKinds: {
+						text: values.text,
+						link: values.link,
+						image: values.image
+					},
+					defaultEngine: values.defaultEngine,
+					customEngineUrl,
+					urlTextAction: values.urlTextAction === "search" ? "search" : "open",
+					linkOpenMode: values.linkOpenMode === "foreground" ? "foreground" : "background",
+					imageAction: values.imageAction === "original" ? "original" : "viewer"
+				});
+			}
+		});
+		const reset = createButton(options.ui, {
+			label: "恢复默认",
+			variant: "ghost",
+			onClick: () => {
+				form.fill(flatten(defaultSettings()));
+				refreshDerived();
+			}
+		});
+		form.panel.setFooter([reset.el, ...form.panel.footer.children]);
+		/** 派生显示留脚本：引擎下拉选项与示例地址随存储变化，不进 schema。 */
+		function refreshDerived() {
+			const current = form.values();
+			const settings = {
+				...options.getSettings(),
+				dragKinds: {
+					text: current.text,
+					link: current.link,
+					image: current.image
+				},
+				defaultEngine: current.defaultEngine,
+				customEngineUrl: current.customEngineUrl,
+				urlTextAction: current.urlTextAction === "search" ? "search" : "open",
+				linkOpenMode: current.linkOpenMode === "foreground" ? "foreground" : "background",
+				imageAction: current.imageAction === "original" ? "original" : "viewer"
+			};
+			const engine = form.fields["defaultEngine"];
+			if (engine && isOptionsControl(engine.control)) {
+				engine.control.setOptions(engineOptions(settings));
+				engine.field.setDescription(`示例：${buildSearchUrl(settings, PREVIEW_KEYWORD)}`);
+			}
+		}
+		form.fields["defaultEngine"]?.control.input.addEventListener("change", refreshDerived);
+		form.fields["customEngineUrl"]?.control.input.addEventListener("input", refreshDerived);
+		return {
+			open() {
+				form.open();
+				refreshDerived();
+			},
+			close: () => form.close(),
+			isOpen: () => form.isOpen(),
+			destroy: () => {
+				reset.destroy();
+				form.destroy();
+			}
 		};
 	}
 	//#endregion
@@ -2064,34 +2391,37 @@
 	* 设置面板与 UI 都在第一次打开设置时才创建，所以普通页面只有几条事件监听，
 	* 不注入样式、不生成节点。
 	*/
-	var MENU_LABEL = "功能设置";
-	function start() {
-		const gm = createGmApi();
-		const store = createSettingsStore(gm);
-		const openers = createOpeners();
-		installDragSensor({
-			getSettings: store.get,
-			openUrl: openers.openUrl,
-			openImage: openers.openImage
-		});
-		let panel = null;
-		const openSettings = () => {
-			try {
-				if (!panel) panel = createSettingsPanel({
-					getSettings: store.get,
-					save: (patch) => void store.update(patch)
-				});
-				panel.open();
-			} catch (error) {
-				console.error("[super-drag] 设置面板打开失败", error);
-			}
-		};
-		if (!gm.registerMenuCommand(MENU_LABEL, openSettings)) console.warn("[super-drag] 菜单命令不可用，设置面板无法打开");
-	}
-	try {
-		start();
-	} catch (error) {
-		console.error("[super-drag] 启动失败", error);
-	}
+	createUserscript(createGmApi(), {
+		slug: "super-drag",
+		installLock: false,
+		onReady: (kit) => {
+			const store = createSettingsStore(kit.gm);
+			const openers = createOpeners();
+			const host = createUiHost();
+			const sensor = installDragSensor({
+				getSettings: store.get,
+				openUrl: openers.openUrl,
+				openImage: openers.openImage
+			});
+			let panel = null;
+			kit.menu({
+				label: "功能设置",
+				run: () => {
+					if (!panel) panel = createSettingsPanel({
+						ui: host.ensure(),
+						getSettings: store.get,
+						save: (patch) => void store.update(patch)
+					});
+					panel.open();
+				}
+			});
+			return () => {
+				sensor.destroy();
+				panel?.destroy();
+				host.destroy();
+				panel = null;
+			};
+		}
+	});
 	//#endregion
 })();

@@ -2,7 +2,7 @@
 // @name         选中复制
 // @name:en      Copy on Select
 // @namespace    https://github.com/Wildfire2282
-// @version      1.4.4
+// @version      1.4.10
 // @description  选中文本后自动纯文本复制到剪贴板，去除首尾空白
 // @description:en Copy selected text as plain text with whitespace trimmed
 // @author       Wildfire2282 (https://github.com/Wildfire2282)
@@ -20,7 +20,7 @@
 // @updateURL    https://update.greasyfork.org/scripts/582576/%E9%80%89%E4%B8%AD%E5%A4%8D%E5%88%B6.meta.js
 // ==/UserScript==
 (function() {
-	//#region packages/shared/src/gm.ts
+	//#region packages/shared/src/host/gm.ts
 	/**
 	* 把全局 GM 函数包成可注入的接口。
 	*
@@ -58,7 +58,58 @@
 		};
 	}
 	//#endregion
-	//#region packages/shared/src/clipboard.ts
+	//#region packages/shared/src/dom/editable.ts
+	/** 跨 open shadow root 找父元素：shadow 顶层节点的 parentElement 为 null。 */
+	function parentAcrossShadow(node) {
+		if (node.parentElement) return node.parentElement;
+		const root = node.getRootNode();
+		return root instanceof ShadowRoot ? root.host : null;
+	}
+	/**
+	* 元素或其祖先是不是可编辑区域。
+	*
+	* 优先用浏览器的 `isContentEditable`（能正确处理嵌套的 `contenteditable="false"`）；
+	* `designMode` 打开的文档整页都是编辑器（老式富文本），也一并排除。
+	*
+	* @param element 待判定的元素
+	* @param doc 文档；测试里可传入 `designMode` 不同的假文档
+	*/
+	function isInsideEditable(element, doc = document) {
+		const designMode = doc.designMode;
+		if (typeof designMode === "string" && designMode.toLowerCase() === "on") return true;
+		for (let node = element; node; node = parentAcrossShadow(node)) {
+			if (!(node instanceof HTMLElement)) continue;
+			if (node.isContentEditable) return true;
+			const attribute = node.getAttribute("contenteditable");
+			if (attribute === "" || attribute === "true" || attribute === "plaintext-only") return true;
+		}
+		return false;
+	}
+	/**
+	* 穿透 open shadow root 取真正的焦点元素。
+	*
+	* `document.activeElement` 在焦点落在 Shadow Root 内部时只给出宿主元素。
+	*
+	* @param doc 文档；默认当前文档
+	*/
+	function deepActiveElement(doc = document) {
+		let element = doc.activeElement;
+		while (element?.shadowRoot?.activeElement) element = element.shadowRoot.activeElement;
+		return element;
+	}
+	//#endregion
+	//#region packages/shared/src/host/clipboard.ts
+	/**
+	* 剪贴板写入。
+	*
+	* 三个通道按可靠性排序：
+	*
+	* 1. `GM_setClipboard`：不受安全上下文、iframe 权限策略与焦点限制，脚本管理器直接写入；
+	* 2. `navigator.clipboard`：没有管理器时用浏览器 API，需要安全上下文与用户手势；
+	* 3. 隐藏 textarea + `execCommand('copy')`：老浏览器与受限 iframe 的最后兜底。
+	*
+	* 全部失败返回 `false`，提示文案由调用方决定；这里不抛错，避免一次复制失败打断页面。
+	*/
 	function defaultScope() {
 		const globals = globalThis;
 		const browser = globalThis;
@@ -77,12 +128,16 @@
 	/** textarea 兜底：必须在用户手势的同一个任务里同步执行，跨 await 会失去写权限。 */
 	function copyWithTextarea(document, text) {
 		if (!document?.body) return false;
-		let active = document.activeElement;
-		while (active?.shadowRoot?.activeElement) active = active.shadowRoot.activeElement;
+		const active = deepActiveElement(document);
 		const control = active?.tagName === "INPUT" || active?.tagName === "TEXTAREA" ? active : null;
-		const controlStart = control?.selectionStart;
-		const controlEnd = control?.selectionEnd;
-		const controlDirection = control?.selectionDirection;
+		let controlStart = null;
+		let controlEnd = null;
+		let controlDirection = null;
+		try {
+			controlStart = control?.selectionStart ?? null;
+			controlEnd = control?.selectionEnd ?? null;
+			controlDirection = control?.selectionDirection ?? null;
+		} catch {}
 		const selection = document.getSelection();
 		const anchor = selection?.anchorNode;
 		const focus = selection?.focusNode;
@@ -94,15 +149,22 @@
 		area.style.cssText = "position:fixed;left:-9999px;top:0;opacity:0";
 		document.body.appendChild(area);
 		try {
+			area.focus();
 			area.select();
 			return document.execCommand("copy");
 		} catch {
 			return false;
 		} finally {
 			area.remove();
-			active?.focus?.();
-			if (anchor?.isConnected && focus?.isConnected) selection?.setBaseAndExtent(anchor, anchorOffset, focus, focusOffset);
-			if (controlStart != null && controlEnd != null) control?.setSelectionRange(controlStart, controlEnd, controlDirection ?? void 0);
+			try {
+				active?.focus?.();
+			} catch {}
+			try {
+				if (anchor?.isConnected && focus?.isConnected) selection?.setBaseAndExtent(anchor, anchorOffset, focus, focusOffset);
+			} catch {}
+			try {
+				if (controlStart != null && controlEnd != null) control?.setSelectionRange(controlStart, controlEnd, controlDirection ?? void 0);
+			} catch {}
 		}
 	}
 	/**
@@ -129,7 +191,7 @@
 		} };
 	}
 	//#endregion
-	//#region packages/shared/src/storage.ts
+	//#region packages/shared/src/host/storage.ts
 	/**
 	* 设置读写：默认值合并 + 异常兜底。
 	*
@@ -177,7 +239,7 @@
 		return mergeRecords(defaults, stored);
 	}
 	//#endregion
-	//#region packages/shared/src/settings-store.ts
+	//#region packages/shared/src/host/settings-store.ts
 	/**
 	* 写失败时的基线比较：存储值变了就说明别处写过，本页副本作废。
 	*
@@ -226,6 +288,155 @@
 		};
 	}
 	//#endregion
+	//#region packages/shared/src/runtime/logger.ts
+	/**
+	* 创建带 `[slug]` 前缀的日志器。
+	*
+	* @param slug 脚本标识，如 `super-drag`
+	*/
+	function createLogger(slug) {
+		return {
+			warn: (message) => console.warn(`[${slug}] ${message}`),
+			error: (message, detail) => detail === void 0 ? console.error(`[${slug}] ${message}`) : console.error(`[${slug}] ${message}`, detail)
+		};
+	}
+	/**
+	* 菜单 / 启动 / 面板打开三层错误边界的最小包装：失败只记日志，不抛给管理器与宿主页面。
+	*
+	* @param log 统一日志器
+	* @param message 失败时的中文说明
+	* @param run 实际回调
+	*/
+	function guard(log, message, run) {
+		try {
+			run();
+		} catch (error) {
+			log.error(message, error);
+		}
+	}
+	//#endregion
+	//#region packages/shared/src/runtime/boot.ts
+	/**
+	* 安装锁：同一文档只装一份。
+	*
+	* 不同管理器的沙箱之间 window 不一定共享，DOM 一定共享，所以用元素属性而不用
+	* window 标记。selection-copy 的 `data-selection-auto-copy-installed` 沿用此实现。
+	*/
+	function installOnce(attribute) {
+		const root = document.documentElement;
+		if (!root || root.hasAttribute(attribute)) return false;
+		root.setAttribute(attribute, "");
+		return true;
+	}
+	/**
+	* 站点标识：HTTP(S) 用顶层主机名，`file:` 等无主机名页面用协议名。
+	*
+	* 同域 iframe 里 `window.top.location` 可读；跨域读顶层会抛错，回退读
+	* `location.ancestorOrigins`（顶层在最后），再回退本帧。无主机名用 protocol。
+	*
+	* @param win 当前 frame 的 window；测试里传假对象
+	*/
+	function siteKey(win) {
+		const hostOf = (hostname, protocol) => {
+			const host = hostname.trim().toLowerCase();
+			if (host !== "") return host;
+			const scheme = protocol.replace(/:$/, "").trim().toLowerCase();
+			return scheme !== "" ? scheme : null;
+		};
+		try {
+			const top = win.top?.location;
+			const hit = top && hostOf(top.hostname, top.protocol);
+			if (hit) return hit;
+		} catch {}
+		try {
+			const origins = win.location.ancestorOrigins;
+			if (origins && typeof origins.length === "number") for (let index = origins.length - 1; index >= 0; index--) try {
+				const url = new URL(String(origins[index]));
+				const hit = hostOf(url.hostname, url.protocol);
+				if (hit) return hit;
+			} catch {}
+		} catch {}
+		return hostOf(win.location.hostname, win.location.protocol) ?? "unknown";
+	}
+	/**
+	* 脚本启动器：安装锁、frame 判断、菜单注册、DOM 就绪、pagehide 清理。
+	*
+	* - 顶层 `guard` 兜住同步启动异常（与各脚本原有顶层 try/catch 同语义）。
+	* - `onStart` 同步执行，不等 DOM；`onReady` 等 DOM 就绪。
+	* - 清理函数幂等；`pagehide` 且 `persisted === false` 时自动调用。
+	* - 菜单回调统一 `guard` 包裹；注册失败只告警，不阻断脚本主功能。
+	*
+	* @param gmApi GM 适配层；测试里传假实现
+	* @param options 启动参数
+	* @returns `destroy` 供页面卸载与测试调用
+	*/
+	function createUserscript(gmApi, options) {
+		const { slug, installLock = true, topFrameOnly = false, menus = [] } = options;
+		const log = createLogger(slug);
+		const cleanups = [];
+		let destroyed = false;
+		const destroy = () => {
+			if (destroyed) return;
+			destroyed = true;
+			for (const cleanup of [...cleanups].reverse()) try {
+				cleanup();
+			} catch {}
+			cleanups.length = 0;
+		};
+		const controller = new AbortController();
+		cleanups.push(() => controller.abort());
+		const onPageHide = (event) => {
+			if (!event.persisted) destroy();
+		};
+		window.addEventListener("pagehide", onPageHide);
+		cleanups.push(() => window.removeEventListener("pagehide", onPageHide));
+		const menu = (item) => {
+			if ((item.topFrameOnly ?? false) && window.top !== window.self) return;
+			const wrapped = () => guard(log, `打开${item.label}失败`, item.run);
+			if (!gmApi.registerMenuCommand(item.label, wrapped)) log.warn(`菜单命令不可用：${item.label}`);
+		};
+		guard(log, "启动失败", () => {
+			if (topFrameOnly && window.top !== window.self) return;
+			if (typeof installLock === "string" && !installOnce(installLock)) return;
+			const startCleanup = options.onStart?.();
+			if (typeof startCleanup === "function") cleanups.push(startCleanup);
+			for (const item of menus) menu(item);
+			const runReady = () => {
+				if (destroyed) return;
+				guard(log, "初始化失败", () => {
+					const readyCleanup = options.onReady?.({
+						gm: gmApi,
+						log,
+						signal: controller.signal,
+						menu
+					});
+					if (typeof readyCleanup === "function") cleanups.push(readyCleanup);
+				});
+			};
+			if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", runReady, {
+				once: true,
+				signal: controller.signal
+			});
+			else runReady();
+		});
+		return { destroy };
+	}
+	//#endregion
+	//#region packages/shared/src/dom/position.ts
+	/**
+	* 视口夹紧原语：selection-copy 的提示标签定位与 youtube 的悬浮按钮定位
+	* 各写了一份逐字相同的 `clamp`，收拢到一处。
+	*/
+	/**
+	* 把值钳在 `[min, max]` 内。
+	*
+	* 视口比内容还窄时 `max < min`：贴住 `min`（左上角），不要算出负坐标。
+	*/
+	function clamp(value, min, max) {
+		if (max < min) return min;
+		return Math.min(Math.max(value, min), max);
+	}
+	//#endregion
 	//#region scripts/selection-copy/src/settings.ts
 	/** 新键按 AGENTS.md 6.4 的 `<slug>:<area>.<key>` 命名。 */
 	var SETTINGS_KEY = "selection-copy:config.settings";
@@ -261,17 +472,6 @@
 			disabledSites: normalizeSites(merged.disabledSites)
 		};
 	}
-	/**
-	* 站点标识：HTTP(S) 用主机名，`file:` 等没有主机名的页面用协议名。
-	*
-	* 不用完整 origin：同一站点在 http / https 下应共用“本站暂停”的选择。
-	*/
-	function siteKey(location) {
-		const host = location.hostname.trim().toLowerCase();
-		if (host !== "") return host;
-		const protocol = location.protocol.replace(/:$/, "").toLowerCase();
-		return protocol === "" ? "unknown" : protocol;
-	}
 	/** 面板里展示的站点名；`file` 不是真实主机名，换成中文说明。 */
 	function siteLabel(site) {
 		return site === "file" ? "本机文件" : site;
@@ -289,51 +489,6 @@
 		};
 	}
 	/**
-	* 顶层页面决定“当前网站”。
-	*
-	* 用户在面板里看到的是地址栏里的站点，不是某个广告 / 播放器等 iframe 的域名；
-	* 暂停顶层站点后，同页 iframe 也应当停止复制。优先读同源 `top.location`，
-	* 跨域时退到 Chromium / WebKit 的 `ancestorOrigins`，再退到本帧。
-	*/
-	function frameSiteKey(context) {
-		if (context.top) return siteKey(context.top);
-		for (let index = context.ancestorOrigins.length - 1; index >= 0; index -= 1) {
-			const origin = context.ancestorOrigins[index];
-			if (!origin) continue;
-			try {
-				return siteKey(new URL(origin));
-			} catch {}
-		}
-		return siteKey(context.self);
-	}
-	function readAncestorOrigins(location) {
-		const origins = location.ancestorOrigins;
-		if (!origins) return [];
-		const list = [];
-		for (let index = 0; index < origins.length; index += 1) {
-			const value = origins.item(index);
-			if (value) list.push(value);
-		}
-		return list;
-	}
-	/** 当前 frame 所属的站点；顶层页面就是它自己。 */
-	function topSiteKey(win) {
-		if (win.top === win) return siteKey(win.location);
-		let top = null;
-		try {
-			const location = win.top?.location;
-			if (location) top = {
-				hostname: location.hostname,
-				protocol: location.protocol
-			};
-		} catch {}
-		return frameSiteKey({
-			self: win.location,
-			top,
-			ancestorOrigins: readAncestorOrigins(win.location)
-		});
-	}
-	/**
 	* 创建设置仓库；读取与写回的通用逻辑在 `@shared`。
 	*
 	* @param api GM 适配层；测试里可以传入假实现
@@ -344,390 +499,6 @@
 			key: SETTINGS_KEY,
 			normalize: normalizeSettings
 		});
-	}
-	//#endregion
-	//#region scripts/selection-copy/src/selection.ts
-	/** 与 1.2.0 一致：输入框与富文本编辑器默认都不复制。 */
-	var DEFAULT_COPY_SCOPE = {
-		copyInInputs: false,
-		copyInEditors: false
-	};
-	/** 事件目标可能是元素、文本节点或 window；统一收敛成元素。 */
-	function elementOf(node) {
-		if (node instanceof Element) return node;
-		if (node instanceof Node) return node.parentElement;
-		return null;
-	}
-	function isTextControl(element) {
-		return element?.localName === "input" || element?.localName === "textarea";
-	}
-	/**
-	* 元素是不是本脚本（或多个脚本共用的界面）自己的 Shadow DOM。
-	*
-	* 在设置面板里选中说明文字不该触发复制，否则用户的剪贴板会被自己刚读的文案覆盖。
-	* `data-ds-root` 是 `@ui` 挂载宿主的固定标记，跨脚本也成立。
-	*/
-	function isInsideOwnUi(node) {
-		if (!node) return false;
-		if (elementOf(node)?.closest("[data-ds-root]")) return true;
-		const root = node.getRootNode();
-		return root instanceof ShadowRoot && root.host?.hasAttribute("data-ds-root") === true;
-	}
-	/**
-	* 元素是不是可编辑区域或它的后代。
-	*
-	* 优先用浏览器的 `isContentEditable`（能正确处理嵌套的 `contenteditable="false"`）；
-	* 测试环境没有实现该属性时退回读祖先链上的属性值。
-	* `designMode` 打开的文档整页都是编辑器（老式富文本），也一并排除。
-	*/
-	function isInsideEditable(element) {
-		const designMode = document.designMode;
-		if (typeof designMode === "string" && designMode.toLowerCase() === "on") return true;
-		for (let node = element; node; node = node.parentElement) {
-			if (!(node instanceof HTMLElement)) continue;
-			if (node.isContentEditable) return true;
-			const attribute = node.getAttribute("contenteditable");
-			if (attribute === "" || attribute === "true" || attribute === "plaintext-only") return true;
-		}
-		return false;
-	}
-	/** 焦点可能落在 Shadow Root 内部，`document.activeElement` 只会给出宿主元素。 */
-	function getActiveElement(doc = document) {
-		let element = doc.activeElement;
-		while (element?.shadowRoot?.activeElement) element = element.shadowRoot.activeElement;
-		return element;
-	}
-	/** 控件自己是否有一段非空选区；number / email 等 input 没有 selectionStart。 */
-	function hasOwnSelection(element) {
-		if (!isTextControl(element)) return false;
-		try {
-			return element.selectionStart !== element.selectionEnd;
-		} catch {
-			return false;
-		}
-	}
-	function getActiveTextControl() {
-		const element = getActiveElement();
-		return hasOwnSelection(element) ? element : null;
-	}
-	/**
-	* 这次手势对应的文本控件。
-	*
-	* 鼠标手势以事件目标为准：在页面正文里拖动时，即使焦点仍在某个输入框里，
-	* 也不能把输入框里的旧选区当成用户这次选中的内容。键盘手势没有目标，
-	* 只能看当前焦点。
-	*/
-	function selectedTextControl(target) {
-		if (target !== null) {
-			const element = elementOf(target);
-			return hasOwnSelection(element) ? element : null;
-		}
-		return getActiveTextControl();
-	}
-	function snapshotSelection(selection) {
-		if (!selection) return null;
-		const { anchorNode, anchorOffset, focusNode, focusOffset, rangeCount } = selection;
-		return {
-			anchorNode,
-			anchorOffset,
-			focusNode,
-			focusOffset,
-			rangeCount
-		};
-	}
-	/** 复制前是否要去掉首尾空白；行内换行与缩进保留，只 trim 两端。 */
-	function readSelectionText(selection, trimWhitespace = true) {
-		const text = selection.toString();
-		return trimWhitespace ? text.trim() : text;
-	}
-	/** 文本框 / 文本域的选区文本；不支持选区的 input 类型返回空串。 */
-	function readTextControlText(control, trimWhitespace = true) {
-		try {
-			const start = control.selectionStart;
-			const end = control.selectionEnd;
-			if (start === null || end === null || start === end) return "";
-			const text = control.value.slice(Math.min(start, end), Math.max(start, end));
-			return trimWhitespace ? text.trim() : text;
-		} catch {
-			return "";
-		}
-	}
-	/** 目标本身、选区端点或当前焦点任一处落在被排除的区域，就整次跳过。 */
-	function isDisabledTarget(selection, target, control, scope = DEFAULT_COPY_SCOPE) {
-		if (isInsideOwnUi(target instanceof Node ? target : null) || isInsideOwnUi(selection?.anchorNode ?? null) || isInsideOwnUi(selection?.focusNode ?? null)) return true;
-		if (!scope.copyInInputs) {
-			if (isTextControl(elementOf(target))) return true;
-			if (isTextControl(elementOf(selection?.anchorNode))) return true;
-			if (isTextControl(elementOf(selection?.focusNode))) return true;
-			if (control !== null && target === null) return true;
-		}
-		if (!scope.copyInEditors) {
-			if (isInsideEditable(elementOf(target))) return true;
-			if (isInsideEditable(elementOf(selection?.anchorNode))) return true;
-			if (isInsideEditable(elementOf(selection?.focusNode))) return true;
-			if (target === null && isInsideEditable(getActiveElement())) return true;
-		}
-		return false;
-	}
-	//#endregion
-	//#region scripts/selection-copy/src/features/geometry.ts
-	/** 在给定水平位置构造零宽锚点；`x` 是提示标签的中心。 */
-	function pointAt(rect, x) {
-		return {
-			left: x,
-			right: x,
-			top: rect.top,
-			bottom: rect.bottom,
-			width: 0,
-			height: rect.height
-		};
-	}
-	function centerX(rect) {
-		return rect.left + rect.width / 2;
-	}
-	/** 焦点处的零宽插入点；浏览器还没算出布局时返回 null。 */
-	function getCaretRect(selection, doc) {
-		const node = selection.focusNode;
-		if (!node) return null;
-		const range = doc.createRange();
-		try {
-			range.setStart(node, selection.focusOffset);
-			range.collapse(true);
-			const [first] = range.getClientRects();
-			const rect = first ?? range.getBoundingClientRect();
-			if (rect.width === 0 && rect.height === 0) return null;
-			return pointAt(rect, rect.left);
-		} catch {
-			return null;
-		}
-	}
-	function isForwardSelection(selection, range) {
-		return selection.anchorNode === range.startContainer && selection.anchorOffset === range.startOffset;
-	}
-	/** 选区终点所在行的行盒；拿不到插入点时的退路。 */
-	function getSelectionEndRect(selection, range) {
-		try {
-			const lineRects = range.getClientRects();
-			const forward = isForwardSelection(selection, range);
-			const lineRect = lineRects[forward ? lineRects.length - 1 : 0];
-			if (!lineRect) return null;
-			return pointAt(lineRect, forward ? lineRect.right : lineRect.left);
-		} catch {
-			return null;
-		}
-	}
-	function getFallbackRect(selection, range, doc) {
-		const anchorElement = elementOf(selection.anchorNode);
-		const activeElement = !anchorElement || anchorElement === doc.body || anchorElement === doc.documentElement ? getActiveElement(doc) : null;
-		if (activeElement && activeElement !== doc.body && activeElement !== doc.documentElement) {
-			const activeRect = activeElement.getBoundingClientRect();
-			if (activeRect.width > 0 || activeRect.height > 0) return pointAt(activeRect, centerX(activeRect));
-		}
-		if (range) try {
-			const boxRect = range.getBoundingClientRect();
-			if (boxRect.width > 0 || boxRect.height > 0) return pointAt(boxRect, centerX(boxRect));
-		} catch {}
-		const box = anchorElement?.getBoundingClientRect();
-		if (box && (box.width > 0 || box.height > 0)) return pointAt(box, centerX(box));
-		return null;
-	}
-	/**
-	* 取标记要贴住的位置。
-	*
-	* @param selection 当前文档选区
-	* @param doc 选区所属文档；默认当前页面
-	* @returns 焦点处的插入点或兜底矩形；都没有时返回 null（标记会落在视口中央）
-	*/
-	function getAnchorRect(selection, doc = document) {
-		const caret = getCaretRect(selection, doc);
-		if (caret) return caret;
-		const range = selection.rangeCount > 0 ? selection.getRangeAt(0) : null;
-		if (!range) return getFallbackRect(selection, null, doc);
-		return getSelectionEndRect(selection, range) ?? getFallbackRect(selection, range, doc);
-	}
-	/**
-	* 文本框没有可读的插入点矩形，只能贴住控件本身。
-	*
-	* 水平方向取控件中线，让提示落在输入框上方居中，而不是跑到宽输入框的右端。
-	*/
-	function getControlAnchorRect(element) {
-		const rect = element.getBoundingClientRect();
-		if (rect.width === 0 && rect.height === 0) return null;
-		return pointAt(rect, centerX(rect));
-	}
-	//#endregion
-	//#region scripts/selection-copy/src/features/copy-action.ts
-	/**
-	* 决定这次手势复制什么。
-	*
-	* @param target 手势目标；键盘触发时为 null
-	* @param settings 复制范围与首尾空白设置
-	* @param doc 目标文档
-	* @returns 要写入的文字与反馈锚点；这次不该复制时返回 null
-	*/
-	function resolveCopySource(target, settings, doc) {
-		const control = selectedTextControl(target);
-		if (control) {
-			if (!settings.copyInInputs) return null;
-			const text = readTextControlText(control, settings.trimWhitespace);
-			if (text === "") return null;
-			return {
-				text,
-				rect: getControlAnchorRect(control)
-			};
-		}
-		const selection = doc.getSelection();
-		if (!selection || selection.rangeCount === 0) return null;
-		if (isDisabledTarget(selection, target, getActiveTextControl(), settings)) return null;
-		const text = readSelectionText(selection, settings.trimWhitespace);
-		if (text === "") return null;
-		return {
-			text,
-			rect: getAnchorRect(selection, doc)
-		};
-	}
-	function createCopyAction(options) {
-		const doc = options.doc ?? document;
-		let requestId = 0;
-		return async (target = null, point = null) => {
-			const settings = options.getSettings();
-			if (!isEnabledOn(settings, options.site)) return "skipped";
-			const source = resolveCopySource(target, settings, doc);
-			if (!source) return "skipped";
-			const current = ++requestId;
-			let written = false;
-			try {
-				const latest = await options.clipboard.copy(source.text);
-				if (current !== requestId) return "skipped";
-				written = latest;
-			} catch {
-				if (current !== requestId) return "skipped";
-			}
-			options.showFeedback({
-				variant: written ? "success" : "failure",
-				rect: source.rect,
-				point: point ?? null
-			});
-			return written ? "copied" : "failed";
-		};
-	}
-	//#endregion
-	//#region scripts/selection-copy/src/config.ts
-	/**
-	* 行为常量。
-	*
-	* 用户能改的项（输入框 / 富文本 / 首尾空白 / 站点开关）在 `settings.ts`；
-	* 这里只放不随设置变化的几何与手势阈值，方便测试引用。
-	*/
-	var BEHAVIOR = { 
-	/** 鼠标位移超过该值即认定为拖动选区。 */
-dragThresholdPx: 3 };
-	/**
-	* 复制反馈标签。
-	*
-	* 宽高必须与 `indicator.css` 的宽度、`--ds-control-h-sm` 高度保持一致：
-	* 位置是纯函数算出来的，尺寸对不上会贴边时露出一截或压住选区。
-	*/
-	var INDICATOR = {
-		widthPx: {
-			success: 68,
-			failure: 80
-		},
-		heightPx: 28,
-		gapPx: 6,
-		marginPx: 8,
-		holdMs: {
-			success: 1200,
-			failure: 1800
-		},
-		fadeMs: 180
-	};
-	/** 会改变选区的按键；`Ctrl+A` / `Cmd+A` 在键盘处理里单独判断。 */
-	var SELECTION_EXTEND_KEYS = /* @__PURE__ */ new Set([
-		"ArrowLeft",
-		"ArrowRight",
-		"ArrowUp",
-		"ArrowDown",
-		"Home",
-		"End",
-		"PageUp",
-		"PageDown"
-	]);
-	//#endregion
-	//#region scripts/selection-copy/src/gesture.ts
-	function isSameSelection(first, second) {
-		return first !== null && second !== null && first.anchorNode === second.anchorNode && first.anchorOffset === second.anchorOffset && first.focusNode === second.focusNode && first.focusOffset === second.focusOffset && first.rangeCount === second.rangeCount;
-	}
-	/**
-	* 松开鼠标后是否去复制。
-	*
-	* 普通单击（没有拖动、选区也没变）只是移动光标或取消选区，不复制；拖动、双击 /
-	* 三击、以及选区确实变了的操作都算一次新选择。
-	*/
-	function shouldCopyOnMouseUp(gesture, end, current, threshold = BEHAVIOR.dragThresholdPx) {
-		if (!(Math.abs(end.clientX - gesture.startX) > threshold || Math.abs(end.clientY - gesture.startY) > threshold) && end.detail === 1 && isSameSelection(gesture.selection, current)) return false;
-		return true;
-	}
-	/**
-	* 松开按键后是否去复制：Shift + 选区扩展键，或 Ctrl+A（不带 Shift）。
-	*
-	* Alt 组合交给系统；页面合成的键盘事件一律忽略，避免被脚本反复触发。
-	*/
-	function shouldCopyOnKeyUp(event) {
-		if (!event.isTrusted || event.altKey) return false;
-		const extendsSelection = event.shiftKey && SELECTION_EXTEND_KEYS.has(event.key);
-		const isA = event.code === "KeyA" || event.key.toLowerCase() === "a";
-		const selectsAll = event.ctrlKey && !event.shiftKey && isA;
-		return extendsSelection || selectsAll;
-	}
-	//#endregion
-	//#region scripts/selection-copy/src/features/sensor.ts
-	function installCopySensor(options) {
-		const doc = options.doc ?? document;
-		const win = options.win ?? window;
-		let gesture = null;
-		const onMouseDown = (event) => {
-			if (!event.isTrusted || event.button !== 0) return;
-			gesture = {
-				startX: event.clientX,
-				startY: event.clientY,
-				target: event.target,
-				selection: snapshotSelection(doc.getSelection())
-			};
-		};
-		const onMouseUp = (event) => {
-			if (!event.isTrusted || event.button !== 0) return;
-			if (gesture === null) return;
-			const current = gesture;
-			gesture = null;
-			if (!shouldCopyOnMouseUp(current, event, snapshotSelection(doc.getSelection()))) return;
-			options.onCopy(current.target, {
-				x: event.clientX,
-				y: event.clientY
-			});
-		};
-		const onKeyUp = (event) => {
-			if (!shouldCopyOnKeyUp(event)) return;
-			options.onCopy(null, null);
-		};
-		const onMouseLeave = (event) => {
-			if (event.relatedTarget === null) gesture = null;
-		};
-		const reset = () => {
-			gesture = null;
-		};
-		doc.addEventListener("mousedown", onMouseDown, true);
-		doc.addEventListener("mouseup", onMouseUp, true);
-		doc.addEventListener("keyup", onKeyUp, true);
-		doc.addEventListener("mouseleave", onMouseLeave, true);
-		win.addEventListener("blur", reset);
-		return () => {
-			doc.removeEventListener("mousedown", onMouseDown, true);
-			doc.removeEventListener("mouseup", onMouseUp, true);
-			doc.removeEventListener("keyup", onKeyUp, true);
-			doc.removeEventListener("mouseleave", onMouseLeave, true);
-			win.removeEventListener("blur", reset);
-		};
 	}
 	//#endregion
 	//#region packages/userscript-ui/src/styles/base.css?inline
@@ -750,6 +521,22 @@ dragThresholdPx: 3 };
 		scrollHint: "Scroll for more",
 		cancel: "Cancel",
 		confirm: "Confirm"
+	};
+	/**
+	* 中文文案预设：四个脚本的 `LABELS` 逐字相同且都缺 `operation`，
+	* 无标题操作面板的 aria 名会回落到英文 `Operations`。
+	* 脚本侧 `mountUI({ theme: 'system', labels: ZH_LABELS })` 即可，不再各写一份。
+	*/
+	var ZH_LABELS = {
+		close: "关闭",
+		settings: "设置",
+		operation: "操作",
+		notifications: "通知",
+		dismissNotification: "关闭通知",
+		closeSettings: "关闭设置",
+		scrollHint: "向下滚动查看更多内容",
+		cancel: "取消",
+		confirm: "确定"
 	};
 	function resolveLabels(overrides) {
 		return {
@@ -799,9 +586,22 @@ dragThresholdPx: 3 };
 	//#region packages/userscript-ui/src/core/mount.ts
 	var HOST_TAG = "userscript-ui-root";
 	var DEFAULT_Z_INDEX = 2147483e3;
+	var ROOT_ATTRIBUTE = "data-ds-root";
+	/**
+	* 节点是否来自本仓库脚本自己的界面。
+	*
+	* 脚本要判断鼠标、选区、扫描结果是否落在自己的面板里（否则会把自己的按钮
+	* 当页面内容处理），而宿主标记只由这里定义，所以判定也留在这里。
+	*/
+	function isOwnUiNode(node) {
+		if (!node) return false;
+		if ((node instanceof Element ? node : node.parentElement)?.closest(`[${ROOT_ATTRIBUTE}]`)) return true;
+		const root = node.getRootNode();
+		return root instanceof ShadowRoot && root.host?.hasAttribute(ROOT_ATTRIBUTE) === true;
+	}
 	function mountUI(options = {}) {
 		const host = document.createElement(HOST_TAG);
-		host.setAttribute("data-ds-root", "");
+		host.setAttribute(ROOT_ATTRIBUTE, "");
 		setImportant(host, "all", "initial");
 		setImportant(host, "position", "fixed");
 		setImportant(host, "inset", "0");
@@ -911,6 +711,50 @@ dragThresholdPx: 3 };
 	}
 	function setImportant(node, property, value) {
 		node.style.setProperty(property, value, "important");
+	}
+	//#endregion
+	//#region packages/userscript-ui/src/icons.ts
+	var SVG_NS = "http://www.w3.org/2000/svg";
+	function icon(paths, size = 16) {
+		const svg = document.createElementNS(SVG_NS, "svg");
+		svg.setAttribute("viewBox", "0 0 24 24");
+		svg.setAttribute("width", String(size));
+		svg.setAttribute("height", String(size));
+		svg.setAttribute("fill", "none");
+		svg.setAttribute("stroke", "currentColor");
+		svg.setAttribute("stroke-width", "2");
+		svg.setAttribute("stroke-linecap", "round");
+		svg.setAttribute("stroke-linejoin", "round");
+		svg.setAttribute("aria-hidden", "true");
+		svg.setAttribute("focusable", "false");
+		for (const definition of paths) {
+			const path = document.createElementNS(SVG_NS, "path");
+			path.setAttribute("d", definition);
+			svg.appendChild(path);
+		}
+		return svg;
+	}
+	var closeIcon = () => icon(["M18 6 6 18", "m6 6 12 12"]);
+	var chevronDownIcon = () => icon(["m6 9 6 6 6-6"]);
+	//#endregion
+	//#region packages/userscript-ui/src/patterns/app-host.ts
+	/**
+	* 创建界面宿主。
+	*
+	* @param options 主题选项
+	*/
+	function createUiHost$1(options = {}) {
+		let ui = null;
+		return {
+			ensure: () => ui ??= mountUI({
+				theme: options.theme ?? "system",
+				labels: ZH_LABELS
+			}),
+			destroy: () => {
+				ui?.destroy();
+				ui = null;
+			}
+		};
 	}
 	//#endregion
 	//#region packages/userscript-ui/src/core/lifecycle.ts
@@ -1028,6 +872,25 @@ dragThresholdPx: 3 };
 		else if (content) parent.appendChild(content);
 	}
 	//#endregion
+	//#region packages/userscript-ui/src/core/form.ts
+	/**
+	* Invalid state has two independent owners: the control (`data-ds-invalid`)
+	* and its Field (`data-ds-field-invalid`). `aria-invalid` is always the union,
+	* so either side can change state without erasing the other's decision.
+	*/
+	function applyInvalid(input, invalid) {
+		input.toggleAttribute("data-ds-invalid", invalid);
+		syncAriaInvalid(input);
+	}
+	function setFieldInvalid(input, invalid) {
+		input.toggleAttribute("data-ds-field-invalid", invalid);
+		syncAriaInvalid(input);
+	}
+	function syncAriaInvalid(input) {
+		if (input.hasAttribute("data-ds-invalid") || input.hasAttribute("data-ds-field-invalid")) input.setAttribute("aria-invalid", "true");
+		else input.removeAttribute("aria-invalid");
+	}
+	//#endregion
 	//#region packages/userscript-ui/src/core/dom.ts
 	function append(parent, ...items) {
 		for (const item of items) {
@@ -1045,6 +908,152 @@ dragThresholdPx: 3 };
 		for (const id of active) ids.add(id);
 		if (ids.size > 0) element.setAttribute("aria-describedby", [...ids].join(" "));
 		else element.removeAttribute("aria-describedby");
+	}
+	//#endregion
+	//#region packages/userscript-ui/src/core/id.ts
+	/**
+	* Element ids are global to the page, not to a shadow root. A per-module random
+	* token keeps them unique when two copies of the library (two userscripts, or
+	* an upgrade window with both versions loaded) run in the same document.
+	*/
+	var PAGE_TOKEN = Math.random().toString(36).slice(2, 8);
+	var counter = 0;
+	function uid(prefix = "ds") {
+		counter += 1;
+		return `${prefix}-${PAGE_TOKEN}-${counter}`;
+	}
+	//#endregion
+	//#region packages/userscript-ui/src/components/field.css?inline
+	var field_default = ".ds-field {\n  display: flex;\n  flex-direction: column;\n  gap: var(--ds-space-1-5);\n  min-width: 0;\n}\n\n.ds-field-text {\n  display: flex;\n  flex-direction: column;\n  gap: var(--ds-space-0-5);\n  min-width: 0;\n}\n\n.ds-field-label {\n  color: var(--ds-foreground);\n  font-size: var(--ds-text-sm);\n  font-weight: var(--ds-weight-medium);\n  line-height: var(--ds-leading-snug);\n  cursor: pointer;\n}\n\n.ds-field-description {\n  margin: 0;\n  color: var(--ds-muted-foreground);\n  font-size: var(--ds-text-xs);\n  line-height: var(--ds-leading-snug);\n}\n\n.ds-field-control {\n  min-width: 0;\n}\n\n.ds-field-error {\n  margin: 0;\n  color: var(--ds-destructive);\n  font-size: var(--ds-text-xs);\n  line-height: var(--ds-leading-snug);\n}\n\n.ds-field--inline {\n  display: grid;\n  grid-template-columns: minmax(0, 1fr) auto;\n  align-items: center;\n  column-gap: var(--ds-space-4);\n  row-gap: var(--ds-space-1);\n}\n\n.ds-field--inline .ds-field-text {\n  grid-column: 1;\n}\n\n.ds-field--inline .ds-field-control {\n  grid-column: 2;\n  width: auto;\n}\n\n.ds-field--inline .ds-field-error {\n  grid-column: 1 / -1;\n}\n";
+	//#endregion
+	//#region packages/userscript-ui/src/components/field.ts
+	function createField(ui, options) {
+		assertAlive(ui, "field");
+		ui.useStyles(field_default);
+		const scope = createScope(ui);
+		const input = options.control.input;
+		if (!input.id) input.id = options.id ?? uid("ds-control");
+		const root = document.createElement("div");
+		root.className = options.inline ? "ds-field ds-field--inline" : "ds-field";
+		root.setAttribute("data-ds-field", "");
+		const text = document.createElement("div");
+		text.className = "ds-field-text";
+		const label = document.createElement("label");
+		label.className = "ds-field-label";
+		label.htmlFor = input.id;
+		label.textContent = options.label ?? "";
+		label.hidden = !options.label;
+		text.appendChild(label);
+		const descriptionId = uid("ds-field-description");
+		const description = document.createElement("p");
+		description.className = "ds-field-description";
+		description.id = descriptionId;
+		description.textContent = options.description ?? "";
+		description.hidden = !options.description;
+		text.appendChild(description);
+		text.hidden = !options.label && !options.description;
+		root.appendChild(text);
+		const control = document.createElement("div");
+		control.className = "ds-field-control";
+		control.appendChild(options.control.el);
+		root.appendChild(control);
+		const errorId = uid("ds-field-error");
+		const error = document.createElement("p");
+		error.className = "ds-field-error";
+		error.id = errorId;
+		error.setAttribute("role", "alert");
+		error.hidden = true;
+		root.appendChild(error);
+		const syncFieldDescribedBy = () => {
+			const active = [description, error].filter((node) => !node.hidden).map((node) => node.id);
+			syncDescribedBy(input, [descriptionId, errorId], active);
+		};
+		const syncInvalid = () => setFieldInvalid(input, !error.hidden);
+		const setError = (message) => {
+			if (scope.destroyed) return;
+			const hasError = Boolean(message);
+			error.textContent = message ?? "";
+			error.hidden = !hasError;
+			root.toggleAttribute("data-invalid", hasError);
+			syncInvalid();
+			syncFieldDescribedBy();
+		};
+		const setDescription = (message) => {
+			if (scope.destroyed) return;
+			description.textContent = message ?? "";
+			description.hidden = !message;
+			text.hidden = label.hidden && description.hidden;
+			syncFieldDescribedBy();
+		};
+		if (input.getAttribute("aria-invalid") === "true") input.setAttribute("data-ds-invalid", "");
+		if (options.error) setError(options.error);
+		else {
+			syncInvalid();
+			syncFieldDescribedBy();
+		}
+		scope.onDestroy(() => {
+			description.hidden = true;
+			error.hidden = true;
+			syncFieldDescribedBy();
+			setFieldInvalid(input, false);
+			root.remove();
+		});
+		return {
+			el: root,
+			control: options.control.el,
+			setError,
+			setDescription,
+			destroy: () => scope.destroy()
+		};
+	}
+	//#endregion
+	//#region packages/userscript-ui/src/components/input.css?inline
+	var input_default = ".ds-input,\n.ds-textarea {\n  width: 100%;\n  min-width: 0;\n  border: var(--ds-border-width) solid var(--ds-input);\n  border-radius: var(--ds-radius-md);\n  background: transparent;\n  color: var(--ds-foreground);\n  font-family: inherit;\n  font-size: var(--ds-text-sm);\n  transition:\n    border-color var(--ds-duration-fast) var(--ds-ease),\n    box-shadow var(--ds-duration-fast) var(--ds-ease);\n}\n\n.ds-input {\n  height: var(--ds-control-h);\n  padding: 0 var(--ds-space-2-5);\n  line-height: normal;\n}\n\n.ds-textarea {\n  min-height: var(--ds-textarea-min-h);\n  padding: var(--ds-space-2) var(--ds-space-2-5);\n  line-height: var(--ds-leading-normal);\n  resize: vertical;\n}\n\n.ds-input::placeholder,\n.ds-textarea::placeholder {\n  color: var(--ds-muted-foreground);\n  opacity: 1;\n}\n\n.ds-input:hover:not(:disabled),\n.ds-textarea:hover:not(:disabled) {\n  border-color: color-mix(in srgb, var(--ds-input) 65%, var(--ds-foreground));\n}\n\n.ds-input:focus-visible,\n.ds-textarea:focus-visible {\n  border-color: var(--ds-ring);\n  outline: none;\n  box-shadow: 0 0 0 var(--ds-ring-width) color-mix(in srgb, var(--ds-ring) 24%, transparent);\n}\n\n.ds-input[aria-invalid='true'],\n.ds-textarea[aria-invalid='true'] {\n  border-color: var(--ds-destructive);\n}\n\n.ds-input[aria-invalid='true']:focus-visible,\n.ds-textarea[aria-invalid='true']:focus-visible {\n  box-shadow: 0 0 0 var(--ds-ring-width) color-mix(in srgb, var(--ds-destructive) 24%, transparent);\n}\n\n.ds-input:disabled,\n.ds-textarea:disabled {\n  opacity: 0.55;\n  cursor: not-allowed;\n}\n";
+	//#endregion
+	//#region packages/userscript-ui/src/components/input.ts
+	/**
+	* `data-ds-invalid` mirrors the control's own invalid state so a Field can add
+	* a validation error without owning — or clearing — the control's state.
+	*/
+	function createInput(ui, options = {}) {
+		assertAlive(ui, "input");
+		ui.useStyles(input_default);
+		const scope = createScope(ui);
+		const input = document.createElement("input");
+		input.className = "ds-input";
+		input.type = options.type ?? "text";
+		if (options.value != null) input.value = options.value;
+		if (options.placeholder) input.placeholder = options.placeholder;
+		if (options.name) input.name = options.name;
+		if (options.id) input.id = options.id;
+		if (options.disabled) input.disabled = true;
+		if (options.readonly) input.readOnly = true;
+		if (options.required) input.required = true;
+		if (options.autocomplete) input.autocomplete = options.autocomplete;
+		if (options.inputMode) input.inputMode = options.inputMode;
+		if (options.min != null) input.min = String(options.min);
+		if (options.max != null) input.max = String(options.max);
+		if (options.step != null) input.step = String(options.step);
+		if (options.ariaLabel) input.setAttribute("aria-label", options.ariaLabel);
+		const setInvalid = (invalid) => applyInvalid(input, invalid);
+		if (options.invalid) setInvalid(true);
+		if (options.onInput) input.addEventListener("input", (event) => options.onInput?.(input.value, event), { signal: scope.signal });
+		if (options.onChange) input.addEventListener("change", (event) => options.onChange?.(input.value, event), { signal: scope.signal });
+		return {
+			el: input,
+			input,
+			setValue(value) {
+				input.value = value;
+			},
+			getValue() {
+				return input.value;
+			},
+			setInvalid,
+			destroy() {
+				scope.destroy();
+				input.remove();
+			}
+		};
 	}
 	//#endregion
 	//#region packages/userscript-ui/src/core/focus.ts
@@ -1067,43 +1076,6 @@ dragThresholdPx: 3 };
 	function focusIfConnected(target) {
 		if (target?.isConnected) target.focus({ preventScroll: true });
 	}
-	//#endregion
-	//#region packages/userscript-ui/src/core/id.ts
-	/**
-	* Element ids are global to the page, not to a shadow root. A per-module random
-	* token keeps them unique when two copies of the library (two userscripts, or
-	* an upgrade window with both versions loaded) run in the same document.
-	*/
-	var PAGE_TOKEN = Math.random().toString(36).slice(2, 8);
-	var counter = 0;
-	function uid(prefix = "ds") {
-		counter += 1;
-		return `${prefix}-${PAGE_TOKEN}-${counter}`;
-	}
-	//#endregion
-	//#region packages/userscript-ui/src/icons.ts
-	var SVG_NS = "http://www.w3.org/2000/svg";
-	function icon(paths, size = 16) {
-		const svg = document.createElementNS(SVG_NS, "svg");
-		svg.setAttribute("viewBox", "0 0 24 24");
-		svg.setAttribute("width", String(size));
-		svg.setAttribute("height", String(size));
-		svg.setAttribute("fill", "none");
-		svg.setAttribute("stroke", "currentColor");
-		svg.setAttribute("stroke-width", "2");
-		svg.setAttribute("stroke-linecap", "round");
-		svg.setAttribute("stroke-linejoin", "round");
-		svg.setAttribute("aria-hidden", "true");
-		svg.setAttribute("focusable", "false");
-		for (const definition of paths) {
-			const path = document.createElementNS(SVG_NS, "path");
-			path.setAttribute("d", definition);
-			svg.appendChild(path);
-		}
-		return svg;
-	}
-	var closeIcon = () => icon(["M18 6 6 18", "m6 6 12 12"]);
-	var chevronDownIcon = () => icon(["m6 9 6 6 6-6"]);
 	//#endregion
 	//#region packages/userscript-ui/src/styles/scroll-hint.css?inline
 	var scroll_hint_default = ".ds-scroll-hint {\n  position: absolute;\n  inset-inline: 0;\n  bottom: 0;\n  display: flex;\n  align-items: flex-end;\n  justify-content: center;\n  height: var(--ds-scroll-hint-height);\n  padding-bottom: var(--ds-space-1-5);\n  background: linear-gradient(to top, var(--ds-card) 30%, transparent);\n  color: var(--ds-muted-foreground);\n  font-size: var(--ds-text-xs);\n  pointer-events: none;\n  opacity: 1;\n  visibility: visible;\n  transition: opacity var(--ds-duration-fast) var(--ds-ease);\n}\n\n.ds-scroll-hint[data-state='hidden'] {\n  opacity: 0;\n  visibility: hidden;\n}\n\n.ds-scroll-hint-label {\n  display: inline-flex;\n  align-items: center;\n  gap: var(--ds-space-1);\n  padding: var(--ds-space-0-5) var(--ds-space-2);\n  border-radius: var(--ds-radius-full);\n  background: var(--ds-muted);\n  white-space: nowrap;\n}\n\n.ds-scroll-hint-label svg {\n  width: var(--ds-icon-xs);\n  height: var(--ds-icon-xs);\n  flex: none;\n}\n";
@@ -1436,97 +1408,80 @@ dragThresholdPx: 3 };
 		};
 	}
 	//#endregion
-	//#region packages/userscript-ui/src/core/form.ts
-	function setFieldInvalid(input, invalid) {
-		input.toggleAttribute("data-ds-field-invalid", invalid);
-		syncAriaInvalid(input);
-	}
-	function syncAriaInvalid(input) {
-		if (input.hasAttribute("data-ds-invalid") || input.hasAttribute("data-ds-field-invalid")) input.setAttribute("aria-invalid", "true");
-		else input.removeAttribute("aria-invalid");
-	}
+	//#region packages/userscript-ui/src/components/select.css?inline
+	var select_default = ".ds-select-wrap {\n  position: relative;\n  width: 100%;\n  min-width: 0;\n}\n\n.ds-select {\n  width: 100%;\n  height: var(--ds-control-h);\n  padding: 0 var(--ds-space-8) 0 var(--ds-space-2-5);\n  border: var(--ds-border-width) solid var(--ds-input);\n  border-radius: var(--ds-radius-md);\n  background: transparent;\n  color: var(--ds-foreground);\n  font-family: inherit;\n  font-size: var(--ds-text-sm);\n  line-height: normal;\n  appearance: none;\n  cursor: pointer;\n  transition:\n    border-color var(--ds-duration-fast) var(--ds-ease),\n    box-shadow var(--ds-duration-fast) var(--ds-ease);\n}\n\n.ds-select:hover:not(:disabled) {\n  border-color: color-mix(in srgb, var(--ds-input) 65%, var(--ds-foreground));\n}\n\n.ds-select:focus-visible {\n  border-color: var(--ds-ring);\n  outline: none;\n  box-shadow: 0 0 0 var(--ds-ring-width) color-mix(in srgb, var(--ds-ring) 24%, transparent);\n}\n\n.ds-select[aria-invalid='true'] {\n  border-color: var(--ds-destructive);\n}\n\n.ds-select[aria-invalid='true']:focus-visible {\n  box-shadow: 0 0 0 var(--ds-ring-width) color-mix(in srgb, var(--ds-destructive) 24%, transparent);\n}\n\n.ds-select:disabled {\n  opacity: 0.55;\n  cursor: not-allowed;\n}\n\n.ds-select option {\n  background: var(--ds-card);\n  color: var(--ds-card-foreground);\n}\n\n.ds-select-chevron {\n  position: absolute;\n  inset-block-start: 50%;\n  inset-inline-end: var(--ds-space-2);\n  width: var(--ds-icon-sm);\n  height: var(--ds-icon-sm);\n  color: var(--ds-muted-foreground);\n  pointer-events: none;\n  transform: translateY(-50%);\n}\n\n.ds-select:focus-visible + .ds-select-chevron {\n  color: var(--ds-foreground);\n}\n";
 	//#endregion
-	//#region packages/userscript-ui/src/components/field.css?inline
-	var field_default = ".ds-field {\n  display: flex;\n  flex-direction: column;\n  gap: var(--ds-space-1-5);\n  min-width: 0;\n}\n\n.ds-field-text {\n  display: flex;\n  flex-direction: column;\n  gap: var(--ds-space-0-5);\n  min-width: 0;\n}\n\n.ds-field-label {\n  color: var(--ds-foreground);\n  font-size: var(--ds-text-sm);\n  font-weight: var(--ds-weight-medium);\n  line-height: var(--ds-leading-snug);\n  cursor: pointer;\n}\n\n.ds-field-description {\n  margin: 0;\n  color: var(--ds-muted-foreground);\n  font-size: var(--ds-text-xs);\n  line-height: var(--ds-leading-snug);\n}\n\n.ds-field-control {\n  min-width: 0;\n}\n\n.ds-field-error {\n  margin: 0;\n  color: var(--ds-destructive);\n  font-size: var(--ds-text-xs);\n  line-height: var(--ds-leading-snug);\n}\n\n.ds-field--inline {\n  display: grid;\n  grid-template-columns: minmax(0, 1fr) auto;\n  align-items: center;\n  column-gap: var(--ds-space-4);\n  row-gap: var(--ds-space-1);\n}\n\n.ds-field--inline .ds-field-text {\n  grid-column: 1;\n}\n\n.ds-field--inline .ds-field-control {\n  grid-column: 2;\n  width: auto;\n}\n\n.ds-field--inline .ds-field-error {\n  grid-column: 1 / -1;\n}\n";
-	//#endregion
-	//#region packages/userscript-ui/src/components/field.ts
-	function createField(ui, options) {
-		assertAlive(ui, "field");
-		ui.useStyles(field_default);
+	//#region packages/userscript-ui/src/components/select.ts
+	function createSelect(ui, options) {
+		assertAlive(ui, "select");
+		ui.useStyles(select_default);
 		const scope = createScope(ui);
-		const input = options.control.input;
-		if (!input.id) input.id = options.id ?? uid("ds-control");
-		const root = document.createElement("div");
-		root.className = options.inline ? "ds-field ds-field--inline" : "ds-field";
-		root.setAttribute("data-ds-field", "");
-		const text = document.createElement("div");
-		text.className = "ds-field-text";
-		const label = document.createElement("label");
-		label.className = "ds-field-label";
-		label.htmlFor = input.id;
-		label.textContent = options.label ?? "";
-		label.hidden = !options.label;
-		text.appendChild(label);
-		const descriptionId = uid("ds-field-description");
-		const description = document.createElement("p");
-		description.className = "ds-field-description";
-		description.id = descriptionId;
-		description.textContent = options.description ?? "";
-		description.hidden = !options.description;
-		text.appendChild(description);
-		text.hidden = !options.label && !options.description;
-		root.appendChild(text);
-		const control = document.createElement("div");
-		control.className = "ds-field-control";
-		control.appendChild(options.control.el);
-		root.appendChild(control);
-		const errorId = uid("ds-field-error");
-		const error = document.createElement("p");
-		error.className = "ds-field-error";
-		error.id = errorId;
-		error.setAttribute("role", "alert");
-		error.hidden = true;
-		root.appendChild(error);
-		const syncFieldDescribedBy = () => {
-			const active = [description, error].filter((node) => !node.hidden).map((node) => node.id);
-			syncDescribedBy(input, [descriptionId, errorId], active);
+		const wrap = document.createElement("span");
+		wrap.className = "ds-select-wrap";
+		const select = document.createElement("select");
+		select.className = "ds-select";
+		if (options.name) select.name = options.name;
+		if (options.id) select.id = options.id;
+		if (options.disabled) select.disabled = true;
+		if (options.required) select.required = true;
+		if (options.ariaLabel) select.setAttribute("aria-label", options.ariaLabel);
+		const chevron = chevronDownIcon();
+		chevron.classList.add("ds-select-chevron");
+		let placeholderOption = null;
+		const renderOptions = (next) => {
+			select.replaceChildren();
+			placeholderOption = null;
+			if (options.placeholder && !next.some((item) => item.value === "")) {
+				const placeholder = document.createElement("option");
+				placeholder.value = "";
+				placeholder.textContent = options.placeholder;
+				placeholder.disabled = true;
+				select.appendChild(placeholder);
+				placeholderOption = placeholder;
+			}
+			for (const item of next) {
+				const option = document.createElement("option");
+				option.value = item.value;
+				option.textContent = item.label;
+				if (item.disabled) option.disabled = true;
+				select.appendChild(option);
+			}
 		};
-		const syncInvalid = () => setFieldInvalid(input, !error.hidden);
-		const setError = (message) => {
-			if (scope.destroyed) return;
-			const hasError = Boolean(message);
-			error.textContent = message ?? "";
-			error.hidden = !hasError;
-			root.toggleAttribute("data-invalid", hasError);
-			syncInvalid();
-			syncFieldDescribedBy();
+		renderOptions(options.options);
+		const selectFirstEnabled = (items) => {
+			const first = items.find((item) => !item.disabled);
+			if (first) select.value = first.value;
+			else select.selectedIndex = -1;
 		};
-		const setDescription = (message) => {
-			if (scope.destroyed) return;
-			description.textContent = message ?? "";
-			description.hidden = !message;
-			text.hidden = label.hidden && description.hidden;
-			syncFieldDescribedBy();
-		};
-		if (input.getAttribute("aria-invalid") === "true") input.setAttribute("data-ds-invalid", "");
-		if (options.error) setError(options.error);
-		else {
-			syncInvalid();
-			syncFieldDescribedBy();
-		}
-		scope.onDestroy(() => {
-			description.hidden = true;
-			error.hidden = true;
-			syncFieldDescribedBy();
-			setFieldInvalid(input, false);
-			root.remove();
-		});
+		const requested = options.value;
+		if (requested != null && options.options.some((item) => item.value === requested && !item.disabled)) select.value = requested;
+		else if (placeholderOption) select.value = "";
+		else selectFirstEnabled(options.options);
+		wrap.append(select, chevron);
+		const setInvalid = (invalid) => applyInvalid(select, invalid);
+		if (options.invalid) setInvalid(true);
+		if (options.onChange) select.addEventListener("change", (event) => options.onChange?.(select.value, event), { signal: scope.signal });
 		return {
-			el: root,
-			control: options.control.el,
-			setError,
-			setDescription,
-			destroy: () => scope.destroy()
+			el: wrap,
+			input: select,
+			setValue(value) {
+				if (value === "" && placeholderOption || [...select.options].some((option) => option.value === value && !option.disabled)) select.value = value;
+			},
+			getValue() {
+				return select.value;
+			},
+			setOptions(next) {
+				const current = select.value;
+				renderOptions(next);
+				if ([...select.options].some((option) => option.value === current && !option.disabled)) select.value = current;
+				else if (placeholderOption) select.value = "";
+				else selectFirstEnabled(next);
+			},
+			setInvalid,
+			destroy() {
+				scope.destroy();
+				wrap.remove();
+			}
 		};
 	}
 	//#endregion
@@ -1578,14 +1533,544 @@ dragThresholdPx: 3 };
 		};
 	}
 	//#endregion
+	//#region packages/userscript-ui/src/patterns/settings-form.ts
+	function isSwitch(control) {
+		return "setChecked" in control;
+	}
+	function isValued(control) {
+		return "setValue" in control;
+	}
+	function isInvalid(control) {
+		return "setInvalid" in control;
+	}
+	/**
+	* 创建声明式设置表单面板。
+	*
+	* @param ui 共享界面宿主
+	* @param schema 面板结构
+	* @param options 取值、显隐、校验与提交
+	*/
+	function createSettingsForm(ui, schema, options) {
+		const panel = createPanel(ui, {
+			title: schema.title,
+			description: schema.description,
+			open: false,
+			position: "center",
+			closeLabel: `关闭${schema.title}`
+		});
+		const scope = createScope(ui);
+		const fields = {};
+		const footerButtons = [];
+		const shownBefore = {};
+		for (const sectionSchema of schema.sections) {
+			const section = createSection(ui, {
+				title: sectionSchema.title,
+				description: sectionSchema.description
+			});
+			for (const fieldSchema of sectionSchema.fields) {
+				const initial = options.get()[fieldSchema.key];
+				const control = fieldSchema.type === "switch" ? createSwitch(ui, { checked: initial === true }) : fieldSchema.type === "select" ? createSelect(ui, {
+					options: fieldSchema.options ?? [],
+					value: typeof initial === "string" ? initial : ""
+				}) : createInput(ui, {
+					type: fieldSchema.inputType ?? "text",
+					placeholder: fieldSchema.placeholder
+				});
+				if (!isSwitch(control) && typeof initial === "string") control.setValue(initial);
+				const field = createField(ui, {
+					label: fieldSchema.label,
+					description: fieldSchema.description,
+					control,
+					inline: (fieldSchema.layout ?? (fieldSchema.type === "switch" ? "inline" : "stacked")) === "inline"
+				});
+				fields[fieldSchema.key] = {
+					control,
+					field
+				};
+				section.body.append(field.el);
+			}
+			panel.body.append(section.el);
+		}
+		const readValues = () => {
+			const base = { ...options.get() };
+			for (const [key, { control }] of Object.entries(fields)) {
+				const input = control.input;
+				base[key] = input instanceof HTMLInputElement && input.type === "checkbox" ? input.checked : input.value;
+			}
+			return base;
+		};
+		/** 重跑显隐；切回显示的字段清掉隐藏期间的旧错误。 */
+		const refresh = () => {
+			if (!options.visible) return;
+			const values = readValues();
+			for (const [key, { field }] of Object.entries(fields)) {
+				const shown = options.visible(key, values);
+				field.el.hidden = !shown;
+				if (shown && shownBefore[key] === false) setError(key, void 0);
+				shownBefore[key] = shown;
+			}
+		};
+		for (const [key, { control }] of Object.entries(fields)) {
+			control.input.addEventListener("change", () => {
+				if (options.mode === "immediate") options.onChange?.({ [key]: readValues()[key] });
+				refresh();
+			}, { signal: scope.signal });
+			if (control.input instanceof HTMLInputElement && control.input.type !== "checkbox") control.input.addEventListener("input", () => refresh(), { signal: scope.signal });
+		}
+		const setError = (key, problem) => {
+			const entry = fields[key];
+			if (!entry) return;
+			const { control, field } = entry;
+			if (isInvalid(control)) control.setInvalid(problem !== void 0);
+			field.setError(problem);
+		};
+		const fill = (next) => {
+			const record = next;
+			for (const [key, { control }] of Object.entries(fields)) {
+				const value = record[key];
+				if (isSwitch(control) && typeof value === "boolean") control.setChecked(value);
+				else if (isValued(control) && typeof value === "string") control.setValue(value);
+				setError(key, void 0);
+			}
+			refresh();
+		};
+		if (options.mode === "draft") {
+			const save = createButton(ui, {
+				label: "保存",
+				variant: "primary",
+				onClick: () => {
+					const values = readValues();
+					let ok = true;
+					if (options.validate) for (const key of Object.keys(fields)) {
+						if (fields[key]?.field.el.hidden) continue;
+						const problem = options.validate(key, values[key], values);
+						setError(key, problem);
+						if (problem) ok = false;
+					}
+					if (!ok) return;
+					if (options.onSubmit?.(values) === false) return;
+					panel.close();
+				}
+			});
+			const cancel = createButton(ui, {
+				label: "取消",
+				variant: "secondary",
+				onClick: () => {
+					fill(options.get());
+					panel.close();
+				}
+			});
+			footerButtons.push(cancel, save);
+			panel.setFooter([cancel.el, save.el]);
+		} else {
+			const closeButton = createButton(ui, {
+				label: "关闭",
+				variant: "secondary",
+				onClick: () => panel.close()
+			});
+			footerButtons.push(closeButton);
+			panel.setFooter([closeButton.el]);
+		}
+		const teardown = () => {
+			for (const { control, field } of Object.values(fields)) {
+				field.destroy();
+				control.destroy?.();
+			}
+			for (const button of footerButtons) button.destroy();
+		};
+		scope.onDestroy(teardown);
+		return {
+			panel,
+			fields,
+			values: readValues,
+			fill,
+			open: () => {
+				fill(options.get());
+				panel.open();
+			},
+			close: () => panel.close(),
+			isOpen: () => panel.isOpen(),
+			destroy: () => {
+				panel.destroy();
+				scope.destroy();
+			}
+		};
+	}
+	//#endregion
+	//#region scripts/selection-copy/src/selection.ts
+	/** 与 1.2.0 一致：输入框与富文本编辑器默认都不复制。 */
+	var DEFAULT_COPY_SCOPE = {
+		copyInInputs: false,
+		copyInEditors: false
+	};
+	/** 事件目标可能是元素、文本节点或 window；统一收敛成元素。 */
+	function elementOf(node) {
+		if (node instanceof Element) return node;
+		if (node instanceof Node) return node.parentElement;
+		return null;
+	}
+	function isTextControl(element) {
+		return element?.localName === "input" || element?.localName === "textarea";
+	}
+	/** 焦点可能落在 Shadow Root 内部，`document.activeElement` 只会给出宿主元素。 */
+	function getActiveElement(doc = document) {
+		return deepActiveElement(doc);
+	}
+	/** 控件自己是否有一段非空选区；number / email 等 input 没有 selectionStart。 */
+	function hasOwnSelection(element) {
+		if (!isTextControl(element)) return false;
+		try {
+			return element.selectionStart !== element.selectionEnd;
+		} catch {
+			return false;
+		}
+	}
+	function getActiveTextControl() {
+		const element = getActiveElement();
+		return hasOwnSelection(element) ? element : null;
+	}
+	/**
+	* 这次手势对应的文本控件。
+	*
+	* 鼠标手势以事件目标为准：在页面正文里拖动时，即使焦点仍在某个输入框里，
+	* 也不能把输入框里的旧选区当成用户这次选中的内容。键盘手势没有目标，
+	* 只能看当前焦点。
+	*/
+	function selectedTextControl(target) {
+		if (target !== null) {
+			const element = elementOf(target);
+			return hasOwnSelection(element) ? element : null;
+		}
+		return getActiveTextControl();
+	}
+	function snapshotSelection(selection) {
+		if (!selection) return null;
+		const { anchorNode, anchorOffset, focusNode, focusOffset, rangeCount } = selection;
+		return {
+			anchorNode,
+			anchorOffset,
+			focusNode,
+			focusOffset,
+			rangeCount
+		};
+	}
+	/**
+	* 事件目标所在的选区。
+	*
+	* Chromium 把 Shadow Root 内的选区折叠到宿主上，文档级 `getSelection()` 拿不到
+	* 真实端点；目标在 open shadow root 内时优先用它自己的作用域选区。
+	*/
+	function selectionForTarget(target, doc = document) {
+		const root = elementOf(target)?.getRootNode();
+		if (root instanceof ShadowRoot) {
+			const scoped = root.getSelection?.();
+			if (scoped) return scoped;
+		}
+		return doc.getSelection();
+	}
+	/** 复制前是否要去掉首尾空白；行内换行与缩进保留，只 trim 两端。 */
+	function readSelectionText(selection, trimWhitespace = true) {
+		const text = selection.toString();
+		return trimWhitespace ? text.trim() : text;
+	}
+	/** 文本框 / 文本域的选区文本；不支持选区的 input 类型返回空串。 */
+	function readTextControlText(control, trimWhitespace = true) {
+		try {
+			const start = control.selectionStart;
+			const end = control.selectionEnd;
+			if (start === null || end === null || start === end) return "";
+			const text = control.value.slice(Math.min(start, end), Math.max(start, end));
+			return trimWhitespace ? text.trim() : text;
+		} catch {
+			return "";
+		}
+	}
+	/** 目标本身、选区端点或当前焦点任一处落在被排除的区域，就整次跳过。 */
+	function isDisabledTarget(selection, target, control, scope = DEFAULT_COPY_SCOPE) {
+		if (isOwnUiNode(target instanceof Node ? target : null) || isOwnUiNode(selection?.anchorNode ?? null) || isOwnUiNode(selection?.focusNode ?? null) || target === null && isOwnUiNode(getActiveElement())) return true;
+		if (!scope.copyInInputs) {
+			if (isTextControl(elementOf(target))) return true;
+			if (isTextControl(elementOf(selection?.anchorNode))) return true;
+			if (isTextControl(elementOf(selection?.focusNode))) return true;
+			if (target === null && (control !== null || isTextControl(getActiveElement()))) return true;
+		}
+		if (!scope.copyInEditors) {
+			if (isInsideEditable(elementOf(target))) return true;
+			if (isInsideEditable(elementOf(selection?.anchorNode))) return true;
+			if (isInsideEditable(elementOf(selection?.focusNode))) return true;
+			if (target === null && isInsideEditable(getActiveElement())) return true;
+		}
+		return false;
+	}
+	//#endregion
+	//#region scripts/selection-copy/src/features/geometry.ts
+	/** 在给定水平位置构造零宽锚点；`x` 是提示标签的中心。 */
+	function pointAt(rect, x) {
+		return {
+			left: x,
+			right: x,
+			top: rect.top,
+			bottom: rect.bottom,
+			width: 0,
+			height: rect.height
+		};
+	}
+	function centerX(rect) {
+		return rect.left + rect.width / 2;
+	}
+	/** 焦点处的零宽插入点；浏览器还没算出布局时返回 null。 */
+	function getCaretRect(selection, doc) {
+		const node = selection.focusNode;
+		if (!node) return null;
+		const range = doc.createRange();
+		try {
+			range.setStart(node, selection.focusOffset);
+			range.collapse(true);
+			const [first] = range.getClientRects();
+			const rect = first ?? range.getBoundingClientRect();
+			if (rect.width === 0 && rect.height === 0) return null;
+			return pointAt(rect, rect.left);
+		} catch {
+			return null;
+		}
+	}
+	function isForwardSelection(selection, range) {
+		return selection.anchorNode === range.startContainer && selection.anchorOffset === range.startOffset;
+	}
+	/** 选区终点所在行的行盒；拿不到插入点时的退路。 */
+	function getSelectionEndRect(selection, range) {
+		try {
+			const lineRects = range.getClientRects();
+			const forward = isForwardSelection(selection, range);
+			const lineRect = lineRects[forward ? lineRects.length - 1 : 0];
+			if (!lineRect) return null;
+			return pointAt(lineRect, forward ? lineRect.right : lineRect.left);
+		} catch {
+			return null;
+		}
+	}
+	function getFallbackRect(selection, range, doc) {
+		const anchorElement = elementOf(selection.anchorNode);
+		const activeElement = !anchorElement || anchorElement === doc.body || anchorElement === doc.documentElement ? getActiveElement(doc) : null;
+		if (activeElement && activeElement !== doc.body && activeElement !== doc.documentElement) {
+			const activeRect = activeElement.getBoundingClientRect();
+			if (activeRect.width > 0 || activeRect.height > 0) return pointAt(activeRect, centerX(activeRect));
+		}
+		if (range) try {
+			const boxRect = range.getBoundingClientRect();
+			if (boxRect.width > 0 || boxRect.height > 0) return pointAt(boxRect, centerX(boxRect));
+		} catch {}
+		const box = anchorElement?.getBoundingClientRect();
+		if (box && (box.width > 0 || box.height > 0)) return pointAt(box, centerX(box));
+		return null;
+	}
+	/**
+	* 取标记要贴住的位置。
+	*
+	* @param selection 当前文档选区
+	* @param doc 选区所属文档；默认当前页面
+	* @returns 焦点处的插入点或兜底矩形；都没有时返回 null（标记会落在视口中央）
+	*/
+	function getAnchorRect(selection, doc = document) {
+		const caret = getCaretRect(selection, doc);
+		if (caret) return caret;
+		const range = selection.rangeCount > 0 ? selection.getRangeAt(0) : null;
+		if (!range) return getFallbackRect(selection, null, doc);
+		return getSelectionEndRect(selection, range) ?? getFallbackRect(selection, range, doc);
+	}
+	/**
+	* 文本框没有可读的插入点矩形，只能贴住控件本身。
+	*
+	* 水平方向取控件中线，让提示落在输入框上方居中，而不是跑到宽输入框的右端。
+	*/
+	function getControlAnchorRect(element) {
+		const rect = element.getBoundingClientRect();
+		if (rect.width === 0 && rect.height === 0) return null;
+		return pointAt(rect, centerX(rect));
+	}
+	//#endregion
+	//#region scripts/selection-copy/src/features/copy-action.ts
+	/**
+	* 决定这次手势复制什么。
+	*
+	* @param target 手势目标；键盘触发时为 null
+	* @param settings 复制范围与首尾空白设置
+	* @param doc 目标文档
+	* @returns 要写入的文字与反馈锚点；这次不该复制时返回 null
+	*/
+	function resolveCopySource(target, settings, doc) {
+		const control = selectedTextControl(target);
+		const selection = selectionForTarget(target, doc);
+		if (isDisabledTarget(selection, target, control, settings)) return null;
+		if (control) {
+			if (!settings.copyInInputs) return null;
+			const text = readTextControlText(control, settings.trimWhitespace);
+			if (text === "") return null;
+			return {
+				text,
+				rect: getControlAnchorRect(control)
+			};
+		}
+		if (!selection || selection.rangeCount === 0) return null;
+		const text = readSelectionText(selection, settings.trimWhitespace);
+		if (text === "") return null;
+		return {
+			text,
+			rect: getAnchorRect(selection, doc)
+		};
+	}
+	function createCopyAction(options) {
+		const doc = options.doc ?? document;
+		let requestId = 0;
+		return async (target = null, point = null) => {
+			const settings = options.getSettings();
+			if (!isEnabledOn(settings, options.site)) return "skipped";
+			const source = resolveCopySource(target, settings, doc);
+			if (!source) return "skipped";
+			const current = ++requestId;
+			let written = false;
+			try {
+				const latest = await options.clipboard.copy(source.text);
+				if (current !== requestId) return "skipped";
+				written = latest;
+			} catch {
+				if (current !== requestId) return "skipped";
+			}
+			options.showFeedback({
+				variant: written ? "success" : "failure",
+				rect: source.rect,
+				point: point ?? null
+			});
+			return written ? "copied" : "failed";
+		};
+	}
+	//#endregion
+	//#region scripts/selection-copy/src/config.ts
+	/**
+	* 行为常量。
+	*
+	* 用户能改的项（输入框 / 富文本 / 首尾空白 / 站点开关）在 `settings.ts`；
+	* 这里只放不随设置变化的几何与手势阈值，方便测试引用。
+	*/
+	var BEHAVIOR = { 
+	/** 鼠标位移超过该值即认定为拖动选区。 */
+dragThresholdPx: 3 };
+	/**
+	* 复制反馈标签。
+	*
+	* 宽高必须与 `indicator.css` 的宽度、`--ds-control-h-sm` 高度保持一致：
+	* 位置是纯函数算出来的，尺寸对不上会贴边时露出一截或压住选区。
+	*/
+	var INDICATOR = {
+		widthPx: {
+			success: 68,
+			failure: 80
+		},
+		heightPx: 28,
+		gapPx: 6,
+		marginPx: 8,
+		holdMs: {
+			success: 1200,
+			failure: 1800
+		},
+		fadeMs: 180
+	};
+	/** 会改变选区的按键；`Ctrl+A` / `Cmd+A` 在键盘处理里单独判断。 */
+	var SELECTION_EXTEND_KEYS = /* @__PURE__ */ new Set([
+		"ArrowLeft",
+		"ArrowRight",
+		"ArrowUp",
+		"ArrowDown",
+		"Home",
+		"End",
+		"PageUp",
+		"PageDown"
+	]);
+	//#endregion
+	//#region scripts/selection-copy/src/gesture.ts
+	function isSameSelection(first, second) {
+		return first !== null && second !== null && first.anchorNode === second.anchorNode && first.anchorOffset === second.anchorOffset && first.focusNode === second.focusNode && first.focusOffset === second.focusOffset && first.rangeCount === second.rangeCount;
+	}
+	/**
+	* 松开鼠标后是否去复制。
+	*
+	* 双击 / 三击与选区变化都算新选择；选区没变时只有文本控件里的拖动才算，
+	* 避免拖滑块、拖卡片等操作把上一次的选区又写一遍剪贴板。
+	*/
+	function shouldCopyOnMouseUp(gesture, end, current, textSelected = false, threshold = BEHAVIOR.dragThresholdPx) {
+		if (end.detail > 1) return true;
+		if (!isSameSelection(gesture.selection, current)) return true;
+		const moved = Math.abs(end.clientX - gesture.startX) > threshold || Math.abs(end.clientY - gesture.startY) > threshold;
+		return textSelected && moved;
+	}
+	/**
+	* 松开按键后是否去复制：Shift + 选区扩展键，或 Ctrl+A（不带 Shift）。
+	*
+	* Alt 组合交给系统；页面合成的键盘事件一律忽略，避免被脚本反复触发。
+	*/
+	function shouldCopyOnKeyUp(event) {
+		if (!event.isTrusted || event.altKey) return false;
+		const extendsSelection = event.shiftKey && SELECTION_EXTEND_KEYS.has(event.key);
+		const isA = event.code === "KeyA" || event.key.toLowerCase() === "a";
+		const selectsAll = event.ctrlKey && !event.shiftKey && isA;
+		return extendsSelection || selectsAll;
+	}
+	//#endregion
+	//#region scripts/selection-copy/src/features/sensor.ts
+	function installCopySensor(options) {
+		const doc = options.doc ?? document;
+		const win = options.win ?? window;
+		let gesture = null;
+		const onMouseDown = (event) => {
+			if (!event.isTrusted || event.button !== 0) return;
+			const target = event.composedPath()[0] ?? event.target;
+			gesture = {
+				startX: event.clientX,
+				startY: event.clientY,
+				target,
+				selection: snapshotSelection(selectionForTarget(target, doc))
+			};
+		};
+		const onMouseUp = (event) => {
+			if (!event.isTrusted || event.button !== 0) return;
+			if (gesture === null) return;
+			const current = gesture;
+			gesture = null;
+			const control = selectedTextControl(current.target);
+			if (!shouldCopyOnMouseUp(current, event, snapshotSelection(selectionForTarget(current.target, doc)), control !== null)) return;
+			options.onCopy(current.target, {
+				x: event.clientX,
+				y: event.clientY
+			});
+		};
+		const onKeyUp = (event) => {
+			if (!shouldCopyOnKeyUp(event)) return;
+			options.onCopy(null, null);
+		};
+		const onMouseLeave = (event) => {
+			if (event.relatedTarget === null) gesture = null;
+		};
+		const reset = () => {
+			gesture = null;
+		};
+		doc.addEventListener("mousedown", onMouseDown, true);
+		doc.addEventListener("mouseup", onMouseUp, true);
+		doc.addEventListener("keyup", onKeyUp, true);
+		doc.addEventListener("mouseleave", onMouseLeave, true);
+		win.addEventListener("blur", reset);
+		return () => {
+			doc.removeEventListener("mousedown", onMouseDown, true);
+			doc.removeEventListener("mouseup", onMouseUp, true);
+			doc.removeEventListener("keyup", onKeyUp, true);
+			doc.removeEventListener("mouseleave", onMouseLeave, true);
+			win.removeEventListener("blur", reset);
+		};
+	}
+	//#endregion
 	//#region scripts/selection-copy/src/ui/indicator.css?inline
 	var indicator_default = "/*\n * 复制结果标签：高度必须与 config.ts 的 INDICATOR.heightPx（28）和 --ds-control-h-sm 一致，\n * 宽度由脚本按成功 / 失败两种文案设置，定位函数用同一组数字计算贴边位置。\n *\n * 用中性卡片底 + 彩色图标，而不是整块填色：12px 文字在浅色主题的绿色 / 红色底上\n * 对比度不够，卡片底在浅色与深色主题下都能读清。\n */\n.sel-copy-pill {\n  position: fixed;\n  z-index: 1;\n  display: flex;\n  align-items: center;\n  justify-content: center;\n  gap: var(--ds-space-1);\n  height: var(--ds-control-h-sm);\n  padding: 0 var(--ds-space-2);\n  border: var(--ds-border-width) solid var(--ds-border);\n  border-radius: var(--ds-radius-full);\n  background: var(--ds-card);\n  color: var(--ds-card-foreground);\n  box-shadow: var(--ds-shadow-md);\n  font-family: var(--ds-font-sans);\n  font-size: var(--ds-text-xs);\n  font-weight: var(--ds-weight-medium);\n  line-height: 1;\n  white-space: nowrap;\n  pointer-events: none;\n  opacity: 0;\n  transform: translateY(2px) scale(0.94);\n  transition:\n    opacity var(--ds-duration-base) var(--ds-ease),\n    transform var(--ds-duration-base) var(--ds-ease);\n}\n\n.sel-copy-pill[data-visible='true'] {\n  opacity: 1;\n  transform: none;\n}\n\n.sel-copy-pill-icon {\n  color: var(--ds-success);\n  font-weight: var(--ds-weight-semibold);\n}\n\n.sel-copy-pill[data-variant='failure'] .sel-copy-pill-icon {\n  color: var(--ds-destructive);\n}\n\n@media (prefers-reduced-motion: reduce) {\n  .sel-copy-pill {\n    transform: none;\n    transition: none;\n  }\n}\n";
 	//#endregion
 	//#region scripts/selection-copy/src/ui/indicator-position.ts
-	function clamp(value, min, max) {
-		if (max < min) return min;
-		return Math.min(Math.max(value, min), max);
-	}
 	/**
 	* 计算标签左上角坐标。
 	*
@@ -1651,7 +2136,7 @@ dragThresholdPx: 3 };
 	* 标记是文档级单例：每次展示自增序号，旧的隐藏 / 移除回调据此自我作废，
 	* 保证任意时刻视口里最多只有一个提示。
 	*/
-	var LABELS$1 = {
+	var LABELS = {
 		success: "已复制",
 		failure: "复制失败"
 	};
@@ -1680,13 +2165,13 @@ dragThresholdPx: 3 };
 		};
 		const show = ({ variant, rect, point: cursor }) => {
 			const at = indicatorPosition(cursor, rect, {
-				width: window.innerWidth,
-				height: window.innerHeight
+				width: window.visualViewport?.width ?? window.innerWidth,
+				height: window.visualViewport?.height ?? window.innerHeight
 			}, variant);
 			const current = ++token;
 			clearTimers();
 			icon.textContent = ICONS[variant];
-			label.textContent = LABELS$1[variant];
+			label.textContent = LABELS[variant];
 			pill.dataset.variant = variant;
 			pill.style.width = `${INDICATOR.widthPx[variant]}px`;
 			if (!pill.isConnected) ui.layers.base.appendChild(pill);
@@ -1715,36 +2200,14 @@ dragThresholdPx: 3 };
 	}
 	//#endregion
 	//#region scripts/selection-copy/src/ui/app.ts
-	/**
-	* 页面级界面宿主：复制反馈与设置面板共用一个 `@ui` Shadow Root。
-	*
-	* 第一次真的需要显示反馈或打开设置时才挂载；普通页面不产生任何节点与样式。
-	*/
-	var LABELS = {
-		close: "关闭",
-		settings: "设置",
-		notifications: "通知",
-		dismissNotification: "关闭通知",
-		closeSettings: "关闭设置",
-		scrollHint: "向下滚动查看更多内容",
-		cancel: "取消",
-		confirm: "确定"
-	};
 	function createUiHost() {
-		let ui = null;
+		const host = createUiHost$1();
 		let indicator = null;
-		const ensure = () => {
-			if (!ui) ui = mountUI({
-				theme: "system",
-				labels: LABELS
-			});
-			return ui;
-		};
 		return {
-			ensure,
+			ensure: host.ensure,
 			showFeedback(feedback) {
 				try {
-					const mounted = ensure();
+					const mounted = host.ensure();
 					indicator ??= createIndicator(mounted);
 					indicator.show(feedback);
 				} catch (error) {
@@ -1756,108 +2219,101 @@ dragThresholdPx: 3 };
 	//#endregion
 	//#region scripts/selection-copy/src/ui/settings-panel.ts
 	function createSettingsPanel(options) {
-		const initial = options.getSettings();
 		const siteName = siteLabel(options.site);
-		const panel = createPanel(options.ui, {
+		const getValues = () => {
+			const settings = options.getSettings();
+			return {
+				...settings,
+				siteEnabled: !settings.disabledSites.includes(options.site)
+			};
+		};
+		const form = createSettingsForm(options.ui, {
 			title: "功能设置",
 			description: "选中文字后自动复制为纯文本；下面的开关改完立即生效。",
-			open: false,
-			position: "center",
-			closeLabel: "关闭设置"
+			sections: [
+				{
+					title: "开关",
+					description: "总开关关掉后所有网站都停下来；单个网站可以单独关掉",
+					fields: [{
+						key: "enabled",
+						type: "switch",
+						label: "启用选中复制",
+						description: "关闭后不再复制，脚本菜单仍可打开这个面板"
+					}, {
+						key: "siteEnabled",
+						type: "switch",
+						label: `当前网站：${siteName}`,
+						description: "只影响当前网站；总开关关闭时此处不起作用"
+					}]
+				},
+				{
+					title: "复制范围",
+					description: "这两类区域默认不复制，避免编辑文字时剪贴板被反复覆盖",
+					fields: [{
+						key: "copyInInputs",
+						type: "switch",
+						label: "输入框里也复制",
+						description: "包括搜索框、文本框与文本域"
+					}, {
+						key: "copyInEditors",
+						type: "switch",
+						label: "富文本编辑器里也复制",
+						description: "包括 contenteditable 区域；这类区域通常自带复制行为"
+					}]
+				},
+				{
+					title: "内容",
+					fields: [{
+						key: "trimWhitespace",
+						type: "switch",
+						label: "去掉首尾空白",
+						description: "关闭后按选中的原样复制，保留两端的空格与换行"
+					}]
+				}
+			]
+		}, {
+			mode: "immediate",
+			get: getValues,
+			onChange: (patch) => {
+				if (patch.siteEnabled !== void 0) {
+					const next = withSiteEnabled(options.getSettings(), options.site, patch.siteEnabled);
+					options.save(next);
+					form.fill({
+						...next,
+						siteEnabled: patch.siteEnabled
+					});
+					return;
+				}
+				const next = normalizeSettings({
+					...options.getSettings(),
+					...patch
+				});
+				options.save(next);
+				form.fill({
+					...next,
+					siteEnabled: !next.disabledSites.includes(options.site)
+				});
+			}
 		});
-		const switchesSection = createSection(options.ui, {
-			title: "开关",
-			description: "总开关关掉后所有网站都停下来；单个网站可以单独关掉"
-		});
-		const enabledSwitch = createSwitch(options.ui, {
-			checked: initial.enabled,
-			onChange: (checked) => apply({ enabled: checked })
-		});
-		const siteSwitch = createSwitch(options.ui, {
-			checked: !initial.disabledSites.includes(options.site),
-			onChange: (checked) => apply(withSiteEnabled(options.getSettings(), options.site, checked))
-		});
-		switchesSection.body.append(createField(options.ui, {
-			label: "启用选中复制",
-			description: "关闭后不再复制，脚本菜单仍可打开这个面板",
-			control: enabledSwitch,
-			inline: true
-		}).el, createField(options.ui, {
-			label: `当前网站：${siteName}`,
-			description: "只影响当前网站；总开关关闭时此处不起作用",
-			control: siteSwitch,
-			inline: true
-		}).el);
-		const scopeSection = createSection(options.ui, {
-			title: "复制范围",
-			description: "这两类区域默认不复制，避免编辑文字时剪贴板被反复覆盖"
-		});
-		const inputsSwitch = createSwitch(options.ui, {
-			checked: initial.copyInInputs,
-			onChange: (checked) => apply({ copyInInputs: checked })
-		});
-		const editorsSwitch = createSwitch(options.ui, {
-			checked: initial.copyInEditors,
-			onChange: (checked) => apply({ copyInEditors: checked })
-		});
-		scopeSection.body.append(createField(options.ui, {
-			label: "输入框里也复制",
-			description: "包括搜索框、文本框与文本域",
-			control: inputsSwitch,
-			inline: true
-		}).el, createField(options.ui, {
-			label: "富文本编辑器里也复制",
-			description: "包括 contenteditable 区域；这类区域通常自带复制行为",
-			control: editorsSwitch,
-			inline: true
-		}).el);
-		const contentSection = createSection(options.ui, { title: "内容" });
-		const trimSwitch = createSwitch(options.ui, {
-			checked: initial.trimWhitespace,
-			onChange: (checked) => apply({ trimWhitespace: checked })
-		});
-		contentSection.body.append(createField(options.ui, {
-			label: "去掉首尾空白",
-			description: "关闭后按选中的原样复制，保留两端的空格与换行",
-			control: trimSwitch,
-			inline: true
-		}).el);
-		panel.body.append(switchesSection.el, scopeSection.el, contentSection.el);
 		const reset = createButton(options.ui, {
 			label: "恢复默认",
 			variant: "ghost",
 			onClick: () => {
-				apply({
+				const next = {
 					...DEFAULT_SETTINGS,
-					disabledSites: []
-				});
+					disabledSites: [],
+					siteEnabled: true
+				};
+				options.save(next);
+				form.fill(next);
 			}
 		});
-		panel.setFooter(reset.el);
-		/** 合并一次改动、保存并回填，保证界面与真实设置保持一致。 */
-		function apply(patch) {
-			const next = normalizeSettings({
-				...options.getSettings(),
-				...patch
-			});
-			options.save(next);
-			fillForm(next);
-		}
-		function fillForm(next) {
-			enabledSwitch.setChecked(next.enabled);
-			siteSwitch.setChecked(!next.disabledSites.includes(options.site));
-			inputsSwitch.setChecked(next.copyInInputs);
-			editorsSwitch.setChecked(next.copyInEditors);
-			trimSwitch.setChecked(next.trimWhitespace);
-		}
+		form.panel.setFooter([reset.el]);
 		return {
-			open() {
-				fillForm(options.getSettings());
-				panel.open();
-			},
-			close: () => panel.close(),
-			isOpen: () => panel.isOpen(),
-			destroy: () => panel.destroy()
+			open: () => form.open(),
+			close: () => form.close(),
+			isOpen: () => form.isOpen(),
+			destroy: () => form.destroy()
 		};
 	}
 	//#endregion
@@ -1875,45 +2331,42 @@ dragThresholdPx: 3 };
 	* 菜单只在顶层页面注册：每个 iframe 各注册一次会让管理器菜单里出现重复项，
 	* 面板也可能被塞进看不见的小 iframe 里。
 	*/
-	var INSTALL_LOCK_ATTRIBUTE = "data-selection-auto-copy-installed";
-	var MENU_LABEL = "功能设置";
-	function start() {
-		const root = document.documentElement;
-		if (!root || root.hasAttribute(INSTALL_LOCK_ATTRIBUTE)) return;
-		root.setAttribute(INSTALL_LOCK_ATTRIBUTE, "");
-		const gm = createGmApi();
-		const store = createSettingsStore(gm);
-		const site = topSiteKey(window);
-		const app = createUiHost();
-		const copy = createCopyAction({
-			clipboard: createClipboard(),
-			getSettings: store.get,
-			site,
-			showFeedback: app.showFeedback
-		});
-		installCopySensor({ onCopy: (target, point) => void copy(target, point) });
-		let panel = null;
-		const openSettings = () => {
-			try {
-				if (!panel) panel = createSettingsPanel({
-					ui: app.ensure(),
-					site,
-					getSettings: store.get,
-					save: (next) => {
-						store.update(next);
-					}
-				});
-				panel.open();
-			} catch (error) {
-				console.error("[selection-copy] 设置面板打开失败", error);
-			}
-		};
-		if (window.top === window.self && !gm.registerMenuCommand(MENU_LABEL, openSettings)) console.warn("[selection-copy] 菜单命令不可用，设置面板无法打开");
-	}
-	try {
-		start();
-	} catch (error) {
-		console.error("[selection-copy] 启动失败", error);
-	}
+	createUserscript(createGmApi(), {
+		slug: "selection-copy",
+		installLock: "data-selection-auto-copy-installed",
+		topFrameOnly: false,
+		onReady: (kit) => {
+			const store = createSettingsStore(kit.gm);
+			const site = siteKey(window);
+			const app = createUiHost();
+			const copy = createCopyAction({
+				clipboard: createClipboard(),
+				getSettings: store.get,
+				site,
+				showFeedback: app.showFeedback
+			});
+			const uninstallSensor = installCopySensor({ onCopy: (target, point) => void copy(target, point) });
+			let panel = null;
+			kit.menu({
+				label: "功能设置",
+				topFrameOnly: true,
+				run: () => {
+					if (!panel) panel = createSettingsPanel({
+						ui: app.ensure(),
+						site,
+						getSettings: store.get,
+						save: (next) => {
+							store.update(next);
+						}
+					});
+					panel.open();
+				}
+			});
+			return () => {
+				uninstallSensor();
+				panel?.destroy();
+			};
+		}
+	});
 	//#endregion
 })();

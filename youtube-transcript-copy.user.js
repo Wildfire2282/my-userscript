@@ -2,7 +2,7 @@
 // @name         YouTube 转写文稿复制
 // @name:en      YouTube Transcript Copy
 // @namespace    https://github.com/Wildfire2282
-// @version      1.4.6
+// @version      1.4.10
 // @description  视频播放页面出现可拖拽悬浮按钮，可一键复制转写文稿（transcript），支持英语等多语言界面
 // @description:en Add a draggable button to copy YouTube transcripts
 // @author       Wildfire2282 (https://github.com/Wildfire2282)
@@ -21,7 +21,7 @@
 // @updateURL    https://update.greasyfork.org/scripts/579560/YouTube%20%E8%BD%AC%E5%86%99%E6%96%87%E7%A8%BF%E5%A4%8D%E5%88%B6.meta.js
 // ==/UserScript==
 (function() {
-	//#region packages/shared/src/gm.ts
+	//#region packages/shared/src/host/gm.ts
 	/**
 	* 把全局 GM 函数包成可注入的接口。
 	*
@@ -59,7 +59,32 @@
 		};
 	}
 	//#endregion
-	//#region packages/shared/src/clipboard.ts
+	//#region packages/shared/src/dom/editable.ts
+	/**
+	* 穿透 open shadow root 取真正的焦点元素。
+	*
+	* `document.activeElement` 在焦点落在 Shadow Root 内部时只给出宿主元素。
+	*
+	* @param doc 文档；默认当前文档
+	*/
+	function deepActiveElement(doc = document) {
+		let element = doc.activeElement;
+		while (element?.shadowRoot?.activeElement) element = element.shadowRoot.activeElement;
+		return element;
+	}
+	//#endregion
+	//#region packages/shared/src/host/clipboard.ts
+	/**
+	* 剪贴板写入。
+	*
+	* 三个通道按可靠性排序：
+	*
+	* 1. `GM_setClipboard`：不受安全上下文、iframe 权限策略与焦点限制，脚本管理器直接写入；
+	* 2. `navigator.clipboard`：没有管理器时用浏览器 API，需要安全上下文与用户手势；
+	* 3. 隐藏 textarea + `execCommand('copy')`：老浏览器与受限 iframe 的最后兜底。
+	*
+	* 全部失败返回 `false`，提示文案由调用方决定；这里不抛错，避免一次复制失败打断页面。
+	*/
 	function defaultScope() {
 		const globals = globalThis;
 		const browser = globalThis;
@@ -78,12 +103,16 @@
 	/** textarea 兜底：必须在用户手势的同一个任务里同步执行，跨 await 会失去写权限。 */
 	function copyWithTextarea(document, text) {
 		if (!document?.body) return false;
-		let active = document.activeElement;
-		while (active?.shadowRoot?.activeElement) active = active.shadowRoot.activeElement;
+		const active = deepActiveElement(document);
 		const control = active?.tagName === "INPUT" || active?.tagName === "TEXTAREA" ? active : null;
-		const controlStart = control?.selectionStart;
-		const controlEnd = control?.selectionEnd;
-		const controlDirection = control?.selectionDirection;
+		let controlStart = null;
+		let controlEnd = null;
+		let controlDirection = null;
+		try {
+			controlStart = control?.selectionStart ?? null;
+			controlEnd = control?.selectionEnd ?? null;
+			controlDirection = control?.selectionDirection ?? null;
+		} catch {}
 		const selection = document.getSelection();
 		const anchor = selection?.anchorNode;
 		const focus = selection?.focusNode;
@@ -95,15 +124,22 @@
 		area.style.cssText = "position:fixed;left:-9999px;top:0;opacity:0";
 		document.body.appendChild(area);
 		try {
+			area.focus();
 			area.select();
 			return document.execCommand("copy");
 		} catch {
 			return false;
 		} finally {
 			area.remove();
-			active?.focus?.();
-			if (anchor?.isConnected && focus?.isConnected) selection?.setBaseAndExtent(anchor, anchorOffset, focus, focusOffset);
-			if (controlStart != null && controlEnd != null) control?.setSelectionRange(controlStart, controlEnd, controlDirection ?? void 0);
+			try {
+				active?.focus?.();
+			} catch {}
+			try {
+				if (anchor?.isConnected && focus?.isConnected) selection?.setBaseAndExtent(anchor, anchorOffset, focus, focusOffset);
+			} catch {}
+			try {
+				if (controlStart != null && controlEnd != null) control?.setSelectionRange(controlStart, controlEnd, controlDirection ?? void 0);
+			} catch {}
 		}
 	}
 	/**
@@ -129,6 +165,121 @@
 			return copyWithTextarea(scope.document, text);
 		} };
 	}
+	//#endregion
+	//#region packages/shared/src/runtime/logger.ts
+	/**
+	* 创建带 `[slug]` 前缀的日志器。
+	*
+	* @param slug 脚本标识，如 `super-drag`
+	*/
+	function createLogger(slug) {
+		return {
+			warn: (message) => console.warn(`[${slug}] ${message}`),
+			error: (message, detail) => detail === void 0 ? console.error(`[${slug}] ${message}`) : console.error(`[${slug}] ${message}`, detail)
+		};
+	}
+	/**
+	* 菜单 / 启动 / 面板打开三层错误边界的最小包装：失败只记日志，不抛给管理器与宿主页面。
+	*
+	* @param log 统一日志器
+	* @param message 失败时的中文说明
+	* @param run 实际回调
+	*/
+	function guard(log, message, run) {
+		try {
+			run();
+		} catch (error) {
+			log.error(message, error);
+		}
+	}
+	//#endregion
+	//#region packages/shared/src/runtime/boot.ts
+	/**
+	* 安装锁：同一文档只装一份。
+	*
+	* 不同管理器的沙箱之间 window 不一定共享，DOM 一定共享，所以用元素属性而不用
+	* window 标记。selection-copy 的 `data-selection-auto-copy-installed` 沿用此实现。
+	*/
+	function installOnce(attribute) {
+		const root = document.documentElement;
+		if (!root || root.hasAttribute(attribute)) return false;
+		root.setAttribute(attribute, "");
+		return true;
+	}
+	/**
+	* 脚本启动器：安装锁、frame 判断、菜单注册、DOM 就绪、pagehide 清理。
+	*
+	* - 顶层 `guard` 兜住同步启动异常（与各脚本原有顶层 try/catch 同语义）。
+	* - `onStart` 同步执行，不等 DOM；`onReady` 等 DOM 就绪。
+	* - 清理函数幂等；`pagehide` 且 `persisted === false` 时自动调用。
+	* - 菜单回调统一 `guard` 包裹；注册失败只告警，不阻断脚本主功能。
+	*
+	* @param gmApi GM 适配层；测试里传假实现
+	* @param options 启动参数
+	* @returns `destroy` 供页面卸载与测试调用
+	*/
+	function createUserscript(gmApi, options) {
+		const { slug, installLock = true, topFrameOnly = false, menus = [] } = options;
+		const log = createLogger(slug);
+		const cleanups = [];
+		let destroyed = false;
+		const destroy = () => {
+			if (destroyed) return;
+			destroyed = true;
+			for (const cleanup of [...cleanups].reverse()) try {
+				cleanup();
+			} catch {}
+			cleanups.length = 0;
+		};
+		const controller = new AbortController();
+		cleanups.push(() => controller.abort());
+		const onPageHide = (event) => {
+			if (!event.persisted) destroy();
+		};
+		window.addEventListener("pagehide", onPageHide);
+		cleanups.push(() => window.removeEventListener("pagehide", onPageHide));
+		const menu = (item) => {
+			if ((item.topFrameOnly ?? false) && window.top !== window.self) return;
+			const wrapped = () => guard(log, `打开${item.label}失败`, item.run);
+			if (!gmApi.registerMenuCommand(item.label, wrapped)) log.warn(`菜单命令不可用：${item.label}`);
+		};
+		guard(log, "启动失败", () => {
+			if (topFrameOnly && window.top !== window.self) return;
+			if (typeof installLock === "string" && !installOnce(installLock)) return;
+			const startCleanup = options.onStart?.();
+			if (typeof startCleanup === "function") cleanups.push(startCleanup);
+			for (const item of menus) menu(item);
+			const runReady = () => {
+				if (destroyed) return;
+				guard(log, "初始化失败", () => {
+					const readyCleanup = options.onReady?.({
+						gm: gmApi,
+						log,
+						signal: controller.signal,
+						menu
+					});
+					if (typeof readyCleanup === "function") cleanups.push(readyCleanup);
+				});
+			};
+			if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", runReady, {
+				once: true,
+				signal: controller.signal
+			});
+			else runReady();
+		});
+		return { destroy };
+	}
+	//#endregion
+	//#region packages/shared/src/dom/position.ts
+	/**
+	* 视口夹紧原语：selection-copy 的提示标签定位与 youtube 的悬浮按钮定位
+	* 各写了一份逐字相同的 `clamp`，收拢到一处。
+	*/
+	/**
+	* 把值钳在 `[min, max]` 内。
+	*
+	* 视口比内容还窄时 `max < min`：贴住 `min`（左上角），不要算出负坐标。
+	*/
 	function clamp(value, min, max) {
 		if (max < min) return min;
 		return Math.min(Math.max(value, min), max);
@@ -195,6 +346,25 @@
 			exists: findVideo(doc) !== null,
 			fullscreen: fullscreenElement != null
 		};
+	}
+	/** 播放器当前承载的视频 ID；页面还没挂播放器或读不到时返回空串。 */
+	function readPlayerVideoId(doc = document) {
+		const player = doc.querySelector("#movie_player");
+		try {
+			const id = player?.getVideoData?.()?.video_id;
+			if (typeof id === "string") return id;
+		} catch {}
+		return doc.querySelector("ytd-watch-flexy")?.getAttribute("video-id")?.trim() ?? "";
+	}
+	/**
+	* DOM 里的转写面板是否属于当前视频。
+	*
+	* 地址栏已经换台、面板节点却还是上一个视频的：同步读 DOM 会复制到别的内容。
+	* 读不到播放器 ID 时按同一视频处理，保留没有播放器信息的页面上的旧行为。
+	*/
+	function isPlayerOnVideo(videoId, doc = document) {
+		const playerId = readPlayerVideoId(doc);
+		return playerId === "" || playerId === videoId;
 	}
 	/**
 	* 监听播放器出现 / 消失与全屏变化。
@@ -367,6 +537,12 @@
 	function numberOr(value) {
 		return typeof value === "number" && Number.isFinite(value) ? value : null;
 	}
+	/** 数字或数字字符串；面板两种形状的时间字段类型不一致。 */
+	function numberOrNumericString(value) {
+		const numeric = numberOr(value);
+		if (numeric !== null) return numeric;
+		return typeof value === "string" && value.trim() !== "" ? numberOr(Number(value)) : null;
+	}
 	/**
 	* 面板里是否出现 cueGroup：直接按 key 找，比整块 JSON.stringify 快得多。
 	* 面板响应可能很大，每份都序列化一次会拖慢每次复制。
@@ -390,8 +566,7 @@
 				const item = asRecord$1(asRecord$1(segment)?.transcriptSegmentRenderer);
 				const text = clean(asArray(asRecord$1(item?.snippet)?.runs).map((run) => asString(asRecord$1(run)?.text)).join(""));
 				if (!text) continue;
-				const start = item?.startMs;
-				const startMs = numberOr(start) ?? (typeof start === "string" && start.trim() !== "" ? numberOr(Number(start)) : null);
+				const startMs = numberOrNumericString(item?.startMs);
 				const seconds = startMs === null ? tsToSec(asString(asRecord$1(item?.startTimeText)?.simpleText)) : null;
 				segments.push({
 					start: startMs ?? (seconds === null ? null : seconds * 1e3),
@@ -416,16 +591,17 @@
 					const renderer = asRecord$1(cueRecord.transcriptCueRenderer);
 					const cueRecord2 = asRecord$1(renderer?.cue) ?? asRecord$1(cueRecord.cue);
 					const runs = asArray(cueRecord2?.runs ?? renderer?.runs).map((run) => asString(asRecord$1(run)?.text)).join("");
-					const text = runs !== "" && clean(runs) !== "" ? clean(runs) : asString(renderer?.simpleText) || asString(cueRecord2?.simpleText) || asString(asRecord$1(renderer?.cue)?.simpleText);
-					if (!text) continue;
+					const cleaned = clean(runs !== "" && clean(runs) !== "" ? clean(runs) : asString(renderer?.simpleText) || asString(cueRecord2?.simpleText) || asString(asRecord$1(renderer?.cue)?.simpleText));
+					if (cleaned === "") continue;
 					segments.push({
-						start: numberOr(renderer?.startOffsetMs) ?? numberOr(cueRecord.startOffsetMs),
-						text: clean(text)
+						start: numberOrNumericString(renderer?.startOffsetMs) ?? numberOrNumericString(cueRecord.startOffsetMs),
+						text: cleaned
 					});
 				}
 			}
 		}
-		return segments.length > 0 ? segments : null;
+		const unique = dedupeSegments(segments);
+		return unique.length > 0 ? unique : null;
 	}
 	/** 中日韩文字之间没有空格分隔：两边都是 CJK 字符时直接拼接，否则补一个空格。 */
 	function isCjk(char) {
@@ -524,10 +700,12 @@
 			if (!linePattern.test(content)) continue;
 			const match = /^(\d{1,2}(?::\d{2}){1,2})\s+(.*)$/.exec(content);
 			if (!match?.[1] || match[2] === void 0) continue;
+			const cleaned = clean(match[2]);
+			if (cleaned === "") continue;
 			const seconds = tsToSec(match[1]);
 			segments.push({
 				start: seconds === null ? null : seconds * 1e3,
-				text: clean(match[2])
+				text: cleaned
 			});
 		}
 		const unique = dedupeSegments(segments);
@@ -580,8 +758,8 @@
 				clientName: "WEB",
 				clientVersion
 			} };
-			const request = async (endpoint, payload) => {
-				return (await fetchImpl(`${API_ROOT}${endpoint}?prettyPrint=false`, {
+			const request = async (endpoint, payload, query = "") => {
+				return (await fetchImpl(`${API_ROOT}${endpoint}?prettyPrint=false${query === "" ? "" : `&${query}`}`, {
 					method: "POST",
 					headers: { "content-type": "application/json" },
 					body: JSON.stringify({
@@ -594,13 +772,24 @@
 			if (!Array.isArray(panels)) return null;
 			const params = (panels.find((entry) => entry?.engagementPanelSectionListRenderer?.panelIdentifier === "engagement-panel-searchable-transcript")?.engagementPanelSectionListRenderer)?.content?.continuationItemRenderer?.continuationEndpoint?.getTranscriptEndpoint?.params;
 			if (typeof params !== "string" || params === "") return null;
-			return extractFromPanelResponse(await request("get_transcript", { params }));
+			return extractFromPanelResponse(await request("get_transcript", { params }, `v=${encodeURIComponent(videoId)}`));
 		} catch {
 			return null;
 		}
 	}
 	//#endregion
 	//#region scripts/youtube-transcript-copy/src/transcript/initial-track.ts
+	/**
+	* 播放器当前挂的响应；SPA 换台后 `ytInitialPlayerResponse` 可能不更新，
+	* 这一份才是新视频的字幕轨来源。
+	*/
+	function readPlayerResponse(doc = document) {
+		try {
+			return doc.querySelector("#movie_player")?.getPlayerResponse?.() ?? null;
+		} catch {
+			return null;
+		}
+	}
 	function asRecord(value) {
 		return typeof value === "object" && value !== null && !Array.isArray(value) ? value : null;
 	}
@@ -647,6 +836,8 @@
 	* 结果留下来。用户点“显示转写文稿”产生的响应一定能被这里捕获，不用重新请求。
 	*
 	* 只观察，不改写请求与响应；解析失败静默跳过，不影响页面。
+	*
+	* safety-allow-file: 只旁听页面自己发的转写请求，不新发任何请求（见 architecture.md 页面变化观察）。
 	*/
 	/**
 	* 需要旁听的地址：
@@ -726,6 +917,7 @@
 		};
 		const accept = (url, data, videoIdAtRequest) => {
 			if (!active) return;
+			if (videoIdAtRequest !== currentVideoId()) return;
 			const next = nextCapture(state, videoIdAtRequest, url, parseCapturedResponse(url, data));
 			if (next) state = next;
 		};
@@ -776,15 +968,16 @@
 		proto.open = wrappedOpen;
 		const capture = {
 			get: read,
-			clear() {
+			clear(keepVideoId) {
+				if (keepVideoId !== void 0 && state?.videoId === keepVideoId) return;
 				state = null;
 			},
 			restore() {
 				if (!active) return;
 				active = false;
 				state = null;
-				win.fetch = originalFetch;
-				proto.open = originalOpen;
+				if (win.fetch === wrappedFetch) win.fetch = originalFetch;
+				if (proto.open === wrappedOpen) proto.open = originalOpen;
 				captures.delete(win);
 			}
 		};
@@ -1004,6 +1197,22 @@
 		cancel: "Cancel",
 		confirm: "Confirm"
 	};
+	/**
+	* 中文文案预设：四个脚本的 `LABELS` 逐字相同且都缺 `operation`，
+	* 无标题操作面板的 aria 名会回落到英文 `Operations`。
+	* 脚本侧 `mountUI({ theme: 'system', labels: ZH_LABELS })` 即可，不再各写一份。
+	*/
+	var ZH_LABELS = {
+		close: "关闭",
+		settings: "设置",
+		operation: "操作",
+		notifications: "通知",
+		dismissNotification: "关闭通知",
+		closeSettings: "关闭设置",
+		scrollHint: "向下滚动查看更多内容",
+		cancel: "取消",
+		confirm: "确定"
+	};
 	function resolveLabels(overrides) {
 		return {
 			...DEFAULT_LABELS,
@@ -1052,9 +1261,10 @@
 	//#region packages/userscript-ui/src/core/mount.ts
 	var HOST_TAG = "userscript-ui-root";
 	var DEFAULT_Z_INDEX = 2147483e3;
+	var ROOT_ATTRIBUTE = "data-ds-root";
 	function mountUI(options = {}) {
 		const host = document.createElement(HOST_TAG);
-		host.setAttribute("data-ds-root", "");
+		host.setAttribute(ROOT_ATTRIBUTE, "");
 		setImportant(host, "all", "initial");
 		setImportant(host, "position", "fixed");
 		setImportant(host, "inset", "0");
@@ -1164,6 +1374,67 @@
 	}
 	function setImportant(node, property, value) {
 		node.style.setProperty(property, value, "important");
+	}
+	//#endregion
+	//#region packages/userscript-ui/src/icons.ts
+	var SVG_NS = "http://www.w3.org/2000/svg";
+	function icon(paths, size = 16) {
+		const svg = document.createElementNS(SVG_NS, "svg");
+		svg.setAttribute("viewBox", "0 0 24 24");
+		svg.setAttribute("width", String(size));
+		svg.setAttribute("height", String(size));
+		svg.setAttribute("fill", "none");
+		svg.setAttribute("stroke", "currentColor");
+		svg.setAttribute("stroke-width", "2");
+		svg.setAttribute("stroke-linecap", "round");
+		svg.setAttribute("stroke-linejoin", "round");
+		svg.setAttribute("aria-hidden", "true");
+		svg.setAttribute("focusable", "false");
+		for (const definition of paths) {
+			const path = document.createElementNS(SVG_NS, "path");
+			path.setAttribute("d", definition);
+			svg.appendChild(path);
+		}
+		return svg;
+	}
+	var closeIcon = () => icon(["M18 6 6 18", "m6 6 12 12"]);
+	var chevronDownIcon = () => icon(["m6 9 6 6 6-6"]);
+	var circle = "M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20";
+	var infoIcon = () => icon([
+		circle,
+		"M12 16v-4",
+		"M12 8h.01"
+	]);
+	var successIcon = () => icon([circle, "m8 12 3 3 5-6"]);
+	var warningIcon = () => icon([
+		"M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z",
+		"M12 9v4",
+		"M12 17h.01"
+	]);
+	var errorIcon = () => icon([
+		circle,
+		"m15 9-6 6",
+		"m9 9 6 6"
+	]);
+	//#endregion
+	//#region packages/userscript-ui/src/patterns/app-host.ts
+	/**
+	* 创建界面宿主。
+	*
+	* @param options 主题选项
+	*/
+	function createUiHost(options = {}) {
+		let ui = null;
+		return {
+			ensure: () => ui ??= mountUI({
+				theme: options.theme ?? "system",
+				labels: ZH_LABELS
+			}),
+			destroy: () => {
+				ui?.destroy();
+				ui = null;
+			}
+		};
 	}
 	//#endregion
 	//#region packages/userscript-ui/src/core/lifecycle.ts
@@ -1300,6 +1571,19 @@
 		else element.removeAttribute("aria-describedby");
 	}
 	//#endregion
+	//#region packages/userscript-ui/src/core/id.ts
+	/**
+	* Element ids are global to the page, not to a shadow root. A per-module random
+	* token keeps them unique when two copies of the library (two userscripts, or
+	* an upgrade window with both versions loaded) run in the same document.
+	*/
+	var PAGE_TOKEN = Math.random().toString(36).slice(2, 8);
+	var counter = 0;
+	function uid(prefix = "ds") {
+		counter += 1;
+		return `${prefix}-${PAGE_TOKEN}-${counter}`;
+	}
+	//#endregion
 	//#region packages/userscript-ui/src/core/focus.ts
 	var FOCUSABLE = [
 		"a[href]",
@@ -1320,60 +1604,6 @@
 	function focusIfConnected(target) {
 		if (target?.isConnected) target.focus({ preventScroll: true });
 	}
-	//#endregion
-	//#region packages/userscript-ui/src/core/id.ts
-	/**
-	* Element ids are global to the page, not to a shadow root. A per-module random
-	* token keeps them unique when two copies of the library (two userscripts, or
-	* an upgrade window with both versions loaded) run in the same document.
-	*/
-	var PAGE_TOKEN = Math.random().toString(36).slice(2, 8);
-	var counter = 0;
-	function uid(prefix = "ds") {
-		counter += 1;
-		return `${prefix}-${PAGE_TOKEN}-${counter}`;
-	}
-	//#endregion
-	//#region packages/userscript-ui/src/icons.ts
-	var SVG_NS = "http://www.w3.org/2000/svg";
-	function icon(paths, size = 16) {
-		const svg = document.createElementNS(SVG_NS, "svg");
-		svg.setAttribute("viewBox", "0 0 24 24");
-		svg.setAttribute("width", String(size));
-		svg.setAttribute("height", String(size));
-		svg.setAttribute("fill", "none");
-		svg.setAttribute("stroke", "currentColor");
-		svg.setAttribute("stroke-width", "2");
-		svg.setAttribute("stroke-linecap", "round");
-		svg.setAttribute("stroke-linejoin", "round");
-		svg.setAttribute("aria-hidden", "true");
-		svg.setAttribute("focusable", "false");
-		for (const definition of paths) {
-			const path = document.createElementNS(SVG_NS, "path");
-			path.setAttribute("d", definition);
-			svg.appendChild(path);
-		}
-		return svg;
-	}
-	var closeIcon = () => icon(["M18 6 6 18", "m6 6 12 12"]);
-	var chevronDownIcon = () => icon(["m6 9 6 6 6-6"]);
-	var circle = "M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20";
-	var infoIcon = () => icon([
-		circle,
-		"M12 16v-4",
-		"M12 8h.01"
-	]);
-	var successIcon = () => icon([circle, "m8 12 3 3 5-6"]);
-	var warningIcon = () => icon([
-		"M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z",
-		"M12 9v4",
-		"M12 17h.01"
-	]);
-	var errorIcon = () => icon([
-		circle,
-		"m15 9-6 6",
-		"m9 9 6 6"
-	]);
 	//#endregion
 	//#region packages/userscript-ui/src/styles/scroll-hint.css?inline
 	var scroll_hint_default = ".ds-scroll-hint {\n  position: absolute;\n  inset-inline: 0;\n  bottom: 0;\n  display: flex;\n  align-items: flex-end;\n  justify-content: center;\n  height: var(--ds-scroll-hint-height);\n  padding-bottom: var(--ds-space-1-5);\n  background: linear-gradient(to top, var(--ds-card) 30%, transparent);\n  color: var(--ds-muted-foreground);\n  font-size: var(--ds-text-xs);\n  pointer-events: none;\n  opacity: 1;\n  visibility: visible;\n  transition: opacity var(--ds-duration-fast) var(--ds-ease);\n}\n\n.ds-scroll-hint[data-state='hidden'] {\n  opacity: 0;\n  visibility: hidden;\n}\n\n.ds-scroll-hint-label {\n  display: inline-flex;\n  align-items: center;\n  gap: var(--ds-space-1);\n  padding: var(--ds-space-0-5) var(--ds-space-2);\n  border-radius: var(--ds-radius-full);\n  background: var(--ds-muted);\n  white-space: nowrap;\n}\n\n.ds-scroll-hint-label svg {\n  width: var(--ds-icon-xs);\n  height: var(--ds-icon-xs);\n  flex: none;\n}\n";
@@ -1983,7 +2213,7 @@
 	var DRAG_THRESHOLD_PX = 3;
 	var RESET_DELAY_MS = 1500;
 	var CLICK_SUPPRESS_MS = 50;
-	var LABELS$1 = {
+	var LABELS = {
 		normal: "T",
 		loading: "",
 		success: "✓",
@@ -1998,7 +2228,7 @@
 		wrap.dataset.dragging = "false";
 		wrap.dataset.state = "normal";
 		const stateLabel = document.createElement("span");
-		stateLabel.textContent = LABELS$1.normal;
+		stateLabel.textContent = LABELS.normal;
 		let state = "normal";
 		let position = {
 			right: 30,
@@ -2033,7 +2263,7 @@
 		const applyState = (next) => {
 			state = next;
 			wrap.dataset.state = next;
-			stateLabel.textContent = LABELS$1[next];
+			stateLabel.textContent = LABELS[next];
 			button.setLoading(next === "loading");
 			if (resetTimer !== void 0) {
 				window.clearTimeout(resetTimer);
@@ -2143,18 +2373,8 @@
 	}
 	//#endregion
 	//#region scripts/youtube-transcript-copy/src/ui/app.ts
-	var LABELS = {
-		close: "关闭",
-		settings: "设置",
-		notifications: "通知",
-		dismissNotification: "关闭通知",
-		closeSettings: "关闭设置",
-		scrollHint: "向下滚动查看更多内容",
-		cancel: "取消",
-		confirm: "确定"
-	};
 	function createTranscriptButtonApp(options) {
-		let ui = null;
+		const host = createUiHost();
 		let button = null;
 		let toast = null;
 		let panels = null;
@@ -2168,13 +2388,7 @@
 			2e3,
 			4e3
 		];
-		const ensureUI = () => {
-			if (!ui) ui = mountUI({
-				theme: "system",
-				labels: LABELS
-			});
-			return ui;
-		};
+		const ensureUI = () => host.ensure();
 		/** 抓取并复制；按钮和面板共用，同一时刻只跑一个。 */
 		const copy = async () => {
 			if (busy) return "skipped";
@@ -2203,8 +2417,8 @@
 		const ensurePanels = () => {
 			if (panels) return panels;
 			const current = ensureUI();
-			const notify = createToast(current);
-			toast = notify;
+			toast ??= createToast(current);
+			const notify = toast;
 			const actions = createPanel(current, {
 				title: "操作面板",
 				description: "复制本页的转写文稿，或把悬浮按钮放回右上角。",
@@ -2322,12 +2536,10 @@
 					settleTimer = void 0;
 				}
 				button?.destroy();
-				toast?.destroy();
 				button = null;
 				toast = null;
 				panels = null;
-				ui?.destroy();
-				ui = null;
+				host.destroy();
 			}
 		};
 	}
@@ -2338,101 +2550,92 @@
 	*
 	* 只在顶层 frame 运行：转写面板与播放器都在主文档里，iframe 里跑一份只会重复请求。
 	*/
-	var MENU_ACTIONS = "操作面板";
-	var MENU_SETTINGS = "功能设置";
-	function start() {
-		if (window.top !== window.self) return;
-		const gm = createGmApi();
-		const store = createStore(gm);
-		const clipboard = createClipboard();
-		const currentVideoId = () => readVideoId(location.search, location.pathname);
-		const network = installNetworkCapture(window, { currentVideoId });
-		let initialTrack = null;
-		const captureInitialTrack = () => {
-			initialTrack = readInitialTrack(window.ytInitialPlayerResponse);
-		};
-		const service = createTranscriptService({
-			videoId: currentVideoId,
-			fromInitialTrack: () => initialTrack && initialTrack.videoId === currentVideoId() ? fetchInitialTrack(initialTrack) : Promise.resolve(null),
-			fromNetworkCache: () => network.get(),
-			ensurePanelOpen: () => openTranscriptPanel(),
-			fromViewModel: () => extractFromViewModel(document.body),
-			fromPanelDump: () => extractFromPanelDump(document.body),
-			fromApi: (videoId) => requestPanel(videoId),
-			memory: {
-				get: store.getStrategy,
-				remember: (kind, index) => store.rememberStrategy(kind, index)
-			}
-		});
-		const copyTranscript = async () => {
-			const segments = await service.fetchTranscript();
-			if (segments.length === 0) return "empty";
-			return await clipboard.copy(formatLines(segments)) ? "success" : "error";
-		};
-		const app = createTranscriptButtonApp({
-			getSavedPosition: store.getPosition,
-			savePosition: store.savePosition,
-			getDefaultPosition: () => defaultButtonPosition(readPlayerRect(), {
-				width: window.innerWidth,
-				height: window.innerHeight
-			}),
-			isVisible: () => shouldShowButton(readVideoState()),
-			activate: copyTranscript,
-			clearSavedPosition: store.clearPosition,
-			clearStrategy: store.clearStrategy
-		});
-		const register = (label, run) => {
-			if (!gm.registerMenuCommand(label, run)) console.warn(`[youtube-transcript-copy] 菜单命令不可用：${label}`);
-		};
-		register(MENU_ACTIONS, () => {
-			try {
-				app.openActions();
-			} catch (error) {
-				console.error("[youtube-transcript-copy] 打开操作面板失败", error);
-			}
-		});
-		register(MENU_SETTINGS, () => {
-			try {
-				app.openSettings();
-			} catch (error) {
-				console.error("[youtube-transcript-copy] 打开设置面板失败", error);
-			}
-		});
-		const boot = () => {
+	createUserscript(createGmApi(), {
+		slug: "youtube-transcript-copy",
+		topFrameOnly: true,
+		installLock: false,
+		onStart: () => {
+			const currentVideoId = () => readVideoId(location.search, location.pathname);
+			const network = installNetworkCapture(window, { currentVideoId });
+			return () => network.restore();
+		},
+		onReady: (kit) => {
+			const store = createStore(kit.gm);
+			const clipboard = createClipboard();
+			const currentVideoId = () => readVideoId(location.search, location.pathname);
+			const network = installNetworkCapture(window, { currentVideoId });
+			let initialTrack = null;
+			const captureInitialTrack = () => {
+				const videoId = currentVideoId();
+				initialTrack = [readPlayerResponse(), window.ytInitialPlayerResponse].map(readInitialTrack).find((track) => track !== null && track.videoId === videoId) ?? null;
+			};
+			captureInitialTrack();
+			const service = createTranscriptService({
+				videoId: currentVideoId,
+				fromInitialTrack: () => initialTrack && initialTrack.videoId === currentVideoId() ? fetchInitialTrack(initialTrack) : Promise.resolve(null),
+				fromNetworkCache: () => network.get(),
+				ensurePanelOpen: () => openTranscriptPanel(),
+				fromViewModel: () => isPlayerOnVideo(currentVideoId()) ? extractFromViewModel(document.body) : null,
+				fromPanelDump: () => isPlayerOnVideo(currentVideoId()) ? extractFromPanelDump(document.body) : null,
+				fromApi: (videoId) => requestPanel(videoId),
+				memory: {
+					get: store.getStrategy,
+					remember: (kind, index) => store.rememberStrategy(kind, index)
+				}
+			});
+			const copyTranscript = async () => {
+				const segments = await service.fetchTranscript();
+				if (segments.length === 0) return "empty";
+				return await clipboard.copy(formatLines(segments)) ? "success" : "error";
+			};
+			const app = createTranscriptButtonApp({
+				getSavedPosition: store.getPosition,
+				savePosition: store.savePosition,
+				getDefaultPosition: () => defaultButtonPosition(readPlayerRect(), {
+					width: window.innerWidth,
+					height: window.innerHeight
+				}),
+				isVisible: () => shouldShowButton(readVideoState()),
+				activate: copyTranscript,
+				clearSavedPosition: store.clearPosition,
+				clearStrategy: store.clearStrategy
+			});
+			kit.menu({
+				label: "操作面板",
+				run: () => app.openActions()
+			});
+			kit.menu({
+				label: "功能设置",
+				run: () => app.openSettings()
+			});
 			app.sync();
-			watchVisibility((visible) => app.setVisible(visible));
+			const stopVisibility = watchVisibility((visible) => app.setVisible(visible));
 			let lastVideoId = currentVideoId();
-			watchNavigation(() => {
+			const stopNavigation = watchNavigation(() => {
 				const videoId = currentVideoId();
 				if (videoId !== lastVideoId) {
 					lastVideoId = videoId;
-					network.clear();
+					network.clear(videoId);
 					captureInitialTrack();
 				}
 				app.sync();
 			});
 			let resizeFrame = 0;
-			window.addEventListener("resize", () => {
+			const onResize = () => {
 				if (resizeFrame !== 0) return;
 				resizeFrame = window.requestAnimationFrame(() => {
 					resizeFrame = 0;
 					app.sync();
 				});
-			});
-		};
-		if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", () => {
-			captureInitialTrack();
-			boot();
-		}, { once: true });
-		else {
-			captureInitialTrack();
-			boot();
+			};
+			window.addEventListener("resize", onResize, { signal: kit.signal });
+			return () => {
+				stopVisibility();
+				stopNavigation();
+				window.cancelAnimationFrame(resizeFrame);
+				app.destroy();
+			};
 		}
-	}
-	try {
-		start();
-	} catch (error) {
-		console.error("[youtube-transcript-copy] 启动失败", error);
-	}
+	});
 	//#endregion
 })();

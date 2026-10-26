@@ -21,29 +21,53 @@ export const TOOL_INPUT_FILES = ['build.mjs'];
 
 const MODULE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
+/** 同一次进程里共享目录会被每个包重复扫描：按目录缓存，避免 verify 里扫 12 遍。 */
+const sourceTimeCache = new Map();
+
+export function clearSourceTimeCache() {
+  sourceTimeCache.clear();
+}
+
 /**
  * 目录树里最新的修改时间；没有匹配文件时返回 null。
  * 传 `only` 时只统计这些文件名；坏链接或正好被删除的文件按缺失处理。
  */
 export async function newestSourceTime(dir, only = null) {
-  let newest = null;
+  const cacheKey = `${dir}\0${only === null ? '' : [...only].sort().join(',')}`;
+  const cached = sourceTimeCache.get(cacheKey);
+  if (cached !== undefined) return cached;
   let entries;
   try {
     entries = await readdir(dir, { withFileTypes: true });
   } catch {
+    sourceTimeCache.set(cacheKey, null);
     return null;
   }
+  // 串行 stat 是 verify 里重复扫描共享目录时的主要耗时：子目录与文件并行取时间。
+  const pending = [];
   for (const entry of entries) {
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) {
       if (only !== null) continue;
-      const nested = await newestSourceTime(full);
-      if (nested !== null && (newest === null || nested > newest)) newest = nested;
+      pending.push(newestSourceTime(full));
     } else if (entry.isFile() && (only === null || only.includes(entry.name))) {
-      const mtime = (await stat(full).catch(() => null))?.mtimeMs ?? null;
-      if (mtime !== null && (newest === null || mtime > newest)) newest = mtime;
+      pending.push(
+        stat(full).then(
+          (st) => st.mtimeMs,
+          () => null,
+        ),
+      );
     }
   }
+  if (pending.length === 0) {
+    sourceTimeCache.set(cacheKey, null);
+    return null;
+  }
+  let newest = null;
+  for (const time of await Promise.all(pending)) {
+    if (time !== null && (newest === null || time > newest)) newest = time;
+  }
+  sourceTimeCache.set(cacheKey, newest);
   return newest;
 }
 

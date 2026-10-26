@@ -154,18 +154,21 @@ async function findArtifact(dir, slug) {
   return { file: path.join(legacyDir, legacy), kind: 'legacy 原版' };
 }
 
-/** 读取所有带 package.json 的脚本包。 */
-async function loadPackages() {
-  const entries = await readdir(SCRIPTS_DIR, { withFileTypes: true });
-  const packages = [];
-  for (const entry of entries) {
-    if (!entry.isDirectory()) continue;
-    const dir = path.join(SCRIPTS_DIR, entry.name);
-    if (await exists(path.join(dir, 'package.json'))) {
-      packages.push({ slug: entry.name, dir });
-    }
-  }
-  return packages.sort((a, b) => a.slug.localeCompare(b.slug));
+/** 读取所有带 package.json 的脚本包；entries 复用一次目录扫描，避免重复 readdir。 */
+async function loadPackages(entries = null) {
+  entries ??= await readdir(SCRIPTS_DIR, { withFileTypes: true });
+  const checks = await Promise.all(
+    entries
+      .filter((entry) => entry.isDirectory())
+      .map(async (entry) => {
+        const dir = path.join(SCRIPTS_DIR, entry.name);
+        if (await exists(path.join(dir, 'package.json'))) {
+          return { slug: entry.name, dir };
+        }
+        return null;
+      }),
+  );
+  return checks.filter((pkg) => pkg !== null).sort((a, b) => a.slug.localeCompare(b.slug));
 }
 
 await mkdir(OUT_DIR, { recursive: true });
@@ -178,106 +181,139 @@ const problems = [];
 // 先全部校验、最后才写：任何一个包出问题时，发布目录保持原样，不留半批产物。
 const pendingWrites = [];
 
-const packages = await loadPackages();
+const dirEntries = await readdir(SCRIPTS_DIR, { withFileTypes: true });
+const packages = await loadPackages(dirEntries);
 if (packages.length === 0) {
   problems.push('scripts/ 下没有脚本包，拒绝把发布目录清空');
 }
 // package.json 被误删时，包会从 packages 里消失；随后清理阶段会把线上文件当成
 // “已下线”删除。发现源码 / 快照 / 产物却没有 manifest 时整轮失败。
-for (const entry of await readdir(SCRIPTS_DIR, { withFileTypes: true })) {
-  if (!entry.isDirectory()) continue;
-  const dir = path.join(SCRIPTS_DIR, entry.name);
-  if (await exists(path.join(dir, 'package.json'))) continue;
-  const hasArtifact =
-    (await exists(path.join(dir, 'src'))) ||
-    (await exists(path.join(dir, 'legacy'))) ||
-    (await exists(path.join(dir, 'dist')));
-  if (hasArtifact) problems.push(`${entry.name}：缺少 package.json，不能当作已下线处理`);
+{
+  const packageSlugs = new Set(packages.map((pkg) => pkg.slug));
+  const missingChecks = await Promise.all(
+    dirEntries
+      .filter((entry) => entry.isDirectory() && !packageSlugs.has(entry.name))
+      .map(async (entry) => {
+        const dir = path.join(SCRIPTS_DIR, entry.name);
+        const [hasPackage, hasSrc, hasLegacy, hasDist] = await Promise.all([
+          exists(path.join(dir, 'package.json')),
+          exists(path.join(dir, 'src')),
+          exists(path.join(dir, 'legacy')),
+          exists(path.join(dir, 'dist')),
+        ]);
+        if (hasPackage) return null;
+        if (hasSrc || hasLegacy || hasDist)
+          return `${entry.name}：缺少 package.json，不能当作已下线处理`;
+        return null;
+      }),
+  );
+  for (const problem of missingChecks) {
+    if (problem) problems.push(problem);
+  }
 }
 const expected = new Set(packages.map((pkg) => `${pkg.slug}.user.js`));
 
-for (const pkg of packages) {
+async function checkOne(pkg) {
+  const localProblems = [];
   const artifact = await findArtifact(pkg.dir, pkg.slug);
   if (!artifact) {
     if (await newestSourceTime(path.join(pkg.dir, 'src'))) {
-      problems.push(
+      localProblems.push(
         `${pkg.slug}：有 src 源码却没有构建产物，先运行 bun run build ${pkg.slug} 再发布`,
       );
     } else {
-      skipped.push(`${pkg.slug}（没有构建产物，也没有 legacy 原版）`);
+      return { skippedEntry: `${pkg.slug}（没有构建产物，也没有 legacy 原版）` };
     }
-    continue;
+    return { localProblems };
   }
 
   // 已迁移脚本（有 src）绝不能用 legacy 原版发布：那是线上快照，不是本次源码。
   if (artifact.kind === 'legacy 原版' && (await newestSourceTime(path.join(pkg.dir, 'src')))) {
-    problems.push(
+    localProblems.push(
       `${pkg.slug}：有 src 源码却没有构建产物，先运行 bun run build ${pkg.slug} 再发布`,
     );
-    continue;
+    return { localProblems };
   }
   if (artifact.stale) {
-    problems.push(`${pkg.slug}：构建产物比源码旧，先运行 bun run build ${pkg.slug} 再发布`);
-    continue;
+    localProblems.push(`${pkg.slug}：构建产物比源码旧，先运行 bun run build ${pkg.slug} 再发布`);
+    return { localProblems };
   }
 
   const content = await readFile(artifact.file, 'utf8');
   const version = parseVersion(content);
   if (!version) {
-    problems.push(`${pkg.slug}：${artifact.kind}缺少 @version`);
-    continue;
+    localProblems.push(`${pkg.slug}：${artifact.kind}缺少 @version`);
+    return { localProblems };
   }
 
   const target = path.join(OUT_DIR, `${pkg.slug}.user.js`);
   if (await exists(target)) {
     const current = await readFile(target, 'utf8');
     if (sameArtifact(current, content)) {
-      unchanged.push(`${pkg.slug}@${version}`);
-      continue;
+      return { unchangedEntry: `${pkg.slug}@${version}` };
     }
 
     const currentVersion = parseVersion(current);
     if (!currentVersion) {
-      problems.push(`${pkg.slug}：发布目录里的旧文件缺少 @version`);
-      continue;
+      localProblems.push(`${pkg.slug}：发布目录里的旧文件缺少 @version`);
+      return { localProblems };
     }
 
     // 名称、匹配站点、权限变化会影响安装提示，必须由人确认后手动触发。
     if (stableFields(current) !== stableFields(content) && process.env.ALLOW_META_CHANGE !== '1') {
-      problems.push(
+      localProblems.push(
         `${pkg.slug}：@name / @match / @include / @grant 有变化，维护者确认后在推送的提交信息里写 [allow-meta]（已经 push 过的用 gh workflow run release.yml -f allow_meta_change=true 补发；本地复验设 ALLOW_META_CHANGE=1）`,
       );
-      continue;
+      return { localProblems };
     }
 
     const order = compareVersions(version, currentVersion);
     if (order < 0) {
-      problems.push(
+      localProblems.push(
         `${pkg.slug}：版本从 ${currentVersion} 退到 ${version}，请先同步线上版本并提升版本号`,
       );
-      continue;
+      return { localProblems };
     }
     if (order === 0) {
-      problems.push(`${pkg.slug}：内容有改动但版本仍是 ${version}，请先提升 package.json 的版本`);
-      continue;
+      localProblems.push(
+        `${pkg.slug}：内容有改动但版本仍是 ${version}，请先提升 package.json 的版本`,
+      );
+      return { localProblems };
     }
   }
 
-  pendingWrites.push({ target, content });
-  changed.push(`${pkg.slug}@${version}（${artifact.kind}）`);
+  return {
+    pendingWrite: { target, content },
+    changedEntry: `${pkg.slug}@${version}（${artifact.kind}）`,
+  };
+}
+
+const checkResults = await Promise.all(packages.map(checkOne));
+checkResults.sort((a, b) =>
+  (a.changedEntry ?? a.unchangedEntry ?? a.skippedEntry ?? '').localeCompare(
+    b.changedEntry ?? b.unchangedEntry ?? b.skippedEntry ?? '',
+  ),
+);
+for (const result of checkResults) {
+  if (result.localProblems) problems.push(...result.localProblems);
+  if (result.skippedEntry) skipped.push(result.skippedEntry);
+  if (result.unchangedEntry) unchanged.push(result.unchangedEntry);
+  if (result.pendingWrite) {
+    pendingWrites.push(result.pendingWrite);
+    changed.push(result.changedEntry);
+  }
 }
 
 if (problems.length === 0) {
-  for (const item of pendingWrites) await writeFile(item.target, item.content, 'utf8');
+  await Promise.all(pendingWrites.map((item) => writeFile(item.target, item.content, 'utf8')));
 }
 
 // 脚本包已从仓库删除时，清掉发布目录里的旧文件；有任何问题时不动，避免半成品。
 if (problems.length === 0) {
-  for (const entry of await readdir(OUT_DIR)) {
-    if (!entry.endsWith('.user.js') || expected.has(entry)) continue;
-    await unlink(path.join(OUT_DIR, entry));
-    removed.push(entry);
-  }
+  const outEntries = await readdir(OUT_DIR);
+  const stale = outEntries.filter((entry) => entry.endsWith('.user.js') && !expected.has(entry));
+  await Promise.all(stale.map((entry) => unlink(path.join(OUT_DIR, entry))));
+  removed.push(...stale);
 }
 
 if (changed.length > 0 && problems.length === 0) {

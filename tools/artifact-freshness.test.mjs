@@ -3,7 +3,11 @@ import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { newestArtifactInput, newestSourceTime } from './artifact-freshness.mjs';
+import {
+  clearSourceTimeCache,
+  newestArtifactInput,
+  newestSourceTime,
+} from './artifact-freshness.mjs';
 
 const roots = [];
 let clock = 1_700_000_000;
@@ -25,6 +29,7 @@ function put(root, name) {
 }
 
 afterEach(() => {
+  clearSourceTimeCache();
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 

@@ -50,45 +50,52 @@ async function exists(target) {
 
 async function loadPackages() {
   const directories = await readdir(SCRIPTS_DIR, { withFileTypes: true });
-  const packages = [];
-  for (const entry of directories) {
-    if (!entry.isDirectory()) continue;
-    const dir = path.join(SCRIPTS_DIR, entry.name);
-    const packageFile = path.join(dir, 'package.json');
-    if (!(await exists(packageFile))) {
-      // 有源码或元数据却没有 manifest：不能静默跳过，否则 CI 会少构建一个脚本。
-      if ((await findEntry(dir)) !== null || (await findMeta(dir)) !== null) {
-        manifestFailures.push({ slug: entry.name, error: new Error('缺少 package.json') });
+  const candidates = directories.filter((entry) => entry.isDirectory());
+  // 包数量少但每包多次 stat：并行读取，避免串行等待文件系统。
+  const packages = await Promise.all(
+    candidates.map(async (entry) => {
+      const dir = path.join(SCRIPTS_DIR, entry.name);
+      const packageFile = path.join(dir, 'package.json');
+      if (!(await exists(packageFile))) {
+        // 有源码或元数据却没有 manifest：不能静默跳过，否则 CI 会少构建一个脚本。
+        const [hasEntry, hasMeta] = await Promise.all([findEntry(dir), findMeta(dir)]);
+        if (hasEntry !== null || hasMeta !== null) {
+          manifestFailures.push({ slug: entry.name, error: new Error('缺少 package.json') });
+        }
+        return null;
       }
-      continue;
-    }
-    let manifest;
-    try {
-      manifest = JSON.parse(await readFile(packageFile, 'utf8'));
-    } catch (error) {
-      // 一个包的 manifest 坏了不该让其它三个包也构建不出来。
-      manifestFailures.push({ slug: entry.name, error });
-      continue;
-    }
-    packages.push({ slug: entry.name, dir, manifest });
-  }
-  return packages.sort((a, b) => a.slug.localeCompare(b.slug));
+      let manifest;
+      try {
+        manifest = JSON.parse(await readFile(packageFile, 'utf8'));
+      } catch (error) {
+        // 一个包的 manifest 坏了不该让其它三个包也构建不出来。
+        manifestFailures.push({ slug: entry.name, error });
+        return null;
+      }
+      return { slug: entry.name, dir, manifest };
+    }),
+  );
+  return packages.filter((pkg) => pkg !== null).sort((a, b) => a.slug.localeCompare(b.slug));
 }
 
 async function findEntry(dir) {
-  for (const candidate of ENTRY_CANDIDATES) {
-    const file = path.join(dir, candidate);
-    if (await exists(file)) return file;
-  }
-  return null;
+  const checks = await Promise.all(
+    ENTRY_CANDIDATES.map(async (candidate) => {
+      const file = path.join(dir, candidate);
+      return (await exists(file)) ? file : null;
+    }),
+  );
+  return checks.find((file) => file !== null) ?? null;
 }
 
 async function findMeta(dir) {
-  for (const candidate of META_CANDIDATES) {
-    const file = path.join(dir, candidate);
-    if (await exists(file)) return file;
-  }
-  return null;
+  const checks = await Promise.all(
+    META_CANDIDATES.map(async (candidate) => {
+      const file = path.join(dir, candidate);
+      return (await exists(file)) ? file : null;
+    }),
+  );
+  return checks.find((file) => file !== null) ?? null;
 }
 
 /**
@@ -120,7 +127,7 @@ function iifeName(slug) {
   return `${pascal}Userscript`;
 }
 
-async function buildPackage(pkg) {
+async function buildPackage(pkg, viteBuild) {
   // 先判断是否已迁移：未迁移的包没有入口，不该因为缺元数据让整轮构建失败。
   const entry = await findEntry(pkg.dir);
   if (!entry) return { status: 'skipped' };
@@ -146,8 +153,7 @@ async function buildPackage(pkg) {
     throw new Error(`${path.basename(metaFile)} 缺少 @match 或 @include`);
   }
 
-  const { build } = await import('vite');
-  await build({
+  await viteBuild({
     configFile: false,
     root: pkg.dir,
     logLevel: 'warn',
@@ -212,23 +218,37 @@ for (const failure of manifestFailures) {
   console.error(`构建失败 ${failure.slug}: package.json 无法解析（${failure.error.message}）`);
 }
 
-for (const pkg of selected) {
+// Vite 启动一次：之前每包各 import 一次，4 包付 4 次冷启动。
+const { build: viteBuild } = await import('vite');
+
+async function runOne(pkg) {
   try {
-    const result = await buildPackage(pkg);
-    if (result.status === 'skipped') {
-      skipped.push(pkg.slug);
-      console.log(`跳过 ${pkg.slug}：尚未迁移（没有 src/main.* 入口）`);
-      continue;
-    }
-    built.push({ slug: pkg.slug, ...result });
-    console.log(
-      `构建 ${pkg.slug} -> scripts/${pkg.slug}/dist/${pkg.slug}.user.js ` +
-        `(${(result.raw / 1024).toFixed(1)} KB，gzip ${(result.gzip / 1024).toFixed(1)} KB)`,
-    );
+    const result = await buildPackage(pkg, viteBuild);
+    return { pkg, result, error: null };
   } catch (error) {
+    return { pkg, result: null, error };
+  }
+}
+
+// 各包输出到独立 dist 目录：并行构建安全，按 slug 排序后输出保证日志稳定。
+const outcomes = await Promise.all(selected.map(runOne));
+outcomes.sort((a, b) => a.pkg.slug.localeCompare(b.pkg.slug));
+for (const { pkg, result, error } of outcomes) {
+  if (error) {
     failed.push({ slug: pkg.slug, error });
     console.error(`构建失败 ${pkg.slug}: ${error.message}`);
+    continue;
   }
+  if (result.status === 'skipped') {
+    skipped.push(pkg.slug);
+    console.log(`跳过 ${pkg.slug}：尚未迁移（没有 src/main.* 入口）`);
+    continue;
+  }
+  built.push({ slug: pkg.slug, ...result });
+  console.log(
+    `构建 ${pkg.slug} -> scripts/${pkg.slug}/dist/${pkg.slug}.user.js ` +
+      `(${(result.raw / 1024).toFixed(1)} KB，gzip ${(result.gzip / 1024).toFixed(1)} KB)`,
+  );
 }
 
 console.log(`\n完成：${built.length} 个构建，${skipped.length} 个跳过，${failed.length} 个失败。`);

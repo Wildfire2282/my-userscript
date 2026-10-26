@@ -423,10 +423,13 @@ try {
 } catch {
   // scripts.json 还没生成（首次同步前）：没有 legacy 的包无法核对 ID。
 }
-for (const slug of slugs) {
-  const result = await checkPackage(slug, knownIds.get(slug) ?? null);
+const results = await Promise.all(
+  slugs.map((slug) => checkPackage(slug, knownIds.get(slug) ?? null)),
+);
+results.sort((a, b) => a.slug.localeCompare(b.slug));
+for (const result of results) {
   if (result.problems.length > 0) failed += 1;
-  console.log(`${result.problems.length > 0 ? '失败' : '通过'} ${slug} @${result.version}`);
+  console.log(`${result.problems.length > 0 ? '失败' : '通过'} ${result.slug} @${result.version}`);
   for (const problem of result.problems) console.log(`  ✗ ${problem}`);
   for (const note of result.notes) console.log(`  · ${note}`);
 }
